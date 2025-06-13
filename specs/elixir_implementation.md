@@ -151,7 +151,7 @@ defmodule Presto.WorkingMemory do
   def get_facts(pattern \\ :_)
 end
 
-# Rule Engine Coordinator
+# Rule Engine Coordinator (with integrated memory management)
 defmodule Presto.Engine do
   use GenServer
   
@@ -160,6 +160,11 @@ defmodule Presto.Engine do
   
   # Manages rule firing
   def handle_cast({:fire_rule, rule, bindings}, state)
+  
+  # Integrated memory management
+  def handle_info(:cleanup_cycle, state)
+  defp create_alpha_memory(node_id, opts)
+  defp cleanup_orphaned_tokens(state)
 end
 ```
 
@@ -179,16 +184,17 @@ end
 
 ### 2. Process Granularity
 
-**Decision**: Processes at rule-level, not node-level
+**Decision**: Single engine process + rule-level execution processes
 **Rationale**:
+- Engine coordination and memory management are tightly coupled
 - Network nodes are lightweight (pattern matching + ETS storage)
-- Process overhead would exceed benefits for fine-grained nodes
-- Rule-level processes provide good isolation/parallelism balance
+- Process overhead would exceed benefits for fine-grained separation
+- Rule-level processes provide isolation for parallel execution
 
 **Implementation**:
 ```elixir
-# Engine process coordinates network
-# Rule processes handle actions
+# Single Engine GenServer coordinates network and manages memory
+# Task.Supervisor for parallel rule execution
 # Shared ETS for all memory storage
 ```
 
@@ -332,14 +338,11 @@ defmodule Presto.Supervisor do
   
   def init(_opts) do
     children = [
-      # Core engine process
+      # Core engine process (handles coordination and memory management)
       {Presto.Engine, []},
       
       # Rule execution supervision
-      {Task.Supervisor, name: Presto.RuleExecutor.Supervisor},
-      
-      # Network component supervision
-      {DynamicSupervisor, name: Presto.NetworkSupervisor}
+      {Task.Supervisor, name: Presto.RuleExecutor.Supervisor}
     ]
     
     Supervisor.init(children, strategy: :one_for_one)

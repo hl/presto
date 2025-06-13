@@ -58,20 +58,11 @@ defmodule Presto.Supervisor do
   
   def init(opts) do
     children = [
-      # Core engine process
+      # Core engine process (handles all coordination and memory management)
       {Presto.Engine, opts},
       
-      # Memory management
-      {Presto.Memory.MemoryManager, []},
-      
-      # Rule execution supervision
-      {Task.Supervisor, name: Presto.Execution.Supervisor},
-      
-      # Statistics collection
-      {Presto.Monitoring.Statistics, []},
-      
-      # Optional: Network component supervision
-      {DynamicSupervisor, name: Presto.Network.Supervisor}
+      # Rule execution supervision (for parallel rule firing)
+      {Task.Supervisor, name: Presto.Execution.Supervisor}
     ]
     
     Supervisor.init(children, strategy: :one_for_one)
@@ -90,7 +81,11 @@ defmodule Presto.Engine do
     rules: [Presto.Rule.t()],
     execution_mode: :automatic | :manual,
     config: map(),
-    subscribers: [pid()]
+    subscribers: [pid()],
+    # Memory management integrated into engine state
+    memory_tables: %{table_name() => ets_table()},
+    statistics: %{},
+    cleanup_timer: reference()
   }
   
   # Client API
@@ -99,11 +94,16 @@ defmodule Presto.Engine do
   def assert_fact(engine, fact)
   def run_cycle(engine, opts \\ [])
   
+  # Memory management API (now part of engine)
+  def get_memory_statistics(engine)
+  def cleanup_memory(engine)
+  
   # Server callbacks
   def init({rules, opts})
   def handle_call({:add_rule, rule}, _from, state)
   def handle_cast({:assert_fact, fact}, state)
   def handle_info({:rule_fired, result}, state)
+  def handle_info(:cleanup_cycle, state)
 end
 ```
 
@@ -209,23 +209,26 @@ defmodule Presto.WorkingMemory do
 end
 ```
 
-#### Memory Manager
+#### Memory Management (Integrated)
 ```elixir
-defmodule Presto.Memory.MemoryManager do
-  use GenServer
+defmodule Presto.Engine do
+  # Memory management functions integrated into engine
   
-  @moduledoc """
-  Manages lifecycle of all ETS tables and memory cleanup
-  """
+  defp create_alpha_memory(node_id, opts)
+  defp create_beta_memory(node_id, opts)
+  defp cleanup_orphaned_tokens(state)
+  defp collect_statistics(state)
   
-  def start_link(opts)
-  def create_alpha_memory(node_id, opts)
-  def create_beta_memory(node_id, opts)
-  def cleanup_orphaned_tokens()
-  def get_memory_statistics()
+  # Periodic cleanup via handle_info
+  def handle_info(:cleanup_cycle, state) do
+    cleaned_state = cleanup_orphaned_tokens(state)
+    schedule_cleanup()
+    {:noreply, cleaned_state}
+  end
   
-  # Periodic cleanup
-  def handle_info(:cleanup_cycle, state)
+  defp schedule_cleanup() do
+    Process.send_after(self(), :cleanup_cycle, @cleanup_interval)
+  end
 end
 ```
 
@@ -388,12 +391,10 @@ Rule Activations → Conflict Resolution → Rule Selection → Action Execution
 
 **Main Engine Process (GenServer):**
 - API coordination
-- Network state management
+- Network state management  
 - Fact lifecycle coordination
 - Rule management
-
-**Memory Manager Process:**
-- ETS table lifecycle
+- ETS table lifecycle management
 - Memory cleanup and optimization
 - Statistics collection
 
@@ -402,21 +403,18 @@ Rule Activations → Conflict Resolution → Rule Selection → Action Execution
 - Action execution isolation
 - Error handling and recovery
 
-**Optional Network Processes:**
-- Individual network nodes as processes (for very large networks)
-- Distributed network components
-
 ### Synchronization Points
 
 **Critical Sections:**
 - Network structure updates (rule addition/removal)
-- Coordinated fact assertion/retraction
+- Fact assertion/retraction (serialized through GenServer)
 - Conflict resolution and rule selection
+- Memory cleanup operations
 
 **Concurrent Operations:**
-- Pattern matching in alpha network
-- Parallel rule execution
-- Statistics collection and monitoring
+- Pattern matching in alpha network (ETS read concurrency)
+- Parallel rule execution (Task.Supervisor)
+- ETS read operations from multiple processes
 
 ## Error Handling Strategy
 
