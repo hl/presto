@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "mcp__filesystem__create_directory",
+      "mcp__filesystem__write_file",
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__read_file",
+      "mcp__filesystem__edit_file",
+      "Bash(mix test)",
+      "Bash(mix test:*)",
+      "Bash(iex:*)",
+      "Bash(elixir:*)",
+      "Bash(mix run:*)",
+      "mcp__filesystem__read_multiple_files",
+      "Bash(mix dialyzer:*)",
+      "Bash(grep:*)",
+      "Bash(mix credo:*)",
+      "Bash(mix format)",
+      "mcp__filesystem__directory_tree",
+      "Bash(sed:*)",
+      "Bash(mix compile:*)",
+      "Bash(mix clean:*)"
+    ],
+    "deny": []
+  }
+}
