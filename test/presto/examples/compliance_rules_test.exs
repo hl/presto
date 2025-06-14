@@ -577,8 +577,8 @@ defmodule Presto.Examples.ComplianceRulesTest do
       # Monday before New Year
       december_monday = ~D[2023-12-25]
 
-      # Friday
-      time_entries = ComplianceTestHelpers.create_cross_week_entries("emp_001", ~D[2023-12-29])
+      # Sunday (Dec 31) - to create entries spanning into next week
+      time_entries = ComplianceTestHelpers.create_cross_week_entries("emp_001", ~D[2023-12-31])
 
       result = ComplianceRules.aggregate_entries_by_week(time_entries)
 

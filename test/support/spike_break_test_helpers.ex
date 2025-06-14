@@ -261,6 +261,21 @@ defmodule Presto.SpikeBreakTestHelpers do
   end
 
   @doc """
+  Validates spike break requirements against expected criteria.
+  """
+  def validate_spike_break_requirements(requirements, expected_count, jurisdiction) do
+    actual_requirements = extract_spike_break_requirements(requirements)
+
+    %{
+      actual_count: length(actual_requirements),
+      expected_count: expected_count,
+      matches_expected: length(actual_requirements) == expected_count,
+      jurisdiction: jurisdiction,
+      requirements: actual_requirements
+    }
+  end
+
+  @doc """
   Returns compliance results statistics.
   """
   def get_compliance_stats(compliance_results) do

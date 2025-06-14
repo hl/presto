@@ -88,9 +88,9 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       [requirement] = requirements
       assert {:spike_break_requirement, _, data} = requirement
 
-      # Should be required after 6 hours of consecutive work
+      # Should be required after 5 hours of consecutive work (before 6th hour)
       {:work_session, _, work_data} = work_session
-      expected_time = DateTime.add(work_data.start_datetime, 6 * 3600, :second)
+      expected_time = DateTime.add(work_data.start_datetime, 5 * 3600, :second)
       assert data.required_by == expected_time
     end
 

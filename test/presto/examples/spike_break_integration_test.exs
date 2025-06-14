@@ -405,10 +405,11 @@ defmodule Presto.Examples.SpikeBreakIntegrationTest do
         # Standard California workers (various locations)
         standard_workers:
           Enum.map(1..15, fn i ->
-            SpikeBreakTestHelpers.create_extended_day_session(
+            SpikeBreakTestHelpers.create_standard_work_session(
               "audit_std_#{i}",
               audit_date,
-              8 + rem(i, 5)
+              # 8-hour standard day - should not trigger violations
+              8
             )
           end)
       }

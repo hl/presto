@@ -155,7 +155,7 @@ defmodule Presto.RuleEngine do
       facts_since_incremental: [],
       # NEW: Optimization configuration
       optimization_config: %{
-        enable_fast_path: true,
+        enable_fast_path: false,
         enable_alpha_sharing: true,
         enable_rule_batching: true,
         # Max conditions for fast path
