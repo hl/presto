@@ -140,27 +140,27 @@ defmodule Presto.PrestoTestHelpers do
   Validates rule execution results meet expected conditions.
   """
   def validate_rule_results(engine, validations) when is_list(validations) do
-    validations
-    |> Enum.each(fn validation ->
-      case validation do
-        {:count, pattern, expected_count} ->
-          actual_count = count_facts(engine, pattern)
+    Enum.each(validations, &validate_single_result(engine, &1))
+  end
 
-          if actual_count != expected_count do
-            raise "Expected #{expected_count} facts matching #{inspect(pattern)}, got #{actual_count}"
-          end
+  defp validate_single_result(engine, {:count, pattern, expected_count}) do
+    actual_count = count_facts(engine, pattern)
 
-        {:present, fact} ->
-          assert_facts_present(engine, fact)
+    if actual_count != expected_count do
+      raise "Expected #{expected_count} facts matching #{inspect(pattern)}, got #{actual_count}"
+    end
+  end
 
-        {:absent, pattern} ->
-          count = count_facts(engine, pattern)
+  defp validate_single_result(engine, {:present, fact}) do
+    assert_facts_present(engine, fact)
+  end
 
-          if count > 0 do
-            raise "Expected no facts matching #{inspect(pattern)}, but found #{count}"
-          end
-      end
-    end)
+  defp validate_single_result(engine, {:absent, pattern}) do
+    count = count_facts(engine, pattern)
+
+    if count > 0 do
+      raise "Expected no facts matching #{inspect(pattern)}, but found #{count}"
+    end
   end
 
   @doc """

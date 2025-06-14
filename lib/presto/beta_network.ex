@@ -373,24 +373,27 @@ defmodule Presto.BetaNetwork do
 
     # Probe index with other dataset
     probe_side
-    |> Enum.flat_map(fn probe_record ->
-      join_key_values = extract_join_key_values(probe_record, join_keys)
-
-      case Map.get(hash_index, join_key_values) do
-        nil ->
-          []
-
-        matching_records ->
-          Enum.map(matching_records, fn build_record ->
-            if left_is_build do
-              Map.merge(build_record, probe_record)
-            else
-              Map.merge(probe_record, build_record)
-            end
-          end)
-      end
-    end)
+    |> Enum.flat_map(&probe_hash_join(&1, hash_index, join_keys, left_is_build))
   end
+
+  defp probe_hash_join(probe_record, hash_index, join_keys, left_is_build) do
+    join_key_values = extract_join_key_values(probe_record, join_keys)
+
+    case Map.get(hash_index, join_key_values) do
+      nil -> []
+      matching_records -> merge_matching_records(matching_records, probe_record, left_is_build)
+    end
+  end
+
+  defp merge_matching_records(matching_records, probe_record, left_is_build) do
+    Enum.map(matching_records, &merge_record_pair(&1, probe_record, left_is_build))
+  end
+
+  defp merge_record_pair(build_record, probe_record, true),
+    do: Map.merge(build_record, probe_record)
+
+  defp merge_record_pair(build_record, probe_record, false),
+    do: Map.merge(probe_record, build_record)
 
   # NEW: Build hash index on join keys
   defp build_join_index(records, join_keys) do

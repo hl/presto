@@ -770,19 +770,13 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   end
 
   defp validate_json_format(rules) do
-    # Empty rules list is valid
-    if Enum.empty?(rules) do
-      true
-    else
-      # Check that all rules have required structure
-      Enum.all?(rules, fn rule ->
-        case rule do
-          %{"name" => name, "type" => "spike_break"} when is_binary(name) -> true
-          _ -> false
-        end
-      end)
-    end
+    Enum.empty?(rules) or Enum.all?(rules, &valid_spike_break_rule?/1)
   end
+
+  defp valid_spike_break_rule?(%{"name" => name, "type" => "spike_break"}) when is_binary(name),
+    do: true
+
+  defp valid_spike_break_rule?(_), do: false
 
   @doc """
   Returns the priority level for different types of spike break requirements.

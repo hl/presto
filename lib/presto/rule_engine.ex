@@ -171,62 +171,8 @@ defmodule Presto.RuleEngine do
   @impl true
   def handle_call({:add_rule, rule}, _from, state) do
     case validate_rule(rule) do
-      :ok ->
-        # NEW: Analyze rule complexity and optimization opportunities
-        rule_analysis = RuleAnalyzer.analyze_rule(rule)
-
-        # Decide whether to use fast path or RETE network
-        {network_nodes, new_state} =
-          if should_use_fast_path?(rule_analysis, state) do
-            # Use fast path - no network nodes needed
-            {%{alpha_nodes: [], beta_nodes: []}, state}
-          else
-            # Use RETE network
-            case compile_rule_to_network(rule, state) do
-              {:ok, network_nodes, updated_state} -> {network_nodes, updated_state}
-              {:error, reason} -> throw({:error, reason})
-            end
-          end
-
-        updated_rules = Map.put(new_state.rules, rule.id, rule)
-        updated_networks = Map.put(new_state.rule_networks, rule.id, network_nodes)
-        updated_analyses = Map.put(new_state.rule_analyses, rule.id, rule_analysis)
-
-        # NEW: Update fast path rules if applicable
-        updated_fast_path_rules =
-          if rule_analysis.strategy == :fast_path do
-            fact_type = extract_fact_type_from_rule(rule)
-            fast_path_rules_for_type = Map.get(new_state.fast_path_rules, fact_type, [])
-            Map.put(new_state.fast_path_rules, fact_type, [rule.id | fast_path_rules_for_type])
-          else
-            new_state.fast_path_rules
-          end
-
-        updated_statistics =
-          Map.put(new_state.rule_statistics, rule.id, %{
-            executions: 0,
-            total_time: 0,
-            average_time: 0,
-            facts_processed: 0,
-            # NEW: Optimization statistics
-            strategy_used: rule_analysis.strategy,
-            complexity: rule_analysis.complexity
-          })
-
-        final_state = %{
-          new_state
-          | rules: updated_rules,
-            rule_networks: updated_networks,
-            rule_analyses: updated_analyses,
-            fast_path_rules: updated_fast_path_rules,
-            rule_statistics: updated_statistics,
-            engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
-        }
-
-        {:reply, :ok, final_state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
+      :ok -> process_valid_rule(rule, state)
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   catch
     {:error, reason} ->
@@ -410,6 +356,38 @@ defmodule Presto.RuleEngine do
 
   # Private functions
 
+  defp create_rule_network(rule, rule_analysis, state) do
+    if should_use_fast_path?(rule_analysis, state) do
+      {%{alpha_nodes: [], beta_nodes: []}, state}
+    else
+      case compile_rule_to_network(rule, state) do
+        {:ok, network_nodes, updated_state} -> {network_nodes, updated_state}
+        {:error, reason} -> throw({:error, reason})
+      end
+    end
+  end
+
+  defp update_fast_path_rules(rule, rule_analysis, state) do
+    if rule_analysis.strategy == :fast_path do
+      fact_type = extract_fact_type_from_rule(rule)
+      fast_path_rules_for_type = Map.get(state.fast_path_rules, fact_type, [])
+      Map.put(state.fast_path_rules, fact_type, [rule.id | fast_path_rules_for_type])
+    else
+      state.fast_path_rules
+    end
+  end
+
+  defp create_rule_statistics(rule, rule_analysis, state) do
+    Map.put(state.rule_statistics, rule.id, %{
+      executions: 0,
+      total_time: 0,
+      average_time: 0,
+      facts_processed: 0,
+      strategy_used: rule_analysis.strategy,
+      complexity: rule_analysis.complexity
+    })
+  end
+
   defp validate_rule(rule) do
     required_fields = [:id, :conditions, :action]
 
@@ -432,6 +410,29 @@ defmodule Presto.RuleEngine do
       true ->
         :ok
     end
+  end
+
+  defp process_valid_rule(rule, state) do
+    rule_analysis = RuleAnalyzer.analyze_rule(rule)
+    {network_nodes, new_state} = create_rule_network(rule, rule_analysis, state)
+
+    updated_rules = Map.put(new_state.rules, rule.id, rule)
+    updated_networks = Map.put(new_state.rule_networks, rule.id, network_nodes)
+    updated_analyses = Map.put(new_state.rule_analyses, rule.id, rule_analysis)
+    updated_fast_path_rules = update_fast_path_rules(rule, rule_analysis, new_state)
+    updated_statistics = create_rule_statistics(rule, rule_analysis, new_state)
+
+    final_state = %{
+      new_state
+      | rules: updated_rules,
+        rule_networks: updated_networks,
+        rule_analyses: updated_analyses,
+        fast_path_rules: updated_fast_path_rules,
+        rule_statistics: updated_statistics,
+        engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
+    }
+
+    {:reply, :ok, final_state}
   end
 
   defp compile_rule_to_network(rule, state) do

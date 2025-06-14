@@ -139,51 +139,91 @@ defmodule Presto.RequirementScheduler do
       conflict_type: conflict_type
     } = conflict
 
-    case resolve_conflict_pair(req1, req2, conflict_type) do
-      {:consolidate, merged_req} ->
-        # Replace both requirements with merged one
-        updated_reqs =
-          requirements
-          |> Enum.reject(fn req -> req == req1 or req == req2 end)
-          |> List.insert_at(0, merged_req)
+    resolution = resolve_conflict_pair(req1, req2, conflict_type)
 
-        {updated_reqs, consolidation_count + 1, warnings}
+    handle_conflict_resolution(
+      resolution,
+      req1,
+      req2,
+      requirements,
+      consolidation_count,
+      warnings
+    )
+  end
 
-      {:reschedule, updated_req1, updated_req2} ->
-        # Replace requirements with rescheduled versions
-        updated_reqs =
-          requirements
-          |> Enum.map(fn req ->
-            cond do
-              req == req1 -> updated_req1
-              req == req2 -> updated_req2
-              true -> req
-            end
-          end)
+  defp handle_conflict_resolution(
+         {:consolidate, merged_req},
+         req1,
+         req2,
+         requirements,
+         consolidation_count,
+         warnings
+       ) do
+    updated_reqs =
+      requirements
+      |> Enum.reject(fn req -> req == req1 or req == req2 end)
+      |> List.insert_at(0, merged_req)
 
-        {updated_reqs, consolidation_count, warnings}
+    {updated_reqs, consolidation_count + 1, warnings}
+  end
 
-      {:remove_lower_priority, kept_req} ->
-        # Remove the lower priority requirement
-        updated_reqs =
-          requirements
-          |> Enum.reject(fn req ->
-            (req == req1 and kept_req == req2) or (req == req2 and kept_req == req1)
-          end)
+  defp handle_conflict_resolution(
+         {:reschedule, updated_req1, updated_req2},
+         req1,
+         req2,
+         requirements,
+         consolidation_count,
+         warnings
+       ) do
+    updated_reqs = replace_requirements(requirements, req1, req2, updated_req1, updated_req2)
+    {updated_reqs, consolidation_count, warnings}
+  end
 
-        removed_req = if kept_req == req1, do: req2, else: req1
+  defp handle_conflict_resolution(
+         {:remove_lower_priority, kept_req},
+         req1,
+         req2,
+         requirements,
+         consolidation_count,
+         warnings
+       ) do
+    updated_reqs = remove_lower_priority_requirement(requirements, req1, req2, kept_req)
+    removed_req = if kept_req == req1, do: req2, else: req1
 
-        warning =
-          "Removed lower priority requirement: #{removed_req.__struct__.describe(removed_req)}"
+    warning =
+      "Removed lower priority requirement: #{removed_req.__struct__.describe(removed_req)}"
 
-        {updated_reqs, consolidation_count, [warning | warnings]}
+    {updated_reqs, consolidation_count, [warning | warnings]}
+  end
 
-      {:cannot_resolve, reason} ->
-        warning =
-          "Could not resolve conflict between #{req1.__struct__.describe(req1)} and #{req2.__struct__.describe(req2)}: #{reason}"
+  defp handle_conflict_resolution(
+         {:cannot_resolve, reason},
+         req1,
+         req2,
+         requirements,
+         consolidation_count,
+         warnings
+       ) do
+    warning =
+      "Could not resolve conflict between #{req1.__struct__.describe(req1)} and #{req2.__struct__.describe(req2)}: #{reason}"
 
-        {requirements, consolidation_count, [warning | warnings]}
-    end
+    {requirements, consolidation_count, [warning | warnings]}
+  end
+
+  defp replace_requirements(requirements, req1, req2, updated_req1, updated_req2) do
+    Enum.map(requirements, fn req ->
+      cond do
+        req == req1 -> updated_req1
+        req == req2 -> updated_req2
+        true -> req
+      end
+    end)
+  end
+
+  defp remove_lower_priority_requirement(requirements, req1, req2, kept_req) do
+    Enum.reject(requirements, fn req ->
+      (req == req1 and kept_req == req2) or (req == req2 and kept_req == req1)
+    end)
   end
 
   @doc """
@@ -235,30 +275,35 @@ defmodule Presto.RequirementScheduler do
   """
   def try_reschedule_requirements(req1, req2) do
     # Try to reschedule the lower priority requirement
-    {primary_req, secondary_req} =
-      if req1.__struct__.priority(req1) >= req2.__struct__.priority(req2) do
-        {req1, req2}
-      else
-        {req2, req1}
-      end
+    {primary_req, secondary_req} = determine_priority_order(req1, req2)
 
     # Calculate new timing for secondary requirement
     case calculate_rescheduled_timing(primary_req, secondary_req) do
-      {:ok, new_timing} ->
-        case secondary_req.__struct__.reschedule(secondary_req, new_timing) do
-          {:ok, rescheduled_req} ->
-            if req1 == primary_req do
-              {:reschedule, req1, rescheduled_req}
-            else
-              {:reschedule, rescheduled_req, req2}
-            end
+      {:ok, new_timing} -> attempt_reschedule(req1, req2, primary_req, secondary_req, new_timing)
+      {:error, _reason} -> nil
+    end
+  end
 
-          {:error, :cannot_reschedule} ->
-            nil
-        end
+  defp determine_priority_order(req1, req2) do
+    if req1.__struct__.priority(req1) >= req2.__struct__.priority(req2) do
+      {req1, req2}
+    else
+      {req2, req1}
+    end
+  end
 
-      {:error, _reason} ->
-        nil
+  defp attempt_reschedule(req1, req2, primary_req, secondary_req, new_timing) do
+    case secondary_req.__struct__.reschedule(secondary_req, new_timing) do
+      {:ok, rescheduled_req} -> build_reschedule_result(req1, req2, primary_req, rescheduled_req)
+      {:error, :cannot_reschedule} -> nil
+    end
+  end
+
+  defp build_reschedule_result(req1, req2, primary_req, rescheduled_req) do
+    if req1 == primary_req do
+      {:reschedule, req1, rescheduled_req}
+    else
+      {:reschedule, rescheduled_req, req2}
     end
   end
 
@@ -326,17 +371,21 @@ defmodule Presto.RequirementScheduler do
 
   defp optimize_requirement_group({_type, requirements}) do
     # For groups of similar requirements, look for consolidation opportunities
-    requirements
-    |> Enum.reduce([], fn req, acc ->
-      case find_consolidation_opportunity(req, acc) do
-        {:consolidate_with, existing_req, merged_req} ->
-          # Replace existing requirement with merged one
-          Enum.map(acc, fn r -> if r == existing_req, do: merged_req, else: r end)
+    Enum.reduce(requirements, [], &consolidate_requirement_with_group/2)
+  end
 
-        :no_opportunity ->
-          [req | acc]
-      end
-    end)
+  defp consolidate_requirement_with_group(req, acc) do
+    case find_consolidation_opportunity(req, acc) do
+      {:consolidate_with, existing_req, merged_req} ->
+        replace_requirement_in_group(acc, existing_req, merged_req)
+
+      :no_opportunity ->
+        [req | acc]
+    end
+  end
+
+  defp replace_requirement_in_group(requirements, existing_req, merged_req) do
+    Enum.map(requirements, fn r -> if r == existing_req, do: merged_req, else: r end)
   end
 
   defp find_consolidation_opportunity(req, existing_requirements) do

@@ -405,19 +405,13 @@ defmodule Presto.Examples.ComplianceRules do
   end
 
   defp validate_json_format(rules) do
-    # Empty rules list is valid
-    if Enum.empty?(rules) do
-      true
-    else
-      # Check that all rules have required structure
-      Enum.all?(rules, fn rule ->
-        case rule do
-          %{"name" => name, "type" => "compliance"} when is_binary(name) -> true
-          _ -> false
-        end
-      end)
-    end
+    Enum.empty?(rules) or Enum.all?(rules, &valid_compliance_rule?/1)
   end
+
+  defp valid_compliance_rule?(%{"name" => name, "type" => "compliance"}) when is_binary(name),
+    do: true
+
+  defp valid_compliance_rule?(_), do: false
 
   @doc """
   Finds all compliance violations within a date range.
