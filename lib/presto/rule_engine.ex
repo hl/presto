@@ -10,9 +10,9 @@ defmodule Presto.RuleEngine do
 
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
-  alias Presto.WorkingMemory
-  alias Presto.RuleAnalyzer
   alias Presto.FastPathExecutor
+  alias Presto.RuleAnalyzer
+  alias Presto.WorkingMemory
 
   @type rule :: %{
           id: atom(),
@@ -680,7 +680,7 @@ defmodule Presto.RuleEngine do
     # Execute fast-path rules efficiently
     fast_path_results = execute_fast_path_rules(fast_path_rules, state)
 
-    # Execute RETE rules traditionally  
+    # Execute RETE rules traditionally
     rete_results = execute_rete_rules(rete_rules, state, concurrent)
 
     # Combine results and update statistics

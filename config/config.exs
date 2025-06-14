@@ -12,10 +12,10 @@ config :presto, :rule_registry,
     # Payroll processing rules
     "time_calculation" => Presto.Examples.PayrollRules,
     "overtime_check" => Presto.Examples.PayrollRules,
-    
+
     # Compliance checking rules  
     "weekly_compliance" => Presto.Examples.ComplianceRules,
-    
+
     # Jurisdiction-specific rules
     "spike_break_compliance" => Presto.Examples.CaliforniaSpikeBreakRules
   }

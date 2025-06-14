@@ -31,27 +31,25 @@ defmodule Presto.FastPathExecutor do
   """
   @spec execute_fast_path(map(), GenServer.server()) :: execution_result()
   def execute_fast_path(rule, working_memory) do
-    try do
-      # Compile the rule for fast execution
-      compiled_rule = compile_rule_for_fast_path(rule)
+    # Compile the rule for fast execution
+    compiled_rule = compile_rule_for_fast_path(rule)
 
-      # Get all facts from working memory
-      all_facts = WorkingMemory.get_facts(working_memory)
+    # Get all facts from working memory
+    all_facts = WorkingMemory.get_facts(working_memory)
 
-      # Filter facts by type for efficiency
-      relevant_facts = filter_facts_by_type(all_facts, compiled_rule.fact_type)
+    # Filter facts by type for efficiency
+    relevant_facts = filter_facts_by_type(all_facts, compiled_rule.fact_type)
 
-      # Match facts against pattern and apply tests
-      matching_facts = find_matching_facts(relevant_facts, compiled_rule)
+    # Match facts against pattern and apply tests
+    matching_facts = find_matching_facts(relevant_facts, compiled_rule)
 
-      # Execute action for each matching fact
-      results = execute_action_for_matches(matching_facts, compiled_rule)
+    # Execute action for each matching fact
+    results = execute_action_for_matches(matching_facts, compiled_rule)
 
-      {:ok, List.flatten(results)}
-    rescue
-      error ->
-        {:error, {:fast_path_execution_failed, error}}
-    end
+    {:ok, List.flatten(results)}
+  rescue
+    error ->
+      {:error, {:fast_path_execution_failed, error}}
   end
 
   @doc """
@@ -98,30 +96,28 @@ defmodule Presto.FastPathExecutor do
   """
   @spec execute_batch_fast_path([map()], GenServer.server()) :: execution_result()
   def execute_batch_fast_path(rules, working_memory) do
-    try do
-      # Compile all rules
-      compiled_rules = Enum.map(rules, &compile_rule_for_fast_path/1)
+    # Compile all rules
+    compiled_rules = Enum.map(rules, &compile_rule_for_fast_path/1)
 
-      # Get the common fact type
-      fact_type = hd(compiled_rules).fact_type
+    # Get the common fact type
+    fact_type = hd(compiled_rules).fact_type
 
-      # Get relevant facts once
-      all_facts = WorkingMemory.get_facts(working_memory)
-      relevant_facts = filter_facts_by_type(all_facts, fact_type)
+    # Get relevant facts once
+    all_facts = WorkingMemory.get_facts(working_memory)
+    relevant_facts = filter_facts_by_type(all_facts, fact_type)
 
-      # Execute all rules against the same fact set
-      all_results =
-        compiled_rules
-        |> Enum.flat_map(fn compiled_rule ->
-          matching_facts = find_matching_facts(relevant_facts, compiled_rule)
-          execute_action_for_matches(matching_facts, compiled_rule)
-        end)
+    # Execute all rules against the same fact set
+    all_results =
+      compiled_rules
+      |> Enum.flat_map(fn compiled_rule ->
+        matching_facts = find_matching_facts(relevant_facts, compiled_rule)
+        execute_action_for_matches(matching_facts, compiled_rule)
+      end)
 
-      {:ok, List.flatten(all_results)}
-    rescue
-      error ->
-        {:error, {:batch_fast_path_execution_failed, error}}
-    end
+    {:ok, List.flatten(all_results)}
+  rescue
+    error ->
+      {:error, {:batch_fast_path_execution_failed, error}}
   end
 
   # Private functions

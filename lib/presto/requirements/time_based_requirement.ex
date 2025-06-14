@@ -62,12 +62,12 @@ defmodule Presto.Requirements.TimeBasedRequirement do
   @impl Presto.RequirementBehaviour
   def merge_with(%__MODULE__{} = req1, %__MODULE__{} = req2) do
     priority_gap = abs(req1.priority - req2.priority)
-    
+
     cond do
       # Can't merge requirements for different employees
       req1.employee_id != req2.employee_id ->
         {:error, :incompatible}
-      
+
       # Don't merge if priority gap is too large (>=20) - should be handled by removal
       priority_gap >= 20 ->
         {:error, :incompatible}

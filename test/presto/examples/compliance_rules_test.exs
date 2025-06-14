@@ -1,9 +1,9 @@
 defmodule Presto.Examples.ComplianceRulesTest do
   use ExUnit.Case, async: true
 
+  alias Presto.ComplianceTestHelpers
   alias Presto.Examples.ComplianceRules
   alias Presto.Factories
-  alias Presto.ComplianceTestHelpers
 
   describe "weekly aggregation rule" do
     test "aggregates time entries into weekly totals" do
@@ -71,7 +71,7 @@ defmodule Presto.Examples.ComplianceRulesTest do
           "emp_001"
         ),
 
-        # Employee 1, Week 2  
+        # Employee 1, Week 2
         Factories.build_processed_time_entry(
           "e1_w2_1",
           DateTime.new!(next_monday, ~T[09:00:00], "Etc/UTC"),
@@ -120,7 +120,7 @@ defmodule Presto.Examples.ComplianceRulesTest do
       matched_facts = rule.pattern.(all_facts)
 
       # Should not match entries that already have aggregations
-      assert length(matched_facts) == 0
+      assert Enum.empty?(matched_facts)
     end
 
     test "handles entries spanning multiple weeks" do
@@ -261,7 +261,7 @@ defmodule Presto.Examples.ComplianceRulesTest do
       matched_facts = rule.pattern.(all_facts)
 
       # Should not match aggregations that already have compliance results
-      assert length(matched_facts) == 0
+      assert Enum.empty?(matched_facts)
     end
 
     test "processes multiple employees and weeks" do
@@ -508,7 +508,7 @@ defmodule Presto.Examples.ComplianceRulesTest do
       test_dates = [
         # Monday
         {~D[2024-01-01], 1},
-        # Tuesday  
+        # Tuesday
         {~D[2024-01-02], 2},
         # Sunday
         {~D[2024-01-07], 7},

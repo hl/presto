@@ -7,7 +7,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   - Regional Level: Additional regional requirements
   - City Level: Enhanced city-specific requirements
 
-  The Spike Break Rule requires additional mandatory breaks during periods of 
+  The Spike Break Rule requires additional mandatory breaks during periods of
   intensive work that exceed normal capacity thresholds.
 
   This module implements the `Presto.RuleBehaviour` and serves as an example
@@ -208,7 +208,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     # Check for consecutive work without meal break
     requirements = requirements ++ calculate_consecutive_work_breaks(data, jurisdiction)
 
-    # Check for extended day breaks  
+    # Check for extended day breaks
     requirements = requirements ++ calculate_extended_day_breaks(data, jurisdiction)
 
     # Check for spike period breaks
@@ -324,7 +324,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     # Add regional spike periods
     regional_periods = get_regional_spike_periods(start_dt, jurisdiction, industry)
 
-    # Add city spike periods  
+    # Add city spike periods
     city_periods = get_city_spike_periods(start_dt, jurisdiction, industry)
 
     base_periods ++ regional_periods ++ city_periods
@@ -615,10 +615,6 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
         # After 10 hours
         DateTime.add(work_data.start_datetime, 10 * 3600, :second)
 
-      :spike_period ->
-        # Every 2 hours
-        DateTime.add(work_data.start_datetime, 2 * 3600, :second)
-
       :bay_area_tech_crunch ->
         # Should be required every hour during crunch time - first break at start + 1 hour
         # After 1 hour
@@ -631,10 +627,6 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
       :central_valley_agriculture ->
         # After 1 hour
         DateTime.add(work_data.start_datetime, 1 * 3600, :second)
-
-      _ ->
-        # Default 4 hours
-        DateTime.add(work_data.start_datetime, 4 * 3600, :second)
     end
   end
 

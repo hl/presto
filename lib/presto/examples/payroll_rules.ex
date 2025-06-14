@@ -308,7 +308,6 @@ defmodule Presto.Examples.PayrollRules do
         %{"overtime_threshold" => threshold} when is_number(threshold) and threshold > 0 -> true
         # Empty variables are ok
         %{} -> true
-        _ -> false
       end
 
     payroll_rules_present && valid_variables

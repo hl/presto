@@ -5,16 +5,16 @@ defmodule Presto.Benchmarks.BenchmarkIntegrationTest do
 
   alias Presto.Benchmarks.{
     BenchmarkRunner,
-    PerformanceMonitor,
     MetricsCollector,
+    PerformanceMonitor,
     ResultAnalyzer
   }
 
   alias Presto.Benchmarks.Strategies.{
     AlphaNetworkStrategy,
     BetaNetworkStrategy,
-    RuleEngineStrategy,
-    MemoryStrategy
+    MemoryStrategy,
+    RuleEngineStrategy
   }
 
   setup do
@@ -201,10 +201,10 @@ defmodule Presto.Benchmarks.BenchmarkIntegrationTest do
             std_dev: 100
           },
           memory_usage: %{
-            mean: 50000,
-            median: 48000,
-            min: 45000,
-            max: 55000
+            mean: 50_000,
+            median: 48_000,
+            min: 45_000,
+            max: 55_000
           },
           iterations: 10
         },
@@ -212,7 +212,7 @@ defmodule Presto.Benchmarks.BenchmarkIntegrationTest do
         improvement_percentage: nil,
         passed: true,
         execution_time: 1000,
-        memory_usage: 50000,
+        memory_usage: 50_000,
         iterations: 10
       }
 
@@ -238,7 +238,7 @@ defmodule Presto.Benchmarks.BenchmarkIntegrationTest do
       optimized_result = %{
         metrics: %{
           execution_time: %{mean: 1500},
-          memory_usage: %{mean: 80000}
+          memory_usage: %{mean: 80_000}
         }
       }
 

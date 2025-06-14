@@ -7,13 +7,14 @@ defmodule Presto.Factories do
   Builds a time entry fact for payroll testing.
   """
   def build_time_entry(id, start_datetime, finish_datetime, employee_id) do
-    {:time_entry, id, %{
-      start_datetime: start_datetime,
-      finish_datetime: finish_datetime,
-      employee_id: employee_id,
-      minutes: nil,
-      units: nil
-    }}
+    {:time_entry, id,
+     %{
+       start_datetime: start_datetime,
+       finish_datetime: finish_datetime,
+       employee_id: employee_id,
+       minutes: nil,
+       units: nil
+     }}
   end
 
   @doc """
@@ -23,25 +24,27 @@ defmodule Presto.Factories do
     minutes = calculate_minutes(start_datetime, finish_datetime)
     units = minutes / 60.0
 
-    {:time_entry, id, %{
-      start_datetime: start_datetime,
-      finish_datetime: finish_datetime,
-      employee_id: employee_id,
-      minutes: minutes,
-      units: units
-    }}
+    {:time_entry, id,
+     %{
+       start_datetime: start_datetime,
+       finish_datetime: finish_datetime,
+       employee_id: employee_id,
+       minutes: minutes,
+       units: units
+     }}
   end
 
   @doc """
   Builds an overtime entry fact.
   """
   def build_overtime_entry(employee_id, overtime_units, week_start) do
-    {:overtime_entry, {employee_id, week_start}, %{
-      employee_id: employee_id,
-      units: overtime_units,
-      week_start: week_start,
-      type: :overtime
-    }}
+    {:overtime_entry, {employee_id, week_start},
+     %{
+       employee_id: employee_id,
+       units: overtime_units,
+       week_start: week_start,
+       type: :overtime
+     }}
   end
 
   @doc """
@@ -49,28 +52,37 @@ defmodule Presto.Factories do
   """
   def build_weekly_hours(employee_id, week_start, total_hours, entry_ids \\ []) do
     week_end = Date.add(week_start, 6)
-    
-    {:weekly_hours, {employee_id, week_start}, %{
-      employee_id: employee_id,
-      week_start: week_start,
-      week_end: week_end,
-      total_hours: total_hours,
-      entries: entry_ids
-    }}
+
+    {:weekly_hours, {employee_id, week_start},
+     %{
+       employee_id: employee_id,
+       week_start: week_start,
+       week_end: week_end,
+       total_hours: total_hours,
+       entries: entry_ids
+     }}
   end
 
   @doc """
   Builds a compliance result fact.
   """
-  def build_compliance_result(employee_id, week_start, status, threshold, actual_value, reason \\ nil) do
-    {:compliance_result, {employee_id, week_start}, %{
-      employee_id: employee_id,
-      week_start: week_start,
-      status: status,
-      threshold: threshold,
-      actual_value: actual_value,
-      reason: reason || generate_reason(status, actual_value, threshold)
-    }}
+  def build_compliance_result(
+        employee_id,
+        week_start,
+        status,
+        threshold,
+        actual_value,
+        reason \\ nil
+      ) do
+    {:compliance_result, {employee_id, week_start},
+     %{
+       employee_id: employee_id,
+       week_start: week_start,
+       status: status,
+       threshold: threshold,
+       actual_value: actual_value,
+       reason: reason || generate_reason(status, actual_value, threshold)
+     }}
   end
 
   @doc """
@@ -125,7 +137,7 @@ defmodule Presto.Factories do
   # Private functions
 
   defp calculate_minutes(start_datetime, finish_datetime) do
-    DateTime.diff(finish_datetime, start_datetime, :second) / 60
+    (DateTime.diff(finish_datetime, start_datetime, :second) / 60)
     |> trunc()
   end
 

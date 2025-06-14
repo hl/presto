@@ -1,8 +1,8 @@
 defmodule Presto.RequirementSchedulerTest do
   use ExUnit.Case, async: true
 
-  alias Presto.RequirementScheduler
   alias Presto.Requirements.TimeBasedRequirement
+  alias Presto.RequirementScheduler
 
   describe "resolve_conflicts/1" do
     test "returns empty result for empty requirements list" do

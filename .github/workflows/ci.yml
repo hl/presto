@@ -12,11 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        elixir: ['1.17', '1.18']
-        otp: ['26', '27']
-        exclude:
-          - elixir: '1.17'
-            otp: '27'
+        elixir: ['1.18']
+        otp: ['27', '28']
     
     steps:
     - uses: actions/checkout@v4
@@ -69,7 +66,7 @@ jobs:
       uses: erlef/setup-beam@v1
       with:
         elixir-version: '1.18'
-        otp-version: '27'
+        otp-version: '28'
     
     - name: Restore dependencies cache
       uses: actions/cache@v4
@@ -104,7 +101,7 @@ jobs:
       uses: erlef/setup-beam@v1
       with:
         elixir-version: '1.18'
-        otp-version: '27'
+        otp-version: '28'
     
     - name: Restore dependencies cache
       uses: actions/cache@v4
@@ -148,7 +145,7 @@ jobs:
       uses: erlef/setup-beam@v1
       with:
         elixir-version: '1.18'
-        otp-version: '27'
+        otp-version: '28'
     
     - name: Restore dependencies cache
       uses: actions/cache@v4
@@ -171,7 +168,7 @@ jobs:
       id: plt-cache
       with:
         path: priv/plts
-        key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}-elixir-1.18-otp-27
+        key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}-elixir-1.18-otp-28
         restore-keys: |
           ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}-
           ${{ runner.os }}-plt-

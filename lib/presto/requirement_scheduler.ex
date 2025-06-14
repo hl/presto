@@ -10,7 +10,6 @@ defmodule Presto.RequirementScheduler do
   4. Ensures legal compliance requirements are never compromised
   """
 
-
   @type requirement :: struct()
   @type scheduling_result :: %{
           scheduled_requirements: [requirement()],
@@ -368,7 +367,7 @@ defmodule Presto.RequirementScheduler do
     # Only warn if there were initially requirements but no critical ones remain
     total_requirements = length(requirements)
 
-    if total_requirements > 0 and length(critical_requirements) == 0 do
+    if total_requirements > 0 and Enum.empty?(critical_requirements) do
       has_high_priority_types =
         Enum.any?(requirements, fn req ->
           req.__struct__.type(req) in [:meal_break, :safety_break, :central_valley_agriculture]

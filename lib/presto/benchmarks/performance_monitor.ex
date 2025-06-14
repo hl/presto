@@ -205,10 +205,9 @@ defmodule Presto.Benchmarks.PerformanceMonitor do
   defp format_alerts(alerts) do
     alerts
     |> Enum.take(5)
-    |> Enum.map(fn alert ->
+    |> Enum.map_join("\n", fn alert ->
       "- #{alert.type}: #{alert.benchmark} (#{alert.value}) at #{DateTime.to_string(alert.timestamp)}"
     end)
-    |> Enum.join("\n")
   end
 
   defp format_trends([]), do: "No performance data available"
@@ -216,11 +215,10 @@ defmodule Presto.Benchmarks.PerformanceMonitor do
   defp format_trends(trends) do
     trends
     |> Enum.take(5)
-    |> Enum.map(fn trend ->
+    |> Enum.map_join("\n", fn trend ->
       benchmark_count = length(trend.benchmarks)
 
       "- #{DateTime.to_string(trend.timestamp)}: #{benchmark_count} benchmarks, status: #{trend.overall_status}"
     end)
-    |> Enum.join("\n")
   end
 end

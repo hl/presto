@@ -399,7 +399,6 @@ defmodule Presto.Examples.ComplianceRules do
         %{"max_weekly_hours" => hours} when is_number(hours) and hours > 0 -> true
         # Empty variables are ok
         %{} -> true
-        _ -> false
       end
 
     compliance_rules_present && valid_variables

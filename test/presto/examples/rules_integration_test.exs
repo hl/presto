@@ -1,7 +1,7 @@
 defmodule Presto.Examples.RulesIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias Presto.Examples.{PayrollRules, ComplianceRules}
+  alias Presto.Examples.{ComplianceRules, PayrollRules}
   alias Presto.Factories
   alias Presto.PayrollTestHelpers
 
@@ -195,7 +195,7 @@ defmodule Presto.Examples.RulesIntegrationTest do
           "emp_uk_001"
         ),
 
-        # Wednesday: 8.5 hours  
+        # Wednesday: 8.5 hours
         Factories.build_time_entry(
           "wed",
           DateTime.new!(Date.add(monday, 2), ~T[09:00:00], "Etc/UTC"),

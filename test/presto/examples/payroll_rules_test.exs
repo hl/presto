@@ -68,7 +68,7 @@ defmodule Presto.Examples.PayrollRulesTest do
       rule = PayrollRules.time_calculation_rule()
       matched_facts = rule.pattern.([processed_entry])
 
-      assert length(matched_facts) == 0
+      assert Enum.empty?(matched_facts)
     end
 
     test "ignores entries without required datetime fields" do
@@ -83,7 +83,7 @@ defmodule Presto.Examples.PayrollRulesTest do
       rule = PayrollRules.time_calculation_rule()
       matched_facts = rule.pattern.([incomplete_entry])
 
-      assert length(matched_facts) == 0
+      assert Enum.empty?(matched_facts)
     end
 
     test "handles multiple entries in single rule execution" do
@@ -158,7 +158,7 @@ defmodule Presto.Examples.PayrollRulesTest do
       rule = PayrollRules.overtime_calculation_rule(variables)
 
       overtime_candidates = rule.pattern.(processed_entries)
-      assert length(overtime_candidates) == 0
+      assert Enum.empty?(overtime_candidates)
     end
 
     test "handles custom overtime threshold" do
@@ -324,7 +324,7 @@ defmodule Presto.Examples.PayrollRulesTest do
 
       assert PayrollRules.valid_rule_spec?(valid_spec) == true
 
-      # Test with unsupported rule names  
+      # Test with unsupported rule names
       invalid_spec = %{
         "rules_to_run" => ["unsupported_rule"],
         "variables" => %{}
@@ -412,7 +412,7 @@ defmodule Presto.Examples.PayrollRulesTest do
       overtime_candidates = rule.pattern.(entries)
 
       # Should process each week separately - no overtime since each week has only 8 hours
-      assert length(overtime_candidates) == 0
+      assert Enum.empty?(overtime_candidates)
     end
   end
 

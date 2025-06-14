@@ -72,7 +72,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       requirements =
         CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
-      assert length(requirements) == 0
+      assert Enum.empty?(requirements)
     end
 
     test "calculates correct break timing requirements" do
@@ -200,7 +200,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
           data.type == :bay_area_tech_crunch
         end)
 
-      assert length(tech_breaks) == 0
+      assert Enum.empty?(tech_breaks)
     end
   end
 
@@ -313,7 +313,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
           data.type == :central_valley_agriculture
         end)
 
-      assert length(ag_breaks) == 0
+      assert Enum.empty?(ag_breaks)
     end
   end
 

@@ -11,7 +11,7 @@ defmodule Presto.Benchmarks.Strategies.MemoryStrategy do
     %{
       allocation_metrics: %{
         total_allocated: 1_024_000,
-        allocation_rate: 12800,
+        allocation_rate: 12_800,
         allocation_efficiency: 0.89
       },
       gc_metrics: %{
@@ -42,12 +42,12 @@ defmodule Presto.Benchmarks.Strategies.MemoryStrategy do
       baseline: %{
         memory_usage: 1024,
         gc_frequency: 0.20,
-        allocation_rate: 15000
+        allocation_rate: 15_000
       },
       optimized: %{
         memory_usage: 800,
         gc_frequency: 0.12,
-        allocation_rate: 12000
+        allocation_rate: 12_000
       },
       improvements: %{
         memory_improvement: 21.9,

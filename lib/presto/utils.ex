@@ -21,13 +21,10 @@ defmodule Presto.Utils do
 
       iex> Presto.Utils.is_literal_atom?(:Person)
       true
-      
       iex> Presto.Utils.is_literal_atom?(:person)
       true
-      
       iex> Presto.Utils.is_literal_atom?(:variable_name)
       false
-      
       iex> Presto.Utils.is_literal_atom?(:ok)
       true
   """
@@ -42,7 +39,7 @@ defmodule Presto.Utils do
         true
 
       _ ->
-        # Check if it's a common literal  
+        # Check if it's a common literal
         atom in [true, false, nil, :ok, :error]
     end
   end
@@ -56,10 +53,8 @@ defmodule Presto.Utils do
 
       iex> Presto.Utils.variable?(:name)
       true
-      
       iex> Presto.Utils.variable?(:_)
       false
-      
       iex> Presto.Utils.variable?(:Person)
       false
   """
