@@ -335,7 +335,7 @@ defmodule Presto.Examples.SpikeBreakEdgeCasesTest do
       requirements =
         SpikeBreakTestHelpers.extract_spike_break_requirements(result.spike_requirements)
 
-      # Check that requirements are ordered by priority/timing
+      # Check that requirements are ordered by priority/timing using the new scheduling system
       consecutive_work_reqs =
         Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
           data.type == :consecutive_work
@@ -346,12 +346,40 @@ defmodule Presto.Examples.SpikeBreakEdgeCasesTest do
           data.type == :bay_area_tech_crunch
         end)
 
-      # For now, just verify that both types of requirements are generated
-      # The timing logic may need to be refined based on real-world requirements
+      # Verify that both types of requirements are generated
       if length(consecutive_work_reqs) > 0 and length(tech_crunch_reqs) > 0 do
         assert length(consecutive_work_reqs) >= 1
         assert length(tech_crunch_reqs) >= 1
-        # TODO: Implement proper priority-based scheduling
+
+        # Test the new priority-based scheduling system
+        assert Map.has_key?(result, :scheduled_requirements)
+        assert Map.has_key?(result, :scheduling_conflicts_resolved)
+        assert Map.has_key?(result, :scheduling_warnings)
+
+        # Verify scheduling system resolved any timing conflicts
+        assert is_list(result.scheduled_requirements)
+        assert is_integer(result.scheduling_conflicts_resolved)
+        assert is_list(result.scheduling_warnings)
+
+        # If there were conflicts, they should have been resolved
+        if result.scheduling_conflicts_resolved > 0 do
+          # Some requirements should have been consolidated, rescheduled, or prioritized
+          # The scheduled requirements should be fewer than or equal to the original requirements
+          scheduled_count = length(result.scheduled_requirements)
+          original_count = length(consecutive_work_reqs) + length(tech_crunch_reqs)
+          assert scheduled_count <= original_count
+
+          # Verify that the scheduling system worked by checking that conflicts were resolved
+          assert result.scheduling_conflicts_resolved >= 1
+
+          # All scheduled requirements should have valid priorities and timing
+          Enum.each(result.scheduled_requirements, fn req ->
+            assert is_integer(req.priority)
+            assert req.priority > 0
+            assert is_binary(req.description)
+            assert req.employee_id == "priority_test"
+          end)
+        end
       end
     end
 

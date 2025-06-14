@@ -28,7 +28,8 @@
       "Bash(mv:*)",
       "Bash(rm:*)",
       "Bash(rg:*)",
-      "mcp__filesystem__list_allowed_directories"
+      "mcp__filesystem__list_allowed_directories",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }

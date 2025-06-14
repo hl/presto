@@ -16,6 +16,9 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
 
   @behaviour Presto.RuleBehaviour
 
+  alias Presto.Requirements.TimeBasedRequirement
+  alias Presto.RequirementScheduler
+
   @type work_session :: {:work_session, any(), map()}
   @type spike_requirement :: {:spike_requirement, any(), map()}
   @type compliance_result :: {:compliance_result, any(), map()}
@@ -25,7 +28,10 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
           spike_requirements: [spike_requirement()],
           compliance_results: [compliance_result()],
           summary: map(),
-          jurisdiction: jurisdiction()
+          jurisdiction: jurisdiction(),
+          scheduled_requirements: [TimeBasedRequirement.t()],
+          scheduling_conflicts_resolved: integer(),
+          scheduling_warnings: [String.t()]
         }
 
   @doc """
@@ -85,6 +91,9 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
 
   @doc """
   Processes work sessions through the complete spike break compliance workflow.
+
+  Now includes priority-based scheduling to resolve conflicts between different
+  types of break requirements (consecutive work vs tech crunch vs extended day).
   """
   @spec process_spike_break_compliance([work_session()], rule_spec(), jurisdiction()) ::
           spike_compliance_output()
@@ -92,11 +101,17 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     # Step 1: Detect spike break requirements
     spike_requirements = detect_spike_break_requirements(work_sessions, jurisdiction)
 
-    # Step 2: Check compliance if breaks data is available
+    # Step 2: Convert to TimeBasedRequirement structs for scheduling
+    time_based_requirements = convert_to_time_based_requirements(spike_requirements)
+
+    # Step 3: Apply priority-based scheduling to resolve conflicts
+    scheduling_result = RequirementScheduler.resolve_conflicts(time_based_requirements)
+
+    # Step 4: Check compliance if breaks data is available
     compliance_results =
       check_spike_break_compliance(spike_requirements, work_sessions, jurisdiction)
 
-    # Step 3: Generate summary and penalties
+    # Step 5: Generate summary and penalties
     summary =
       generate_spike_break_summary(
         spike_requirements,
@@ -109,8 +124,48 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
       spike_requirements: spike_requirements,
       compliance_results: compliance_results,
       summary: summary,
-      jurisdiction: jurisdiction
+      jurisdiction: jurisdiction,
+      scheduled_requirements: scheduling_result.scheduled_requirements,
+      scheduling_conflicts_resolved: scheduling_result.conflicts_resolved,
+      scheduling_warnings: scheduling_result.warnings
     }
+  end
+
+  @doc """
+  Converts spike break requirements to TimeBasedRequirement structs for scheduling.
+
+  Maps the priority levels based on break type:
+  - Consecutive work breaks: 90 (regulatory compliance)
+  - Extended day breaks: 70 (industry standards)
+  - Tech crunch breaks: 70 (industry standards)
+  - Entertainment peak breaks: 70 (industry standards)
+  - Agricultural breaks: 100 (safety requirements)
+  """
+  @spec convert_to_time_based_requirements([spike_requirement()]) :: [TimeBasedRequirement.t()]
+  def convert_to_time_based_requirements(spike_requirements) do
+    spike_requirements
+    |> Enum.map(fn {:spike_break_requirement, _id, data} ->
+      TimeBasedRequirement.new(
+        type: data.type,
+        timing: data.required_by,
+        duration_minutes: data.required_duration_minutes,
+        priority: get_break_priority(data.type),
+        description: data.reason,
+        employee_id: data.employee_id,
+        flexibility: get_break_flexibility(data.type),
+        metadata: %{
+          work_session_id: data.work_session_id,
+          jurisdiction: data.jurisdiction,
+          original_requirement_id:
+            generate_requirement_id(data.type, %{
+              employee_id: data.employee_id,
+              # Approximate
+              start_datetime: DateTime.add(data.required_by, -3600, :second)
+            })
+        },
+        created_by_rule: :california_spike_break_rules
+      )
+    end)
   end
 
   @doc """
@@ -734,6 +789,52 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
           _ -> false
         end
       end)
+    end
+  end
+
+  @doc """
+  Returns the priority level for different types of spike break requirements.
+  """
+  @spec get_break_priority(atom()) :: integer()
+  def get_break_priority(break_type) do
+    case break_type do
+      # Regulatory compliance - must prevent continuous work
+      :consecutive_work -> 90
+      # Safety requirements - heat/physical safety concerns
+      :central_valley_agriculture -> 100
+      # Industry standards - fatigue prevention
+      :extended_day -> 70
+      # Industry standards - burnout prevention
+      :bay_area_tech_crunch -> 70
+      # Industry standards - creative sustainability
+      :la_entertainment_peak -> 70
+      # Industry standards - general spike prevention
+      :spike_period -> 70
+      # Operational efficiency - default
+      _ -> 50
+    end
+  end
+
+  @doc """
+  Returns the flexibility level for different types of spike break requirements.
+  """
+  @spec get_break_flexibility(atom()) :: atom()
+  def get_break_flexibility(break_type) do
+    case break_type do
+      # Less flexible - legal requirement timing matters
+      :consecutive_work -> :low
+      # No flexibility - safety critical
+      :central_valley_agriculture -> :none
+      # Moderate flexibility - can be scheduled around work
+      :extended_day -> :medium
+      # Moderate flexibility - can work around deadlines
+      :bay_area_tech_crunch -> :medium
+      # Moderate flexibility - can work around production schedule
+      :la_entertainment_peak -> :medium
+      # High flexibility - preventive, timing flexible
+      :spike_period -> :high
+      # Default moderate flexibility
+      _ -> :medium
     end
   end
 end
