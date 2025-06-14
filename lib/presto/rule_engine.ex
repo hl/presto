@@ -11,6 +11,8 @@ defmodule Presto.RuleEngine do
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
   alias Presto.WorkingMemory
+  alias Presto.RuleAnalyzer
+  alias Presto.FastPathExecutor
 
   @type rule :: %{
           id: atom(),
@@ -95,6 +97,26 @@ defmodule Presto.RuleEngine do
     GenServer.call(pid, :get_engine_statistics)
   end
 
+  @spec analyze_rule(GenServer.server(), atom()) :: map()
+  def analyze_rule(pid, rule_id) do
+    GenServer.call(pid, {:analyze_rule, rule_id})
+  end
+
+  @spec analyze_rule_set(GenServer.server()) :: map()
+  def analyze_rule_set(pid) do
+    GenServer.call(pid, :analyze_rule_set)
+  end
+
+  @spec configure_optimization(GenServer.server(), keyword()) :: :ok
+  def configure_optimization(pid, opts) do
+    GenServer.call(pid, {:configure_optimization, opts})
+  end
+
+  @spec get_optimization_config(GenServer.server()) :: map()
+  def get_optimization_config(pid) do
+    GenServer.call(pid, :get_optimization_config)
+  end
+
   # Server implementation
 
   @impl true
@@ -111,18 +133,36 @@ defmodule Presto.RuleEngine do
       rules: %{},
       # Maps rule_id to network node IDs
       rule_networks: %{},
+      # NEW: Maps rule_id to rule analysis
+      rule_analyses: %{},
+      # NEW: Fast-path eligible rules grouped by fact type
+      fast_path_rules: %{},
       last_execution_order: [],
       rule_statistics: %{},
       engine_statistics: %{
         total_facts: 0,
         total_rules: 0,
         total_rule_firings: 0,
-        last_execution_time: 0
+        last_execution_time: 0,
+        # NEW: Optimization statistics
+        fast_path_executions: 0,
+        rete_network_executions: 0,
+        alpha_nodes_saved_by_sharing: 0
       },
       # Timestamp for incremental processing
       last_incremental_execution: 0,
       # Facts added since last incremental execution
-      facts_since_incremental: []
+      facts_since_incremental: [],
+      # NEW: Optimization configuration
+      optimization_config: %{
+        enable_fast_path: true,
+        enable_alpha_sharing: true,
+        enable_rule_batching: true,
+        # Max conditions for fast path
+        fast_path_threshold: 2,
+        # Min rules sharing pattern for alpha node sharing
+        sharing_threshold: 2
+      }
     }
 
     {:ok, state}
@@ -132,37 +172,65 @@ defmodule Presto.RuleEngine do
   def handle_call({:add_rule, rule}, _from, state) do
     case validate_rule(rule) do
       :ok ->
-        case compile_rule_to_network(rule, state) do
-          {:ok, network_nodes, new_state} ->
-            updated_rules = Map.put(state.rules, rule.id, rule)
-            updated_networks = Map.put(state.rule_networks, rule.id, network_nodes)
+        # NEW: Analyze rule complexity and optimization opportunities
+        rule_analysis = RuleAnalyzer.analyze_rule(rule)
 
-            updated_statistics =
-              Map.put(state.rule_statistics, rule.id, %{
-                executions: 0,
-                total_time: 0,
-                average_time: 0,
-                facts_processed: 0
-              })
+        # Decide whether to use fast path or RETE network
+        {network_nodes, new_state} =
+          if should_use_fast_path?(rule_analysis, state) do
+            # Use fast path - no network nodes needed
+            {%{alpha_nodes: [], beta_nodes: []}, state}
+          else
+            # Use RETE network
+            case compile_rule_to_network(rule, state) do
+              {:ok, network_nodes, updated_state} -> {network_nodes, updated_state}
+              {:error, reason} -> throw({:error, reason})
+            end
+          end
 
-            final_state = %{
-              new_state
-              | rules: updated_rules,
-                rule_networks: updated_networks,
-                rule_statistics: updated_statistics,
-                engine_statistics:
-                  Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
-            }
+        updated_rules = Map.put(new_state.rules, rule.id, rule)
+        updated_networks = Map.put(new_state.rule_networks, rule.id, network_nodes)
+        updated_analyses = Map.put(new_state.rule_analyses, rule.id, rule_analysis)
 
-            {:reply, :ok, final_state}
+        # NEW: Update fast path rules if applicable
+        updated_fast_path_rules =
+          if rule_analysis.strategy == :fast_path do
+            fact_type = extract_fact_type_from_rule(rule)
+            fast_path_rules_for_type = Map.get(new_state.fast_path_rules, fact_type, [])
+            Map.put(new_state.fast_path_rules, fact_type, [rule.id | fast_path_rules_for_type])
+          else
+            new_state.fast_path_rules
+          end
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        updated_statistics =
+          Map.put(new_state.rule_statistics, rule.id, %{
+            executions: 0,
+            total_time: 0,
+            average_time: 0,
+            facts_processed: 0,
+            # NEW: Optimization statistics
+            strategy_used: rule_analysis.strategy,
+            complexity: rule_analysis.complexity
+          })
+
+        final_state = %{
+          new_state
+          | rules: updated_rules,
+            rule_networks: updated_networks,
+            rule_analyses: updated_analyses,
+            fast_path_rules: updated_fast_path_rules,
+            rule_statistics: updated_statistics,
+            engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
+        }
+
+        {:reply, :ok, final_state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  catch
+    {:error, reason} ->
+      {:reply, {:error, reason}, state}
   end
 
   @impl true
@@ -304,6 +372,31 @@ defmodule Presto.RuleEngine do
   @impl true
   def handle_call(:get_engine_statistics, _from, state) do
     {:reply, state.engine_statistics, state}
+  end
+
+  @impl true
+  def handle_call({:analyze_rule, rule_id}, _from, state) do
+    analysis = Map.get(state.rule_analyses, rule_id)
+    {:reply, analysis, state}
+  end
+
+  @impl true
+  def handle_call(:analyze_rule_set, _from, state) do
+    rules = Map.values(state.rules)
+    analysis = RuleAnalyzer.analyze_rule_set(rules)
+    {:reply, analysis, state}
+  end
+
+  @impl true
+  def handle_call({:configure_optimization, opts}, _from, state) do
+    new_config = Map.merge(state.optimization_config, Map.new(opts))
+    new_state = %{state | optimization_config: new_config}
+    {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_call(:get_optimization_config, _from, state) do
+    {:reply, state.optimization_config, state}
   end
 
   @impl true
@@ -568,6 +661,48 @@ defmodule Presto.RuleEngine do
   end
 
   defp execute_rules(state, concurrent) do
+    # NEW: Use optimized execution strategy
+    if state.optimization_config.enable_fast_path do
+      execute_rules_optimized(state, concurrent)
+    else
+      execute_rules_traditional(state, concurrent)
+    end
+  end
+
+  # NEW: Optimized execution with fast-path and batching
+  defp execute_rules_optimized(state, concurrent) do
+    # Process changes through beta network for RETE rules only
+    BetaNetwork.process_alpha_changes(state.beta_network)
+
+    # Separate fast-path rules from RETE rules
+    {fast_path_rules, rete_rules} = separate_rules_by_strategy(state)
+
+    # Execute fast-path rules efficiently
+    fast_path_results = execute_fast_path_rules(fast_path_rules, state)
+
+    # Execute RETE rules traditionally  
+    rete_results = execute_rete_rules(rete_rules, state, concurrent)
+
+    # Combine results and update statistics
+    all_results = fast_path_results ++ rete_results
+    execution_order = extract_execution_order(fast_path_rules, rete_rules)
+
+    updated_state = %{
+      state
+      | last_execution_order: execution_order,
+        engine_statistics:
+          update_optimization_statistics(state.engine_statistics, fast_path_rules, rete_rules)
+    }
+
+    # Collect rule statistics
+    all_rules = fast_path_rules ++ rete_rules
+    final_state = collect_rule_statistics(updated_state, all_rules)
+
+    {List.flatten(all_results), final_state}
+  end
+
+  # Traditional execution without optimizations
+  defp execute_rules_traditional(state, concurrent) do
     # Process changes through beta network
     BetaNetwork.process_alpha_changes(state.beta_network)
 
@@ -832,6 +967,88 @@ defmodule Presto.RuleEngine do
       {_type, name} when is_binary(name) -> name in identifiers
       {_type, name, _extra} when is_binary(name) -> name in identifiers
       _ -> false
+    end
+  end
+
+  # NEW: Helper functions for Phase 4 optimizations
+
+  defp should_use_fast_path?(rule_analysis, state) do
+    state.optimization_config.enable_fast_path and
+      rule_analysis.strategy == :fast_path
+  end
+
+  defp separate_rules_by_strategy(state) do
+    state.rules
+    |> Enum.split_with(fn {rule_id, _rule} ->
+      analysis = Map.get(state.rule_analyses, rule_id)
+      analysis && analysis.strategy == :fast_path
+    end)
+  end
+
+  defp execute_fast_path_rules(fast_path_rules, state) do
+    if state.optimization_config.enable_rule_batching do
+      execute_fast_path_rules_batched(fast_path_rules, state)
+    else
+      execute_fast_path_rules_individually(fast_path_rules, state)
+    end
+  end
+
+  defp execute_fast_path_rules_batched(fast_path_rules, state) do
+    # Group rules by fact type for batched execution
+    rules_by_fact_type =
+      fast_path_rules
+      |> Enum.group_by(fn {_rule_id, rule} -> extract_fact_type_from_rule(rule) end)
+
+    # Execute each group as a batch
+    Enum.flat_map(rules_by_fact_type, fn {_fact_type, rules} ->
+      rule_list = Enum.map(rules, fn {_rule_id, rule} -> rule end)
+
+      case FastPathExecutor.execute_batch_fast_path(rule_list, state.working_memory) do
+        {:ok, results} -> results
+        {:error, _reason} -> []
+      end
+    end)
+  end
+
+  defp execute_fast_path_rules_individually(fast_path_rules, state) do
+    Enum.flat_map(fast_path_rules, fn {_rule_id, rule} ->
+      case FastPathExecutor.execute_fast_path(rule, state.working_memory) do
+        {:ok, results} -> results
+        {:error, _reason} -> []
+      end
+    end)
+  end
+
+  defp execute_rete_rules(rete_rules, state, concurrent) do
+    if concurrent do
+      execute_rules_concurrent(rete_rules, state)
+    else
+      execute_rules_sequential(rete_rules, state)
+    end
+  end
+
+  defp extract_execution_order(fast_path_rules, rete_rules) do
+    # Maintain priority-based order across both rule types
+    all_rules = fast_path_rules ++ rete_rules
+
+    all_rules
+    |> Enum.sort_by(fn {_rule_id, rule} -> Map.get(rule, :priority, 0) end, :desc)
+    |> Enum.map(fn {rule_id, _rule} -> rule_id end)
+  end
+
+  defp update_optimization_statistics(engine_stats, fast_path_rules, rete_rules) do
+    engine_stats
+    |> Map.update!(:fast_path_executions, &(&1 + length(fast_path_rules)))
+    |> Map.update!(:rete_network_executions, &(&1 + length(rete_rules)))
+  end
+
+  defp extract_fact_type_from_rule(rule) do
+    conditions = Map.get(rule, :conditions, [])
+    {patterns, _tests} = separate_conditions(conditions)
+
+    case patterns do
+      [pattern | _] -> elem(pattern, 0)
+      [] -> nil
     end
   end
 end

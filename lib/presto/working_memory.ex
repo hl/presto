@@ -8,6 +8,8 @@ defmodule Presto.WorkingMemory do
 
   use GenServer
 
+  alias Presto.Utils
+
   @type fact :: tuple()
   @type pattern :: tuple()
   @type change :: {:assert | :retract, fact()}
@@ -206,8 +208,17 @@ defmodule Presto.WorkingMemory do
     fact_list = Tuple.to_list(fact)
 
     Enum.zip(pattern_list, fact_list)
-    |> Enum.all?(fn {pattern_elem, fact_elem} ->
-      pattern_elem == :_ or pattern_elem == fact_elem or variable?(pattern_elem)
+    |> Enum.with_index()
+    |> Enum.all?(fn {{pattern_elem, fact_elem}, index} ->
+      case index do
+        0 ->
+          # First element (fact type) must match exactly
+          pattern_elem == fact_elem
+
+        _ ->
+          # Other elements can be variables, wildcards, or exact matches
+          pattern_elem == :_ or pattern_elem == fact_elem or Utils.variable?(pattern_elem)
+      end
     end)
   end
 
@@ -216,8 +227,10 @@ defmodule Presto.WorkingMemory do
     fact_list = Tuple.to_list(fact)
 
     Enum.zip(pattern_list, fact_list)
-    |> Enum.reduce(%{}, fn {pattern_elem, fact_elem}, acc ->
-      if variable?(pattern_elem) do
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {{pattern_elem, fact_elem}, index}, acc ->
+      # Only bind variables, and skip the fact type (index 0)
+      if index > 0 and Utils.variable?(pattern_elem) do
         var_name =
           String.trim_leading(Atom.to_string(pattern_elem), ":")
           |> String.to_atom()
@@ -227,27 +240,5 @@ defmodule Presto.WorkingMemory do
         acc
       end
     end)
-  end
-
-  defp variable?(atom) when is_atom(atom) do
-    # Variables are atoms that are not :_ and not literal values
-    atom != :_ and not is_literal_atom?(atom)
-  end
-
-  defp variable?(_), do: false
-
-  defp is_literal_atom?(atom) when is_atom(atom) do
-    # Consider atoms that start with uppercase or are common literals as literals
-    str = Atom.to_string(atom)
-
-    case str do
-      <<first::utf8, _rest::binary>> when first >= ?A and first <= ?Z ->
-        # Starts with uppercase, likely a module/literal
-        true
-
-      _ ->
-        # Check if it's a common literal
-        atom in [true, false, nil, :ok, :error, :person, :employment, :company, :number]
-    end
   end
 end

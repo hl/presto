@@ -8,6 +8,7 @@ defmodule Presto.AlphaNetwork do
 
   use GenServer
 
+  alias Presto.Utils
   # alias Presto.WorkingMemory  # Not currently used
 
   @type condition :: {atom(), atom(), atom(), [test()]}
@@ -71,7 +72,11 @@ defmodule Presto.AlphaNetwork do
       working_memory: working_memory,
       alpha_nodes: %{},
       # ETS table to store alpha memory for each node
-      alpha_memories: :ets.new(:alpha_memories, [:set, :private])
+      alpha_memories: :ets.new(:alpha_memories, [:set, :private]),
+      # NEW: Index alpha nodes by fact type for O(1) lookup
+      fact_type_index: %{},
+      # NEW: Compiled pattern cache to avoid repeated compilation
+      compiled_patterns: :ets.new(:compiled_patterns, [:set, :private])
     }
 
     {:ok, state}
@@ -81,7 +86,21 @@ defmodule Presto.AlphaNetwork do
   def handle_call({:create_alpha_node, condition}, _from, state) do
     node_id = generate_node_id()
 
-    case compile_condition(condition) do
+    # NEW: Check pattern cache first
+    condition_key = :crypto.hash(:sha256, :erlang.term_to_binary(condition))
+
+    compiled_condition =
+      case :ets.lookup(state.compiled_patterns, condition_key) do
+        [{^condition_key, cached_result}] ->
+          cached_result
+
+        [] ->
+          result = compile_condition(condition)
+          :ets.insert(state.compiled_patterns, {condition_key, result})
+          result
+      end
+
+    case compiled_condition do
       {:ok, alpha_node} ->
         node = Map.put(alpha_node, :id, node_id)
         new_nodes = Map.put(state.alpha_nodes, node_id, node)
@@ -89,7 +108,14 @@ defmodule Presto.AlphaNetwork do
         # Initialize empty memory for this node
         :ets.insert(state.alpha_memories, {node_id, []})
 
-        new_state = %{state | alpha_nodes: new_nodes}
+        # NEW: Index node by fact type for O(1) lookup
+        fact_type = extract_fact_type_from_pattern(node.pattern)
+        fact_type_nodes = Map.get(state.fact_type_index, fact_type, [])
+
+        new_fact_type_index =
+          Map.put(state.fact_type_index, fact_type, [{node_id, node} | fact_type_nodes])
+
+        new_state = %{state | alpha_nodes: new_nodes, fact_type_index: new_fact_type_index}
         {:reply, {:ok, node_id}, new_state}
 
       {:error, reason} ->
@@ -99,10 +125,28 @@ defmodule Presto.AlphaNetwork do
 
   @impl true
   def handle_call({:remove_alpha_node, node_id}, _from, state) do
+    # Get the node before deleting to update the fact type index
+    node = Map.get(state.alpha_nodes, node_id)
     new_nodes = Map.delete(state.alpha_nodes, node_id)
     :ets.delete(state.alpha_memories, node_id)
 
-    new_state = %{state | alpha_nodes: new_nodes}
+    # NEW: Update fact type index
+    new_fact_type_index =
+      if node do
+        fact_type = extract_fact_type_from_pattern(node.pattern)
+        current_nodes = Map.get(state.fact_type_index, fact_type, [])
+        filtered_nodes = Enum.filter(current_nodes, fn {id, _node} -> id != node_id end)
+
+        if Enum.empty?(filtered_nodes) do
+          Map.delete(state.fact_type_index, fact_type)
+        else
+          Map.put(state.fact_type_index, fact_type, filtered_nodes)
+        end
+      else
+        state.fact_type_index
+      end
+
+    new_state = %{state | alpha_nodes: new_nodes, fact_type_index: new_fact_type_index}
     {:reply, :ok, new_state}
   end
 
@@ -140,6 +184,7 @@ defmodule Presto.AlphaNetwork do
   @impl true
   def terminate(_reason, state) do
     :ets.delete(state.alpha_memories)
+    :ets.delete(state.compiled_patterns)
     :ok
   end
 
@@ -147,6 +192,12 @@ defmodule Presto.AlphaNetwork do
 
   defp generate_node_id do
     "alpha_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+  end
+
+  # NEW: Helper function to extract fact type from pattern
+  defp extract_fact_type_from_pattern(pattern) do
+    # First element is always the fact type
+    elem(pattern, 0)
   end
 
   defp compile_condition({fact_type, field1, field2, tests}) do
@@ -224,8 +275,13 @@ defmodule Presto.AlphaNetwork do
   end
 
   defp process_fact_through_network(fact, operation, state) do
-    # Process fact through all alpha nodes
-    Enum.reduce(state.alpha_nodes, state, fn {node_id, node}, acc_state ->
+    fact_type = elem(fact, 0)
+
+    # NEW: Get only relevant alpha nodes for this fact type (O(1) lookup)
+    relevant_nodes = Map.get(state.fact_type_index, fact_type, [])
+
+    # Process fact through relevant nodes only
+    Enum.reduce(relevant_nodes, state, fn {node_id, node}, acc_state ->
       process_fact_through_node(fact, node_id, node, operation, acc_state)
     end)
   end
@@ -256,62 +312,57 @@ defmodule Presto.AlphaNetwork do
   end
 
   defp fact_matches_pattern?(fact, pattern) do
-    fact_list = Tuple.to_list(fact)
-    pattern_list = Tuple.to_list(pattern)
+    fact_size = tuple_size(fact)
+    match_elements?(fact, pattern, fact_size, 0)
+  end
 
-    Enum.zip(fact_list, pattern_list)
-    |> Enum.with_index()
-    |> Enum.all?(fn {{fact_elem, pattern_elem}, index} ->
-      case index do
-        0 ->
-          # First element (fact type) must match exactly
-          pattern_elem == fact_elem
+  # NEW: Optimized element-by-element matching without tuple conversions
+  defp match_elements?(_fact, _pattern, size, index) when index >= size, do: true
 
-        _ ->
-          # Other elements can be variables, wildcards, or exact matches
-          pattern_elem == :_ or
-            pattern_elem == fact_elem or
-            variable?(pattern_elem)
-      end
-    end)
+  defp match_elements?(fact, pattern, size, index) do
+    fact_elem = elem(fact, index)
+    pattern_elem = elem(pattern, index)
+
+    element_matches?(fact_elem, pattern_elem, index) and
+      match_elements?(fact, pattern, size, index + 1)
+  end
+
+  defp element_matches?(_fact_elem, :_, _index), do: true
+
+  defp element_matches?(fact_elem, pattern_elem, 0) do
+    # Fact type (position 0) must match exactly
+    fact_elem == pattern_elem
+  end
+
+  defp element_matches?(fact_elem, pattern_elem, _index) when is_atom(pattern_elem) do
+    Utils.variable?(pattern_elem) or fact_elem == pattern_elem
+  end
+
+  defp element_matches?(fact_elem, pattern_elem, _index) do
+    fact_elem == pattern_elem
   end
 
   defp extract_bindings_from_fact(fact, pattern) do
-    fact_list = Tuple.to_list(fact)
-    pattern_list = Tuple.to_list(pattern)
+    fact_size = tuple_size(fact)
+    extract_bindings_from_elements(fact, pattern, fact_size, 1, %{})
+  end
 
-    Enum.zip(fact_list, pattern_list)
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn {{fact_elem, pattern_elem}, index}, acc ->
-      # Only bind variables, and skip the fact type (index 0)
-      if index > 0 and variable?(pattern_elem) do
+  # NEW: Optimized binding extraction without tuple conversions
+  defp extract_bindings_from_elements(_fact, _pattern, size, index, acc) when index >= size,
+    do: acc
+
+  defp extract_bindings_from_elements(fact, pattern, size, index, acc) do
+    pattern_elem = elem(pattern, index)
+
+    new_acc =
+      if Utils.variable?(pattern_elem) do
+        fact_elem = elem(fact, index)
         Map.put(acc, pattern_elem, fact_elem)
       else
         acc
       end
-    end)
-  end
 
-  defp variable?(atom) when is_atom(atom) do
-    # Variables are atoms that are not :_ and not literals
-    atom != :_ and not is_literal_atom?(atom)
-  end
-
-  defp variable?(_), do: false
-
-  defp is_literal_atom?(atom) when is_atom(atom) do
-    # Consider atoms that start with uppercase or are common literals as literals
-    str = Atom.to_string(atom)
-
-    case str do
-      <<first::utf8, _rest::binary>> when first >= ?A and first <= ?Z ->
-        # Starts with uppercase, likely a module/literal
-        true
-
-      _ ->
-        # Check if it's a common literal
-        atom in [true, false, nil, :ok, :error]
-    end
+    extract_bindings_from_elements(fact, pattern, size, index + 1, new_acc)
   end
 
   defp update_alpha_memory(node_id, bindings, operation, state) do
