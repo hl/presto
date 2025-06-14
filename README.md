@@ -354,36 +354,75 @@ IO.inspect(compliance_result.violations)
 For advanced use cases, you can interact with the RETE engine directly:
 
 ```elixir
-defmodule MyApp.ReteExample do
-  def process_with_rete_engine(facts, rule_spec) do
-    # Get configured rule module
-    {:ok, rule_module} = Presto.RuleRegistry.get_rule_module("time_calculation")
+defmodule MyApp.DirectEngineExample do
+  def process_with_direct_engine() do
+    # Define rules directly
+    rules = [
+      %Presto.Rule{
+        name: "adult_discount",
+        conditions: [
+          {:person, :name, :age},
+          {:order, :name, :total}
+        ],
+        guards: [
+          {:>=, :age, 18},
+          {:>, :total, 100}
+        ],
+        action: {:apply_discount, 0.1}
+      }
+    ]
     
-    # Create rules from specification
-    rules = rule_module.create_rules(rule_spec)
+    # Start engine with rules
+    {:ok, engine} = Presto.start_link(rules)
     
-    # Start working memory
-    {:ok, working_memory} = Presto.WorkingMemory.start_link()
+    # Assert facts
+    :ok = Presto.assert_fact(engine, {:person, "John", 25})
+    :ok = Presto.assert_fact(engine, {:order, "John", 150})
     
-    # Start rule engine with rules
-    {:ok, rule_engine} = Presto.RuleEngine.start_link(working_memory, rules)
+    # For manual execution mode:
+    # {:ok, engine} = Presto.start_link(rules, execution_mode: :manual)
+    # {fired_rules, new_facts} = Presto.run_cycle(engine)
     
-    # Assert facts into working memory
-    Enum.each(facts, fn fact ->
-      Presto.WorkingMemory.assert_fact(working_memory, fact)
-    end)
-    
-    # Execute rules
-    Presto.RuleEngine.execute_rules(rule_engine)
-    
-    # Get all facts (original + derived)
-    all_facts = Presto.WorkingMemory.get_all_facts(working_memory)
+    # Get results
+    facts = Presto.get_facts(engine)
     
     # Clean up
-    GenServer.stop(rule_engine)
-    GenServer.stop(working_memory)
+    Presto.stop(engine)
     
-    all_facts
+    facts
+  end
+  
+  def advanced_engine_usage() do
+    rules = create_complex_rules()
+    
+    # Start with configuration
+    {:ok, engine} = Presto.start_link(rules, 
+      execution_mode: :automatic,
+      max_rule_executions: 1000,
+      name: MyRulesEngine
+    )
+    
+    # Batch operations for performance
+    facts = [
+      {:person, "John", 25},
+      {:person, "Jane", 30},
+      {:order, "John", 150},
+      {:order, "Jane", 200}
+    ]
+    
+    :ok = Presto.assert_facts(engine, facts)
+    
+    # Monitor execution
+    :ok = Presto.subscribe(engine, self())
+    
+    # Receive notifications:
+    # {:rule_fired, %{rule: "adult_discount", bindings: %{name: "John", age: 25}}}
+    # {:fact_asserted, {:person, "John", 25}}
+    
+    # Get statistics
+    stats = Presto.get_statistics(engine)
+    
+    Presto.stop(engine)
   end
 end
 ```
@@ -432,180 +471,154 @@ rule_spec = load_client_rules("client_123")
 result = process_payroll(timesheet_data, rule_spec)
 ```
 
-## Creating Custom Rule Modules
+## Creating Custom Rules
 
-When the built-in examples aren't enough, create your own rule modules:
+Define your own rules using the direct Rule struct approach:
 
-### 1. Define Your Rule Module
+### 1. Define Custom Rules
 
 ```elixir
-defmodule MyApp.CustomPayrollRules do
-  @behaviour Presto.RuleBehaviour
-
-  @impl Presto.RuleBehaviour
-  def create_rules(rule_spec) do
-    variables = Map.get(rule_spec, "variables", %{})
-    requested_rules = Map.get(rule_spec, "rules_to_run", [])
-    
-    # Only create rules that were requested
-    rules = []
-    
-    rules = if "holiday_pay" in requested_rules do
-      [holiday_pay_rule(variables) | rules]
-    else
-      rules
-    end
-    
-    rules = if "bonus_calculation" in requested_rules do
-      [bonus_calculation_rule(variables) | rules]
-    else
-      rules
-    end
-    
-    rules
-  end
-
-  @impl Presto.RuleBehaviour
-  def valid_rule_spec?(%{"rules_to_run" => rules, "variables" => variables}) 
-      when is_list(rules) and is_map(variables) do
-    supported_rules = ["holiday_pay", "bonus_calculation"]
-    Enum.any?(rules, &(&1 in supported_rules))
-  end
-  def valid_rule_spec?(_), do: false
-
-  # Holiday pay rule: 2x rate for designated holidays
-  defp holiday_pay_rule(variables) do
+defmodule MyApp.CustomRules do
+  def holiday_pay_rules(variables \\ %{}) do
     holiday_multiplier = Map.get(variables, "holiday_multiplier", 2.0)
     
-    %{
-      name: :holiday_pay,
-      pattern: fn facts ->
-        # Find time entries on holidays
-        facts
-        |> Enum.filter(&holiday_time_entry?/1)
-      end,
-      action: fn holiday_entries ->
-        # Create holiday pay entries
-        Enum.map(holiday_entries, fn {:time_entry, id, data} ->
-          holiday_hours = data.units
-          holiday_pay = holiday_hours * holiday_multiplier
-          
-          {:holiday_pay, id, %{
-            employee_id: data.employee_id,
-            date: DateTime.to_date(data.start_datetime),
-            hours: holiday_hours,
-            multiplier: holiday_multiplier,
+    [
+      %Presto.Rule{
+        name: "holiday_pay_calculation",
+        conditions: [
+          {:time_entry, :id, :employee_id, :date, :hours},
+          {:holiday, :date}  # Join on date field
+        ],
+        guards: [
+          {:>, :hours, 0}
+        ],
+        action: fn bindings ->
+          holiday_pay = bindings.hours * holiday_multiplier
+          {:holiday_pay, bindings.id, %{
+            employee_id: bindings.employee_id,
+            date: bindings.date,
+            regular_hours: bindings.hours,
+            holiday_multiplier: holiday_multiplier,
             total_pay_hours: holiday_pay
           }}
-        end)
-      end
-    }
+        end
+      }
+    ]
   end
   
-  # Bonus calculation rule: performance bonuses
-  defp bonus_calculation_rule(variables) do
+  def bonus_calculation_rules(variables \\ %{}) do
     performance_threshold = Map.get(variables, "performance_threshold", 90)
     bonus_rate = Map.get(variables, "bonus_rate", 0.1)
     
-    %{
-      name: :bonus_calculation,
-      pattern: fn facts ->
-        # Find performance records above threshold
-        facts
-        |> Enum.filter(fn
-          {:performance_record, _, %{score: score}} when score >= performance_threshold -> true
-          _ -> false
-        end)
-      end,
-      action: fn performance_records ->
-        Enum.map(performance_records, fn {:performance_record, id, data} ->
-          bonus_amount = data.base_salary * bonus_rate * (data.score / 100)
-          
-          {:bonus_award, id, %{
-            employee_id: data.employee_id,
-            performance_score: data.score,
-            base_salary: data.base_salary,
+    [
+      %Presto.Rule{
+        name: "performance_bonus",
+        conditions: [
+          {:employee, :id, :base_salary},
+          {:performance_review, :id, :score}
+        ],
+        guards: [
+          {:>=, :score, performance_threshold}
+        ],
+        action: fn bindings ->
+          bonus_amount = bindings.base_salary * bonus_rate * (bindings.score / 100)
+          {:bonus_award, bindings.id, %{
+            employee_id: bindings.id,
+            performance_score: bindings.score,
+            base_salary: bindings.base_salary,
             bonus_rate: bonus_rate,
             bonus_amount: bonus_amount,
             awarded_at: DateTime.utc_now()
           }}
-        end)
-      end
-    }
-  end
-  
-  defp holiday_time_entry?({:time_entry, _, %{start_datetime: start_dt}}) do
-    date = DateTime.to_date(start_dt)
-    is_holiday?(date)
-  end
-  defp holiday_time_entry?(_), do: false
-  
-  defp is_holiday?(date) do
-    # Simplified holiday detection
-    holidays = [
-      ~D[2024-01-01],  # New Year's Day
-      ~D[2024-07-04],  # Independence Day
-      ~D[2024-12-25]   # Christmas
+        end,
+        priority: 10
+      }
     ]
-    
-    date in holidays
+  end
+  
+  def complex_eligibility_rules() do
+    [
+      %Presto.Rule{
+        name: "senior_discount_eligibility",
+        conditions: [
+          {:person, :name, :age, :membership_level},
+          {:order, :name, :total, :items}
+        ],
+        guards: [
+          {:>=, :age, 65},
+          {:==, :membership_level, :premium},
+          {:>, :total, 50},
+          {:>, {:length, :items}, 2}
+        ],
+        action: {:apply_senior_discount, [:name, :total]},
+        priority: 20
+      },
+      
+      %Presto.Rule{
+        name: "bulk_discount",
+        conditions: [
+          {:order, :customer, :total, :items}
+        ],
+        guards: [
+          {:>, {:length, :items}, 10}
+        ],
+        action: {MyApp.DiscountProcessor, :apply_bulk_discount, [:customer, :total]},
+        priority: 15
+      }
+    ]
   end
 end
 ```
 
-### 2. Register Your Rules
+### 2. Use Your Custom Rules
 
 ```elixir
-# config/config.exs
-config :presto, :rule_registry,
-  rules: %{
-    # Built-in rules
-    "time_calculation" => Presto.Examples.PayrollRules,
-    "overtime_check" => Presto.Examples.PayrollRules,
+defmodule MyApp.PayrollProcessor do
+  def process_with_custom_rules() do
+    # Create rule sets
+    holiday_rules = MyApp.CustomRules.holiday_pay_rules(%{"holiday_multiplier" => 2.5})
+    bonus_rules = MyApp.CustomRules.bonus_calculation_rules(%{"performance_threshold" => 85})
+    eligibility_rules = MyApp.CustomRules.complex_eligibility_rules()
     
-    # Your custom rules
-    "holiday_pay" => MyApp.CustomPayrollRules,
-    "bonus_calculation" => MyApp.CustomPayrollRules
-  }
-```
-
-### 3. Use Your Custom Rules
-
-```elixir
-# Process holiday timesheet
-holiday_timesheet = [
-  {:time_entry, "holiday_1", %{
-    employee_id: "emp_001",
-    start_datetime: ~U[2024-07-04 09:00:00Z],  # July 4th
-    finish_datetime: ~U[2024-07-04 17:00:00Z],
-    minutes: nil,
-    units: nil
-  }}
-]
-
-rule_spec = %{
-  "rules_to_run" => ["time_calculation", "holiday_pay"],
-  "variables" => %{
-    "holiday_multiplier" => 2.5  # 2.5x pay on holidays
-  }
-}
-
-# Process with custom rules
-{:ok, rule_module} = Presto.RuleRegistry.get_rule_module("holiday_pay")
-rules = rule_module.create_rules(rule_spec)
-
-# Execute rules (simplified - in practice you'd use the RETE engine)
-calculated_entries = apply_time_calculation(holiday_timesheet)
-holiday_pay_entries = apply_holiday_rules(calculated_entries, rule_spec)
-
-IO.inspect(holiday_pay_entries)
-# [%{
-#   employee_id: "emp_001",
-#   date: ~D[2024-07-04],
-#   hours: 8.0,
-#   multiplier: 2.5,
-#   total_pay_hours: 20.0  # 8 hours * 2.5 multiplier
-# }]
+    # Combine all rules
+    all_rules = holiday_rules ++ bonus_rules ++ eligibility_rules
+    
+    # Start engine with custom rules
+    {:ok, engine} = Presto.start_link(all_rules)
+    
+    # Assert facts
+    facts = [
+      {:time_entry, "entry_1", "emp_001", ~D[2024-07-04], 8.0},
+      {:holiday, ~D[2024-07-04]},
+      {:employee, "emp_001", 75_000},
+      {:performance_review, "emp_001", 92}
+    ]
+    
+    :ok = Presto.assert_facts(engine, facts)
+    
+    # Get results
+    results = Presto.get_facts(engine)
+    
+    Presto.stop(engine)
+    
+    results
+  end
+  
+  def process_discount_eligibility() do
+    rules = MyApp.CustomRules.complex_eligibility_rules()
+    {:ok, engine} = Presto.start_link(rules)
+    
+    # Assert customer and order facts
+    :ok = Presto.assert_fact(engine, {:person, "John", 67, :premium})
+    :ok = Presto.assert_fact(engine, {:order, "John", 150, ["item1", "item2", "item3"]})
+    
+    # Rules will automatically fire and create discount facts
+    results = Presto.get_facts(engine)
+    
+    Presto.stop(engine)
+    results
+  end
+end
 ```
 
 ## Advanced Configuration
@@ -757,33 +770,95 @@ end
 
 ### Performance Optimization
 
-**Efficient Fact Structures**
-```elixir
-# Good: Structured facts with clear types
-{:time_entry, id, %{employee_id: "emp_001", hours: 8.0}}
+Presto includes comprehensive performance optimizations based on advanced RETE implementations:
 
-# Avoid: Unstructured data
-%{data: %{employee: %{id: "emp_001", time: %{hours: 8.0}}}}
+#### ETS Optimization
+```elixir
+# Optimized ETS configuration for different access patterns
+config :presto, :engine,
+  memory_config: %{
+    working_memory: [:set, :public, {:read_concurrency, true}],
+    alpha_memories: [:bag, :public, {:read_concurrency, true}],
+    beta_memories: [:bag, :public, {:write_concurrency, true}]
+  }
 ```
 
-**Rule Optimization**
+#### Pattern Compilation
 ```elixir
-# Good: Specific pattern matching
-def efficient_rule do
-  %{
-    name: :overtime_check,
-    pattern: fn facts ->
-      # Filter first, then process
-      facts
-      |> Enum.filter(&is_processed_time_entry?/1)
-      |> Enum.group_by(&get_employee_id/1)
-    end,
-    action: fn grouped_entries ->
-      # Efficient processing
-    end
+# Compile-time pattern optimization
+defmodule MyApp.OptimizedRules do
+  # Patterns are compiled into efficient matching functions
+  %Presto.Rule{
+    name: "optimized_pattern",
+    conditions: [
+      {:person, :name, :age},  # Compiled to efficient matcher
+      {:order, :name, :total}  # Indexed joins for performance
+    ],
+    guards: [
+      {:>=, :age, 18}  # Guard optimization with selectivity analysis
+    ]
   }
 end
 ```
+
+#### Performance Monitoring
+```elixir
+# Built-in performance monitoring
+defmodule MyApp.MonitoredEngine do
+  def start_with_monitoring() do
+    {:ok, engine} = Presto.start_link(rules, 
+      optimizations: %{
+        indexing: %{enabled: true, strategy: :hash},
+        compilation: %{enabled: true, optimization_level: :aggressive},
+        memory: %{enabled: true, cache_optimization: true}
+      }
+    )
+    
+    # Get performance statistics
+    stats = Presto.get_statistics(engine)
+    # %{
+    #   total_rule_executions: 1250,
+    #   average_cycle_time: 15.7, # milliseconds
+    #   memory_usage: %{working_memory: 2048}, # KB
+    #   rule_statistics: %{"adult_discount" => %{executions: 45, avg_time: 2.1}}
+    # }
+    
+    engine
+  end
+end
+```
+
+#### Optimization Layers
+```elixir
+# Advanced optimization configuration
+config :presto, :optimizations,
+  # Indexing optimizations for join performance
+  indexing: %{
+    enabled: true,
+    join_indexing: %{strategy: :hash, rebuild_threshold: 1000},
+    type_discrimination: %{enabled: true, cache_size: 10000}
+  },
+  
+  # Pattern compilation optimizations
+  compilation: %{
+    enabled: true,
+    pattern_compilation: %{compile_at_startup: true, optimization_level: :aggressive},
+    guard_optimization: %{enabled: true, reorder_guards: true}
+  },
+  
+  # Memory optimizations
+  memory: %{
+    enabled: true,
+    cache_optimization: %{enabled: true, prefetch_strategy: :sequential},
+    gc_optimization: %{cleanup_interval: 60_000}
+  }
+```
+
+**Performance Targets:**
+- **Fact Assertion**: 10,000+ facts/second for simple patterns
+- **Rule Execution**: 1,000+ rule fires/second with complex conditions  
+- **Memory Efficiency**: <100MB for 10,000 facts with 100 rules
+- **Latency**: <1ms for simple rule activation, <10ms for complex joins
 
 ## Best Practices
 
@@ -830,39 +905,54 @@ end
 
 ### 4. Production Deployment
 
-- **Configuration Validation**: Validate rules on application startup
+- **Engine Supervision**: Proper supervision tree integration
 - **Error Handling**: Graceful degradation when rules fail
-- **Monitoring**: Track rule execution metrics
-- **Rollback Strategy**: Keep previous rule versions for rollback
+- **Monitoring**: Track rule execution metrics with built-in statistics
+- **Configuration Management**: Environment-specific rule optimization
 
 ```elixir
 defmodule MyApp.Application do
   use Application
 
   def start(_type, _args) do
-    # Validate rule configuration at startup
-    case Presto.RuleRegistry.validate_configuration() do
-      :ok -> 
-        IO.puts("All rules configured correctly")
-      {:error, errors} ->
-        IO.inspect(errors, label: "Rule configuration errors")
-        # Decide: fail fast or use default rules
-    end
+    # Define rules for this environment
+    rules = load_production_rules()
     
     # Start your supervision tree
     children = [
-      # ... your processes
+      # Presto engine as supervised child
+      {Presto, [rules, [name: MyApp.RulesEngine, 
+                        optimizations: production_optimizations()]]},
+      
+      # Your other processes
+      MyApp.DataProcessor,
+      MyApp.APIServer
     ]
     
     opts = [strategy: :one_for_one, name: MyApp.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+  
+  defp production_optimizations() do
+    %{
+      indexing: %{enabled: true, strategy: :hash},
+      compilation: %{enabled: true, optimization_level: :aggressive},
+      memory: %{enabled: true, cache_optimization: true},
+      execution: %{enabled: true, parallel_rules: true}
+    }
+  end
+  
+  defp load_production_rules() do
+    # Load rules based on environment configuration
+    Application.get_env(:my_app, :rule_modules, [])
+    |> Enum.flat_map(& &1.create_rules())
   end
 end
 ```
 
 ## Architecture Overview
 
-Presto implements the **RETE algorithm** for efficient rule processing:
+Presto implements the **RETE algorithm** with a simplified, integrated architecture optimized for Elixir:
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────┐
@@ -875,6 +965,36 @@ Presto implements the **RETE algorithm** for efficient rule processing:
                    │   Results   │◀───│ Rule Actions │
                    │(New Facts)  │    │ (Processing) │
                    └─────────────┘    └──────────────┘
+```
+
+### Core Components
+
+**Engine (GenServer)**: Central coordinator managing:
+- Network state and rule management
+- Fact lifecycle and working memory (ETS)
+- Alpha/Beta memory management (integrated)
+- Rule execution coordination
+- Memory cleanup and optimization
+
+**Alpha Network**: Pattern matching using Elixir's native pattern matching + ETS storage
+
+**Beta Network**: Join operations with ETS-based partial match storage
+
+**Task Supervision**: Parallel rule execution with fault isolation
+
+### Memory Architecture
+
+```elixir
+# Working Memory - all facts
+:working_memory          # ETS table: {fact_id, fact}
+
+# Alpha Memories - facts by pattern  
+:alpha_memory_1          # ETS table: {pattern_id, fact}
+
+# Beta Memories - partial matches
+:beta_memory_1           # ETS table: {token_id, token}
+
+# All managed by single Engine process for consistency
 ```
 
 **When to use Presto:**
