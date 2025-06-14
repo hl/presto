@@ -8,7 +8,7 @@ defmodule Presto.PrestoTestHelpers do
   """
   def start_engine_with_rules(rules, opts \\ []) do
     engine_opts = Keyword.merge([rules: rules], opts)
-    
+
     {:ok, engine} = Presto.RuleEngine.start_link(engine_opts)
     engine
   end
@@ -35,11 +35,11 @@ defmodule Presto.PrestoTestHelpers do
   @doc """
   Waits for rule execution to complete and returns the current facts.
   """
-  def wait_for_rule_execution(engine, timeout \\ 5000) do
+  def wait_for_rule_execution(engine, _timeout \\ 5000) do
     # In a real implementation, this would wait for the engine to reach a stable state
     # For now, we'll simulate with a small delay
     Process.sleep(100)
-    
+
     get_all_facts(engine)
   end
 
@@ -73,7 +73,7 @@ defmodule Presto.PrestoTestHelpers do
     facts
     |> Enum.filter(fn
       {^pattern, ^key_pattern, _} -> true
-      {^pattern, key, _} when key_pattern == :_ -> true
+      {^pattern, _key, _} when key_pattern == :_ -> true
       _ -> false
     end)
   end
@@ -90,7 +90,7 @@ defmodule Presto.PrestoTestHelpers do
   """
   def with_engine(rules, test_func, opts \\ []) do
     engine = start_engine_with_rules(rules, opts)
-    
+
     try do
       test_func.(engine)
     after
@@ -103,7 +103,7 @@ defmodule Presto.PrestoTestHelpers do
   """
   def assert_facts_present(engine, expected_facts) when is_list(expected_facts) do
     actual_facts = get_all_facts(engine)
-    
+
     expected_facts
     |> Enum.each(fn expected_fact ->
       assert_fact_present(actual_facts, expected_fact)
@@ -119,9 +119,10 @@ defmodule Presto.PrestoTestHelpers do
   """
   def assert_fact_present(facts, expected_fact) do
     case Enum.find(facts, &facts_match?(&1, expected_fact)) do
-      nil -> 
+      nil ->
         raise "Expected fact not found: #{inspect(expected_fact)}\nActual facts: #{inspect(facts)}"
-      _found -> 
+
+      _found ->
         :ok
     end
   end
@@ -144,15 +145,17 @@ defmodule Presto.PrestoTestHelpers do
       case validation do
         {:count, pattern, expected_count} ->
           actual_count = count_facts(engine, pattern)
+
           if actual_count != expected_count do
             raise "Expected #{expected_count} facts matching #{inspect(pattern)}, got #{actual_count}"
           end
-          
+
         {:present, fact} ->
           assert_facts_present(engine, fact)
-          
+
         {:absent, pattern} ->
           count = count_facts(engine, pattern)
+
           if count > 0 do
             raise "Expected no facts matching #{inspect(pattern)}, but found #{count}"
           end
@@ -173,10 +176,10 @@ defmodule Presto.PrestoTestHelpers do
           action: "calculate_and_process",
           variables: Map.merge(%{"overtime_threshold" => 40.0}, variables)
         }
-        
+
       :compliance ->
         %{
-          name: "test_compliance_rule", 
+          name: "test_compliance_rule",
           type: "compliance",
           pattern: "weekly_hours",
           action: "check_compliance",
@@ -189,12 +192,12 @@ defmodule Presto.PrestoTestHelpers do
   Simulates rule execution cycle for testing.
   """
   def run_rule_cycle(engine, opts \\ []) do
-    max_cycles = Keyword.get(opts, :max_cycles, 10)
+    _max_cycles = Keyword.get(opts, :max_cycles, 10)
     timeout = Keyword.get(opts, :timeout, 5000)
-    
+
     # Simulate rule engine cycles
     Process.sleep(50)
-    
+
     wait_for_rule_execution(engine, timeout)
   end
 
@@ -203,16 +206,18 @@ defmodule Presto.PrestoTestHelpers do
   defp facts_match?(actual_fact, expected_fact) do
     case {actual_fact, expected_fact} do
       # Exact match
-      {fact, fact} -> true
-      
+      {fact, fact} ->
+        true
+
       # Pattern match with wildcards
-      {{type, key, data}, {type, :_, expected_data}} ->
+      {{type, _key, data}, {type, :_, expected_data}} ->
         maps_match?(data, expected_data)
-        
+
       {{type, key, data}, {type, key, expected_data}} ->
         maps_match?(data, expected_data)
-        
-      _ -> false
+
+      _ ->
+        false
     end
   end
 
@@ -221,7 +226,7 @@ defmodule Presto.PrestoTestHelpers do
     |> Enum.all?(fn {key, expected_value} ->
       case Map.get(actual, key) do
         ^expected_value -> true
-        actual_value when expected_value == :_ -> true
+        _actual_value when expected_value == :_ -> true
         _ -> false
       end
     end)

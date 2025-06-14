@@ -12,8 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        elixir: ['1.18']
-        otp: ['27']
+        elixir: ['1.17', '1.18']
+        otp: ['26', '27']
+        exclude:
+          - elixir: '1.17'
+            otp: '27'
     
     steps:
     - uses: actions/checkout@v4
@@ -45,6 +48,11 @@ jobs:
       env:
         MIX_ENV: test
     
+    - name: Compile with warnings as errors
+      run: mix compile --warnings-as-errors
+      env:
+        MIX_ENV: test
+    
     - name: Run tests
       run: mix test
       env:
@@ -72,6 +80,11 @@ jobs:
     
     - name: Install dependencies
       run: mix deps.get
+      env:
+        MIX_ENV: dev
+    
+    - name: Compile with warnings as errors
+      run: mix compile --warnings-as-errors
       env:
         MIX_ENV: dev
     
@@ -111,6 +124,11 @@ jobs:
     
     - name: Install dependencies
       run: mix deps.get
+      env:
+        MIX_ENV: dev
+    
+    - name: Compile with warnings as errors
+      run: mix compile --warnings-as-errors
       env:
         MIX_ENV: dev
     
@@ -163,6 +181,11 @@ jobs:
     
     - name: Install dependencies
       run: mix deps.get
+      env:
+        MIX_ENV: dev
+    
+    - name: Compile with warnings as errors
+      run: mix compile --warnings-as-errors
       env:
         MIX_ENV: dev
     

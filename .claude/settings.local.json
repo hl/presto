@@ -23,7 +23,12 @@
       "mcp__filesystem__directory_tree",
       "Bash(sed:*)",
       "Bash(mix compile:*)",
-      "Bash(mix clean:*)"
+      "Bash(mix clean:*)",
+      "mcp__filesystem__search_files",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(rg:*)",
+      "mcp__filesystem__list_allowed_directories"
     ],
     "deny": []
   }

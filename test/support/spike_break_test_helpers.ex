@@ -4,8 +4,6 @@ defmodule Presto.SpikeBreakTestHelpers do
   Supports multi-jurisdictional testing scenarios.
   """
 
-  alias Presto.Factories
-
   @doc """
   Creates a standard work session without spike break triggers.
   """
@@ -13,15 +11,16 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[09:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(hours * 3600), :second)
 
-    {:work_session, "session_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "session_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: hours,
-      meal_breaks_taken: if(hours > 5, do: 1, else: 0),
-      breaks_taken: []
-    }}
+    {:work_session, "session_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "session_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: hours,
+       meal_breaks_taken: if(hours > 5, do: 1, else: 0),
+       breaks_taken: []
+     }}
   end
 
   @doc """
@@ -31,15 +30,17 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[09:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(hours_without_meal * 3600), :second)
 
-    {:work_session, "consecutive_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "consecutive_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: hours_without_meal,
-      meal_breaks_taken: 0, # No meal breaks - triggers spike break
-      breaks_taken: []
-    }}
+    {:work_session, "consecutive_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "consecutive_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: hours_without_meal,
+       # No meal breaks - triggers spike break
+       meal_breaks_taken: 0,
+       breaks_taken: []
+     }}
   end
 
   @doc """
@@ -49,15 +50,16 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[07:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(total_hours * 3600), :second)
 
-    {:work_session, "extended_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "extended_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: total_hours,
-      meal_breaks_taken: if(total_hours > 5, do: 1, else: 0),
-      breaks_taken: []
-    }}
+    {:work_session, "extended_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "extended_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: total_hours,
+       meal_breaks_taken: if(total_hours > 5, do: 1, else: 0),
+       breaks_taken: []
+     }}
   end
 
   @doc """
@@ -67,18 +69,19 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[09:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(hours * 3600), :second)
 
-    {:work_session, "crunch_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "crunch_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: hours,
-      meal_breaks_taken: 1,
-      breaks_taken: [],
-      is_crunch_time: true,
-      industry: "technology",
-      jurisdiction: %{state: "california", region: "bay_area", city: "san_francisco"}
-    }}
+    {:work_session, "crunch_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "crunch_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: hours,
+       meal_breaks_taken: 1,
+       breaks_taken: [],
+       is_crunch_time: true,
+       industry: "technology",
+       jurisdiction: %{state: "california", region: "bay_area", city: "san_francisco"}
+     }}
   end
 
   @doc """
@@ -88,38 +91,41 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[06:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(hours * 3600), :second)
 
-    {:work_session, "entertainment_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "entertainment_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: hours,
-      meal_breaks_taken: 2,
-      breaks_taken: [],
-      is_peak_production: true,
-      industry: "entertainment",
-      jurisdiction: %{state: "california", region: "los_angeles_county", city: "los_angeles"}
-    }}
+    {:work_session, "entertainment_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "entertainment_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: hours,
+       meal_breaks_taken: 2,
+       breaks_taken: [],
+       is_peak_production: true,
+       industry: "entertainment",
+       jurisdiction: %{state: "california", region: "los_angeles_county", city: "los_angeles"}
+     }}
   end
 
   @doc """
   Creates a work session for Central Valley agricultural work during harvest.
   """
   def create_central_valley_agriculture_session(employee_id, date, hours \\ 10) do
-    start_dt = DateTime.new!(date, ~T[05:00:00], "Etc/UTC") # Early start for agriculture
+    # Early start for agriculture
+    start_dt = DateTime.new!(date, ~T[05:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(hours * 3600), :second)
 
-    {:work_session, "agriculture_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "agriculture_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: hours,
-      meal_breaks_taken: 1,
-      breaks_taken: [],
-      industry: "agriculture",
-      jurisdiction: %{state: "california", region: "central_valley"}
-    }}
+    {:work_session, "agriculture_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "agriculture_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: hours,
+       meal_breaks_taken: 1,
+       breaks_taken: [],
+       industry: "agriculture",
+       jurisdiction: %{state: "california", region: "central_valley"}
+     }}
   end
 
   @doc """
@@ -129,15 +135,16 @@ defmodule Presto.SpikeBreakTestHelpers do
     start_dt = DateTime.new!(date, ~T[08:00:00], "Etc/UTC")
     end_dt = DateTime.add(start_dt, trunc(total_hours * 3600), :second)
 
-    {:work_session, "with_breaks_#{employee_id}_#{Date.to_string(date)}", %{
-      employee_id: employee_id,
-      work_session_id: "with_breaks_#{employee_id}_#{Date.to_string(date)}",
-      start_datetime: start_dt,
-      end_datetime: end_dt,
-      total_hours: total_hours,
-      meal_breaks_taken: 1,
-      breaks_taken: breaks_taken
-    }}
+    {:work_session, "with_breaks_#{employee_id}_#{Date.to_string(date)}",
+     %{
+       employee_id: employee_id,
+       work_session_id: "with_breaks_#{employee_id}_#{Date.to_string(date)}",
+       start_datetime: start_dt,
+       end_datetime: end_dt,
+       total_hours: total_hours,
+       meal_breaks_taken: 1,
+       breaks_taken: breaks_taken
+     }}
   end
 
   @doc """
@@ -146,13 +153,14 @@ defmodule Presto.SpikeBreakTestHelpers do
   def create_break_taken(employee_id, taken_at, duration_minutes, break_type \\ :spike_break) do
     break_id = "break_#{employee_id}_#{DateTime.to_unix(taken_at)}"
 
-    {:break_taken, break_id, %{
-      employee_id: employee_id,
-      taken_at: taken_at,
-      duration_minutes: duration_minutes,
-      break_type: break_type,
-      paid: true
-    }}
+    {:break_taken, break_id,
+     %{
+       employee_id: employee_id,
+       taken_at: taken_at,
+       duration_minutes: duration_minutes,
+       break_type: break_type,
+       paid: true
+     }}
   end
 
   @doc """
@@ -163,27 +171,23 @@ defmodule Presto.SpikeBreakTestHelpers do
       state_only: %{
         state: "california"
       },
-
       bay_area_tech: %{
         state: "california",
         region: "bay_area",
         city: "san_francisco",
         industry: "technology"
       },
-
       la_entertainment: %{
         state: "california",
         region: "los_angeles_county",
         city: "los_angeles",
         industry: "entertainment"
       },
-
       central_valley_agriculture: %{
         state: "california",
         region: "central_valley",
         industry: "agriculture"
       },
-
       san_diego_hospitality: %{
         state: "california",
         region: "san_diego_county",
@@ -197,7 +201,7 @@ defmodule Presto.SpikeBreakTestHelpers do
   Creates a complex multi-jurisdiction scenario.
   """
   def create_multi_jurisdiction_scenario(base_date) do
-    jurisdictions = create_jurisdiction_configs()
+    _jurisdictions = create_jurisdiction_configs()
 
     %{
       # Bay Area tech worker during crunch
@@ -260,13 +264,15 @@ defmodule Presto.SpikeBreakTestHelpers do
   Returns compliance results statistics.
   """
   def get_compliance_stats(compliance_results) do
-    violations = Enum.count(compliance_results, fn {:spike_break_compliance, _, data} ->
-      data.status == :non_compliant
-    end)
+    violations =
+      Enum.count(compliance_results, fn {:spike_break_compliance, _, data} ->
+        data.status == :non_compliant
+      end)
 
-    total_penalties = compliance_results
-    |> Enum.map(fn {:spike_break_compliance, _, data} -> data.penalty_hours end)
-    |> Enum.sum()
+    total_penalties =
+      compliance_results
+      |> Enum.map(fn {:spike_break_compliance, _, data} -> data.penalty_hours end)
+      |> Enum.sum()
 
     %{
       violations: violations,
@@ -291,7 +297,8 @@ defmodule Presto.SpikeBreakTestHelpers do
       :extended_day_violation ->
         %{
           work_session: create_extended_day_session(employee_id, date, 14),
-          expected_requirements: 2, # One for consecutive work + one for extended day
+          # One for consecutive work + one for extended day
+          expected_requirements: 2,
           expected_types: [:extended_day],
           jurisdiction: %{state: "california"}
         }
@@ -299,7 +306,8 @@ defmodule Presto.SpikeBreakTestHelpers do
       :bay_area_tech_crunch ->
         %{
           work_session: create_bay_area_crunch_session(employee_id, date, 12),
-          expected_requirements: 12, # Hourly breaks during crunch
+          # Hourly breaks during crunch
+          expected_requirements: 12,
           expected_types: [:bay_area_tech_crunch],
           jurisdiction: %{state: "california", region: "bay_area", city: "san_francisco"}
         }
@@ -307,7 +315,8 @@ defmodule Presto.SpikeBreakTestHelpers do
       :multi_violation ->
         %{
           work_session: create_extended_day_session(employee_id, date, 16),
-          expected_requirements: 3, # Consecutive + multiple extended day breaks
+          # Consecutive + multiple extended day breaks
+          expected_requirements: 3,
           expected_types: [:consecutive_work, :extended_day],
           jurisdiction: %{state: "california"}
         }
@@ -327,31 +336,34 @@ defmodule Presto.SpikeBreakTestHelpers do
   """
   def create_cross_jurisdiction_scenario(employee_id, date) do
     # Worker travels between jurisdictions in same day
-    morning_session = {:work_session, "morning_#{employee_id}", %{
-      employee_id: employee_id,
-      work_session_id: "morning_#{employee_id}",
-      start_datetime: DateTime.new!(date, ~T[06:00:00], "Etc/UTC"),
-      end_datetime: DateTime.new!(date, ~T[12:00:00], "Etc/UTC"),
-      total_hours: 6,
-      meal_breaks_taken: 0,
-      breaks_taken: [],
-      jurisdiction: %{state: "california", region: "bay_area", city: "san_francisco"}
-    }}
+    morning_session =
+      {:work_session, "morning_#{employee_id}",
+       %{
+         employee_id: employee_id,
+         work_session_id: "morning_#{employee_id}",
+         start_datetime: DateTime.new!(date, ~T[06:00:00], "Etc/UTC"),
+         end_datetime: DateTime.new!(date, ~T[12:00:00], "Etc/UTC"),
+         total_hours: 6,
+         meal_breaks_taken: 0,
+         breaks_taken: [],
+         jurisdiction: %{state: "california", region: "bay_area", city: "san_francisco"}
+       }}
 
-    afternoon_session = {:work_session, "afternoon_#{employee_id}", %{
-      employee_id: employee_id,
-      work_session_id: "afternoon_#{employee_id}",
-      start_datetime: DateTime.new!(date, ~T[13:00:00], "Etc/UTC"),
-      end_datetime: DateTime.new!(date, ~T[20:00:00], "Etc/UTC"),
-      total_hours: 7,
-      meal_breaks_taken: 1,
-      breaks_taken: [],
-      jurisdiction: %{state: "california", region: "los_angeles_county", city: "los_angeles"}
-    }}
+    afternoon_session =
+      {:work_session, "afternoon_#{employee_id}",
+       %{
+         employee_id: employee_id,
+         work_session_id: "afternoon_#{employee_id}",
+         start_datetime: DateTime.new!(date, ~T[13:00:00], "Etc/UTC"),
+         end_datetime: DateTime.new!(date, ~T[20:00:00], "Etc/UTC"),
+         total_hours: 7,
+         meal_breaks_taken: 1,
+         breaks_taken: [],
+         jurisdiction: %{state: "california", region: "los_angeles_county", city: "los_angeles"}
+       }}
 
     [morning_session, afternoon_session]
   end
-
 
   @doc """
   Extracts compliance results from a list of facts.
@@ -380,11 +392,12 @@ defmodule Presto.SpikeBreakTestHelpers do
   def calculate_expected_penalties(violations, jurisdiction) do
     base_penalty = 1.0
 
-    multiplier = case jurisdiction do
-      %{region: "bay_area"} -> 1.5
-      %{region: "los_angeles_county"} -> 1.25
-      _ -> 1.0
-    end
+    multiplier =
+      case jurisdiction do
+        %{region: "bay_area"} -> 1.5
+        %{region: "los_angeles_county"} -> 1.25
+        _ -> 1.0
+      end
 
     violations * base_penalty * multiplier
   end

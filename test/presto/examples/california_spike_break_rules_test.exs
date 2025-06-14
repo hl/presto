@@ -12,9 +12,13 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       work_session = SpikeBreakTestHelpers.create_consecutive_work_session(employee_id, date, 7)
       jurisdiction = %{state: "california"}
 
-      assert CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(work_session, jurisdiction)
+      assert CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(
+               work_session,
+               jurisdiction
+             )
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       SpikeBreakTestHelpers.validate_spike_break_requirements(
         requirements,
@@ -35,14 +39,17 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       work_session = SpikeBreakTestHelpers.create_extended_day_session(employee_id, date, 14)
       jurisdiction = %{state: "california"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should have extended day breaks for hours beyond 10
-      extended_day_requirements = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :extended_day
-      end)
+      extended_day_requirements =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :extended_day
+        end)
 
-      assert length(extended_day_requirements) == 2 # 2 breaks for 4 extra hours (14-10)
+      # 2 breaks for 4 extra hours (14-10)
+      assert length(extended_day_requirements) == 2
 
       Enum.each(extended_day_requirements, fn {:spike_break_requirement, _, data} ->
         assert data.required_duration_minutes == 10
@@ -57,9 +64,14 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       work_session = SpikeBreakTestHelpers.create_standard_work_session(employee_id, date, 8)
       jurisdiction = %{state: "california"}
 
-      refute CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(work_session, jurisdiction)
+      refute CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(
+               work_session,
+               jurisdiction
+             )
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+
       assert length(requirements) == 0
     end
 
@@ -70,7 +82,8 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       work_session = SpikeBreakTestHelpers.create_consecutive_work_session(employee_id, date, 8)
       jurisdiction = %{state: "california"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       [requirement] = requirements
       assert {:spike_break_requirement, _, data} = requirement
@@ -86,19 +99,22 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       date = ~D[2024-01-15]
 
       # 16-hour day without meal break - triggers both consecutive and extended day
-      work_session = {:work_session, "multi_violation", %{
-        employee_id: employee_id,
-        work_session_id: "multi_violation",
-        start_datetime: DateTime.new!(date, ~T[06:00:00], "Etc/UTC"),
-        end_datetime: DateTime.new!(date, ~T[22:00:00], "Etc/UTC"),
-        total_hours: 16,
-        meal_breaks_taken: 0,
-        breaks_taken: []
-      }}
+      work_session =
+        {:work_session, "multi_violation",
+         %{
+           employee_id: employee_id,
+           work_session_id: "multi_violation",
+           start_datetime: DateTime.new!(date, ~T[06:00:00], "Etc/UTC"),
+           end_datetime: DateTime.new!(date, ~T[22:00:00], "Etc/UTC"),
+           total_hours: 16,
+           meal_breaks_taken: 0,
+           breaks_taken: []
+         }}
 
       jurisdiction = %{state: "california"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should have consecutive work break + extended day breaks
       types = Enum.map(requirements, fn {:spike_break_requirement, _, data} -> data.type end)
@@ -119,14 +135,19 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       work_session = SpikeBreakTestHelpers.create_bay_area_crunch_session(employee_id, date, 12)
       jurisdiction = %{state: "california", region: "bay_area", industry: "technology"}
 
-      assert CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(work_session, jurisdiction)
+      assert CaliforniaSpikeBreakRules.work_session_triggers_spike_breaks?(
+               work_session,
+               jurisdiction
+             )
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should have Bay Area specific tech crunch breaks
-      tech_breaks = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :bay_area_tech_crunch
-      end)
+      tech_breaks =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :bay_area_tech_crunch
+        end)
 
       assert length(tech_breaks) > 0
 
@@ -152,27 +173,32 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       date = ~D[2024-01-15]
 
       # Regular tech work session (not crunch time)
-      work_session = {:work_session, "regular_tech", %{
-        employee_id: employee_id,
-        work_session_id: "regular_tech",
-        start_datetime: DateTime.new!(date, ~T[09:00:00], "Etc/UTC"),
-        end_datetime: DateTime.new!(date, ~T[17:00:00], "Etc/UTC"),
-        total_hours: 8,
-        meal_breaks_taken: 1,
-        breaks_taken: [],
-        is_crunch_time: false, # Not during crunch
-        industry: "technology",
-        jurisdiction: %{state: "california", region: "bay_area"}
-      }}
+      work_session =
+        {:work_session, "regular_tech",
+         %{
+           employee_id: employee_id,
+           work_session_id: "regular_tech",
+           start_datetime: DateTime.new!(date, ~T[09:00:00], "Etc/UTC"),
+           end_datetime: DateTime.new!(date, ~T[17:00:00], "Etc/UTC"),
+           total_hours: 8,
+           meal_breaks_taken: 1,
+           breaks_taken: [],
+           # Not during crunch
+           is_crunch_time: false,
+           industry: "technology",
+           jurisdiction: %{state: "california", region: "bay_area"}
+         }}
 
       jurisdiction = %{state: "california", region: "bay_area", industry: "technology"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should not have tech crunch specific breaks
-      tech_breaks = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :bay_area_tech_crunch
-      end)
+      tech_breaks =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :bay_area_tech_crunch
+        end)
 
       assert length(tech_breaks) == 0
     end
@@ -181,17 +207,25 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
   describe "Los Angeles County Regional Rules" do
     test "applies entertainment industry peak production rules" do
       employee_id = "ent_emp_001"
-      date = ~D[2024-02-15] # Award season
+      # Award season
+      date = ~D[2024-02-15]
 
       work_session = SpikeBreakTestHelpers.create_la_entertainment_session(employee_id, date, 16)
-      jurisdiction = %{state: "california", region: "los_angeles_county", industry: "entertainment"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      jurisdiction = %{
+        state: "california",
+        region: "los_angeles_county",
+        industry: "entertainment"
+      }
+
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should have LA County specific entertainment breaks
-      entertainment_breaks = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :la_entertainment_peak
-      end)
+      entertainment_breaks =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :la_entertainment_peak
+        end)
 
       assert length(entertainment_breaks) > 0
 
@@ -202,30 +236,44 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
     end
 
     test "calculates enhanced penalties for entertainment industry" do
-      jurisdiction = %{state: "california", region: "los_angeles_county", industry: "entertainment"}
+      jurisdiction = %{
+        state: "california",
+        region: "los_angeles_county",
+        industry: "entertainment"
+      }
 
       req_data = %{type: :la_entertainment_peak}
       penalty = CaliforniaSpikeBreakRules.calculate_spike_break_penalty(req_data, jurisdiction)
 
       # Should have enhanced penalty multiplier
-      assert penalty == 1.25 # 1.25x base penalty
+      # 1.25x base penalty
+      assert penalty == 1.25
     end
   end
 
   describe "Central Valley Regional Rules" do
     test "applies agricultural harvest season rules" do
       employee_id = "ag_emp_001"
-      harvest_date = ~D[2024-08-15] # During harvest season (June-October)
+      # During harvest season (June-October)
+      harvest_date = ~D[2024-08-15]
 
-      work_session = SpikeBreakTestHelpers.create_central_valley_agriculture_session(employee_id, harvest_date, 10)
+      work_session =
+        SpikeBreakTestHelpers.create_central_valley_agriculture_session(
+          employee_id,
+          harvest_date,
+          10
+        )
+
       jurisdiction = %{state: "california", region: "central_valley", industry: "agriculture"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should have Central Valley specific agricultural breaks
-      ag_breaks = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :central_valley_agriculture
-      end)
+      ag_breaks =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :central_valley_agriculture
+        end)
 
       assert length(ag_breaks) > 0
 
@@ -237,28 +285,33 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
 
     test "does not apply harvest rules outside harvest season" do
       employee_id = "ag_emp_002"
-      non_harvest_date = ~D[2024-02-15] # Outside harvest season
+      # Outside harvest season
+      non_harvest_date = ~D[2024-02-15]
 
-      work_session = {:work_session, "non_harvest_ag", %{
-        employee_id: employee_id,
-        work_session_id: "non_harvest_ag",
-        start_datetime: DateTime.new!(non_harvest_date, ~T[05:00:00], "Etc/UTC"),
-        end_datetime: DateTime.new!(non_harvest_date, ~T[15:00:00], "Etc/UTC"),
-        total_hours: 10,
-        meal_breaks_taken: 1,
-        breaks_taken: [],
-        industry: "agriculture",
-        jurisdiction: %{state: "california", region: "central_valley"}
-      }}
+      work_session =
+        {:work_session, "non_harvest_ag",
+         %{
+           employee_id: employee_id,
+           work_session_id: "non_harvest_ag",
+           start_datetime: DateTime.new!(non_harvest_date, ~T[05:00:00], "Etc/UTC"),
+           end_datetime: DateTime.new!(non_harvest_date, ~T[15:00:00], "Etc/UTC"),
+           total_hours: 10,
+           meal_breaks_taken: 1,
+           breaks_taken: [],
+           industry: "agriculture",
+           jurisdiction: %{state: "california", region: "central_valley"}
+         }}
 
       jurisdiction = %{state: "california", region: "central_valley", industry: "agriculture"}
 
-      requirements = CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
+      requirements =
+        CaliforniaSpikeBreakRules.calculate_spike_break_requirements(work_session, jurisdiction)
 
       # Should not have agricultural specific breaks outside harvest season
-      ag_breaks = Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
-        data.type == :central_valley_agriculture
-      end)
+      ag_breaks =
+        Enum.filter(requirements, fn {:spike_break_requirement, _, data} ->
+          data.type == :central_valley_agriculture
+        end)
 
       assert length(ag_breaks) == 0
     end
@@ -305,24 +358,31 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       required_break_time = DateTime.new!(date, ~T[15:00:00], "Etc/UTC")
       break_taken = SpikeBreakTestHelpers.create_break_taken(employee_id, required_break_time, 15)
 
-      work_session = SpikeBreakTestHelpers.create_work_session_with_breaks(
-        employee_id,
-        date,
-        12,
-        [break_taken]
-      )
+      work_session =
+        SpikeBreakTestHelpers.create_work_session_with_breaks(
+          employee_id,
+          date,
+          12,
+          [break_taken]
+        )
 
       jurisdiction = %{state: "california"}
 
       # Process compliance
-      result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, jurisdiction)
+      result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session],
+          %{},
+          jurisdiction
+        )
 
       compliance_results = result.compliance_results
 
       # Should be compliant if proper breaks were taken
-      compliant_results = Enum.filter(compliance_results, fn {:spike_break_compliance, _, data} ->
-        data.status == :compliant
-      end)
+      compliant_results =
+        Enum.filter(compliance_results, fn {:spike_break_compliance, _, data} ->
+          data.status == :compliant
+        end)
 
       assert length(compliant_results) > 0
     end
@@ -336,7 +396,12 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
 
       jurisdiction = %{state: "california"}
 
-      result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, jurisdiction)
+      result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session],
+          %{},
+          jurisdiction
+        )
 
       assert result.summary.compliance_violations > 0
       assert result.summary.total_penalty_hours > 0
@@ -344,22 +409,33 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
     end
 
     test "calculates correct penalties for different jurisdiction levels" do
-      scenarios = SpikeBreakTestHelpers.create_break_compliance_scenarios("penalty_test", ~D[2024-01-15])
+      scenarios =
+        SpikeBreakTestHelpers.create_break_compliance_scenarios("penalty_test", ~D[2024-01-15])
 
       jurisdictions = [
-        %{state: "california"}, # Base penalty
-        %{state: "california", region: "bay_area"}, # 1.5x penalty
-        %{state: "california", region: "los_angeles_county"} # 1.25x penalty
+        # Base penalty
+        %{state: "california"},
+        # 1.5x penalty
+        %{state: "california", region: "bay_area"},
+        # 1.25x penalty
+        %{state: "california", region: "los_angeles_county"}
       ]
 
       Enum.each(jurisdictions, fn jurisdiction ->
         work_session = scenarios.non_compliant.work_session
-        result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, jurisdiction)
 
-        expected_penalty = SpikeBreakTestHelpers.calculate_expected_penalties(
-          result.summary.compliance_violations,
-          jurisdiction
-        )
+        result =
+          CaliforniaSpikeBreakRules.process_spike_break_compliance(
+            [work_session],
+            %{},
+            jurisdiction
+          )
+
+        expected_penalty =
+          SpikeBreakTestHelpers.calculate_expected_penalties(
+            result.summary.compliance_violations,
+            jurisdiction
+          )
 
         assert abs(result.summary.total_penalty_hours - expected_penalty) < 0.01
       end)
@@ -371,10 +447,11 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       base_date = ~D[2024-01-15]
       scenarios = SpikeBreakTestHelpers.create_multi_jurisdiction_scenario(base_date)
 
-      all_sessions = scenarios.bay_area_sessions ++
-                    scenarios.la_sessions ++
-                    scenarios.central_valley_sessions ++
-                    scenarios.standard_sessions
+      _all_sessions =
+        scenarios.bay_area_sessions ++
+          scenarios.la_sessions ++
+          scenarios.central_valley_sessions ++
+          scenarios.standard_sessions
 
       # Process each group with appropriate jurisdiction
       bay_area_jurisdiction = %{state: "california", region: "bay_area", city: "san_francisco"}
@@ -382,21 +459,33 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       central_valley_jurisdiction = %{state: "california", region: "central_valley"}
       state_jurisdiction = %{state: "california"}
 
-      bay_area_result = CaliforniaSpikeBreakRules.process_spike_break_compliance(
-        scenarios.bay_area_sessions, %{}, bay_area_jurisdiction
-      )
+      bay_area_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          scenarios.bay_area_sessions,
+          %{},
+          bay_area_jurisdiction
+        )
 
-      la_result = CaliforniaSpikeBreakRules.process_spike_break_compliance(
-        scenarios.la_sessions, %{}, la_jurisdiction
-      )
+      la_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          scenarios.la_sessions,
+          %{},
+          la_jurisdiction
+        )
 
-      central_valley_result = CaliforniaSpikeBreakRules.process_spike_break_compliance(
-        scenarios.central_valley_sessions, %{}, central_valley_jurisdiction
-      )
+      central_valley_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          scenarios.central_valley_sessions,
+          %{},
+          central_valley_jurisdiction
+        )
 
-      state_result = CaliforniaSpikeBreakRules.process_spike_break_compliance(
-        scenarios.standard_sessions, %{}, state_jurisdiction
-      )
+      state_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          scenarios.standard_sessions,
+          %{},
+          state_jurisdiction
+        )
 
       # Verify each jurisdiction has appropriate requirements
       assert bay_area_result.summary.total_spike_break_requirements > 0
@@ -423,9 +512,14 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
         %{state: "california", region: "bay_area", city: "san_francisco", industry: "technology"}
       ]
 
-      results = Enum.map(jurisdictions, fn jurisdiction ->
-        CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, jurisdiction)
-      end)
+      results =
+        Enum.map(jurisdictions, fn jurisdiction ->
+          CaliforniaSpikeBreakRules.process_spike_break_compliance(
+            [work_session],
+            %{},
+            jurisdiction
+          )
+        end)
 
       # More specific jurisdictions should have same or more requirements
       base_requirements = hd(results).summary.total_spike_break_requirements
@@ -442,28 +536,40 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       scenarios = SpikeBreakTestHelpers.create_temporal_scenarios()
 
       # Test harvest season (should trigger agricultural rules)
-      harvest_work = SpikeBreakTestHelpers.create_central_valley_agriculture_session(
-        employee_id,
-        scenarios.harvest_season,
-        10
-      )
+      harvest_work =
+        SpikeBreakTestHelpers.create_central_valley_agriculture_session(
+          employee_id,
+          scenarios.harvest_season,
+          10
+        )
 
       jurisdiction = %{state: "california", region: "central_valley", industry: "agriculture"}
 
-      harvest_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([harvest_work], %{}, jurisdiction)
+      harvest_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [harvest_work],
+          %{},
+          jurisdiction
+        )
 
       # Test non-harvest period
-      regular_work = SpikeBreakTestHelpers.create_central_valley_agriculture_session(
-        employee_id,
-        scenarios.regular_period,
-        10
-      )
+      regular_work =
+        SpikeBreakTestHelpers.create_central_valley_agriculture_session(
+          employee_id,
+          scenarios.regular_period,
+          10
+        )
 
-      regular_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([regular_work], %{}, jurisdiction)
+      regular_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [regular_work],
+          %{},
+          jurisdiction
+        )
 
       # Harvest season should have more requirements
       assert harvest_result.summary.total_spike_break_requirements >=
-             regular_result.summary.total_spike_break_requirements
+               regular_result.summary.total_spike_break_requirements
     end
 
     test "recognizes award season timing for entertainment industry" do
@@ -471,14 +577,32 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       award_season_date = ~D[2024-02-15]
       regular_date = ~D[2024-05-15]
 
-      jurisdiction = %{state: "california", region: "los_angeles_county", industry: "entertainment"}
+      jurisdiction = %{
+        state: "california",
+        region: "los_angeles_county",
+        industry: "entertainment"
+      }
 
       # During award season, work sessions should be more likely to trigger enhanced rules
-      award_session = SpikeBreakTestHelpers.create_la_entertainment_session("ent_001", award_season_date, 14)
-      regular_session = SpikeBreakTestHelpers.create_la_entertainment_session("ent_002", regular_date, 14)
+      award_session =
+        SpikeBreakTestHelpers.create_la_entertainment_session("ent_001", award_season_date, 14)
 
-      award_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([award_session], %{}, jurisdiction)
-      regular_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([regular_session], %{}, jurisdiction)
+      regular_session =
+        SpikeBreakTestHelpers.create_la_entertainment_session("ent_002", regular_date, 14)
+
+      award_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [award_session],
+          %{},
+          jurisdiction
+        )
+
+      regular_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [regular_session],
+          %{},
+          jurisdiction
+        )
 
       # Both should have requirements, but award season work may have enhanced rules
       assert award_result.summary.total_spike_break_requirements > 0
@@ -506,11 +630,15 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
 
     test "rejects invalid rule specification structure" do
       invalid_specs = [
-        %{}, # Missing rules
+        # Missing rules
+        %{},
         %{"rules" => "not_a_list"},
-        %{"rules" => [%{"name" => "test"}]}, # Missing type
-        %{"rules" => [%{"type" => "spike_break"}]}, # Missing name
-        %{"rules" => [%{"name" => "test", "type" => "invalid"}]} # Wrong type
+        # Missing type
+        %{"rules" => [%{"name" => "test"}]},
+        # Missing name
+        %{"rules" => [%{"type" => "spike_break"}]},
+        # Wrong type
+        %{"rules" => [%{"name" => "test", "type" => "invalid"}]}
       ]
 
       Enum.each(invalid_specs, fn spec ->
@@ -524,15 +652,15 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
         "rules_to_run" => ["spike_break_compliance"],
         "variables" => %{}
       }
-      
+
       assert CaliforniaSpikeBreakRules.valid_rule_spec?(valid_spec) == true
-      
+
       # Test with unsupported rule names
       invalid_spec = %{
         "rules_to_run" => ["unsupported_spike_rule"],
         "variables" => %{}
       }
-      
+
       assert CaliforniaSpikeBreakRules.valid_rule_spec?(invalid_spec) == false
     end
   end
@@ -549,16 +677,23 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
     end
 
     test "handles work sessions with missing data" do
-      incomplete_session = {:work_session, "incomplete", %{
-        employee_id: "emp_001",
-        start_datetime: DateTime.new!(~D[2024-01-15], ~T[09:00:00], "Etc/UTC")
-        # Missing end_datetime and other fields
-      }}
+      incomplete_session =
+        {:work_session, "incomplete",
+         %{
+           employee_id: "emp_001",
+           start_datetime: DateTime.new!(~D[2024-01-15], ~T[09:00:00], "Etc/UTC")
+           # Missing end_datetime and other fields
+         }}
 
       jurisdiction = %{state: "california"}
 
       # Should not crash with incomplete data
-      result = CaliforniaSpikeBreakRules.process_spike_break_compliance([incomplete_session], %{}, jurisdiction)
+      result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [incomplete_session],
+          %{},
+          jurisdiction
+        )
 
       assert is_map(result)
       assert Map.has_key?(result, :summary)
@@ -569,10 +704,16 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       date = ~D[2024-01-15]
 
       work_session = SpikeBreakTestHelpers.create_extended_day_session(employee_id, date, 12)
-      unknown_jurisdiction = %{state: "nevada"} # Not California
+      # Not California
+      unknown_jurisdiction = %{state: "nevada"}
 
       # Should still process but use default California rules
-      result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, unknown_jurisdiction)
+      result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session],
+          %{},
+          unknown_jurisdiction
+        )
 
       assert result.summary.total_spike_break_requirements >= 0
     end
@@ -586,72 +727,125 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       exact_break = SpikeBreakTestHelpers.create_break_taken(employee_id, required_time, 15)
 
       # Break taken just before required time
-      early_break = SpikeBreakTestHelpers.create_break_taken(
-        employee_id,
-        DateTime.add(required_time, -60, :second),
-        15
-      )
+      early_break =
+        SpikeBreakTestHelpers.create_break_taken(
+          employee_id,
+          DateTime.add(required_time, -60, :second),
+          15
+        )
 
       # Break taken after required time (should not count)
-      late_break = SpikeBreakTestHelpers.create_break_taken(
-        employee_id,
-        DateTime.add(required_time, 3600, :second),
-        15
-      )
+      late_break =
+        SpikeBreakTestHelpers.create_break_taken(
+          employee_id,
+          DateTime.add(required_time, 3600, :second),
+          15
+        )
 
-      work_session_with_exact = SpikeBreakTestHelpers.create_work_session_with_breaks(
-        employee_id, date, 12, [exact_break]
-      )
+      work_session_with_exact =
+        SpikeBreakTestHelpers.create_work_session_with_breaks(
+          employee_id,
+          date,
+          12,
+          [exact_break]
+        )
 
-      work_session_with_early = SpikeBreakTestHelpers.create_work_session_with_breaks(
-        employee_id, date, 12, [early_break]
-      )
+      work_session_with_early =
+        SpikeBreakTestHelpers.create_work_session_with_breaks(
+          employee_id,
+          date,
+          12,
+          [early_break]
+        )
 
-      work_session_with_late = SpikeBreakTestHelpers.create_work_session_with_breaks(
-        employee_id, date, 12, [late_break]
-      )
+      work_session_with_late =
+        SpikeBreakTestHelpers.create_work_session_with_breaks(
+          employee_id,
+          date,
+          12,
+          [late_break]
+        )
 
       jurisdiction = %{state: "california"}
 
-      exact_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session_with_exact], %{}, jurisdiction)
-      early_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session_with_early], %{}, jurisdiction)
-      late_result = CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session_with_late], %{}, jurisdiction)
+      exact_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session_with_exact],
+          %{},
+          jurisdiction
+        )
+
+      early_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session_with_early],
+          %{},
+          jurisdiction
+        )
+
+      late_result =
+        CaliforniaSpikeBreakRules.process_spike_break_compliance(
+          [work_session_with_late],
+          %{},
+          jurisdiction
+        )
 
       # Exact and early breaks should result in better compliance than late breaks
-      assert exact_result.summary.compliance_violations <= late_result.summary.compliance_violations
-      assert early_result.summary.compliance_violations <= late_result.summary.compliance_violations
+      assert exact_result.summary.compliance_violations <=
+               late_result.summary.compliance_violations
+
+      assert early_result.summary.compliance_violations <=
+               late_result.summary.compliance_violations
     end
   end
 
   describe "Performance and Scalability" do
     test "processes large number of work sessions efficiently" do
       # Create 100 work sessions across different jurisdictions
-      jurisdictions = SpikeBreakTestHelpers.create_jurisdiction_configs()
+      _jurisdictions = SpikeBreakTestHelpers.create_jurisdiction_configs()
 
-      work_sessions = for i <- 1..100 do
-        employee_id = "emp_#{String.pad_leading(to_string(i), 3, "0")}"
-        date = Date.add(~D[2024-01-01], rem(i, 30))
+      work_sessions =
+        for i <- 1..100 do
+          employee_id = "emp_#{String.pad_leading(to_string(i), 3, "0")}"
+          date = Date.add(~D[2024-01-01], rem(i, 30))
 
-        case rem(i, 4) do
-          0 -> SpikeBreakTestHelpers.create_bay_area_crunch_session(employee_id, date, 12)
-          1 -> SpikeBreakTestHelpers.create_la_entertainment_session(employee_id, date, 14)
-          2 -> SpikeBreakTestHelpers.create_central_valley_agriculture_session(employee_id, date, 10)
-          3 -> SpikeBreakTestHelpers.create_extended_day_session(employee_id, date, 11)
+          case rem(i, 4) do
+            0 ->
+              SpikeBreakTestHelpers.create_bay_area_crunch_session(employee_id, date, 12)
+
+            1 ->
+              SpikeBreakTestHelpers.create_la_entertainment_session(employee_id, date, 14)
+
+            2 ->
+              SpikeBreakTestHelpers.create_central_valley_agriculture_session(
+                employee_id,
+                date,
+                10
+              )
+
+            3 ->
+              SpikeBreakTestHelpers.create_extended_day_session(employee_id, date, 11)
+          end
         end
-      end
 
       jurisdiction = %{state: "california"}
 
-      {process_time, result} = :timer.tc(fn ->
-        CaliforniaSpikeBreakRules.process_spike_break_compliance(work_sessions, %{}, jurisdiction)
-      end)
+      {process_time, result} =
+        :timer.tc(fn ->
+          CaliforniaSpikeBreakRules.process_spike_break_compliance(
+            work_sessions,
+            %{},
+            jurisdiction
+          )
+        end)
 
       # Should process 100 sessions in reasonable time (< 2 seconds)
-      assert process_time < 2_000_000 # microseconds
+      # microseconds
+      assert process_time < 2_000_000
 
       # Verify results are reasonable
       assert result.summary.total_spike_break_requirements > 0
-      assert result.summary.total_spike_break_requirements <= length(work_sessions) * 10 # Reasonable upper bound
+      # Reasonable upper bound
+      assert result.summary.total_spike_break_requirements <= length(work_sessions) * 10
     end
 
     test "handles concurrent processing correctly" do
@@ -662,11 +856,16 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       jurisdiction = %{state: "california"}
 
       # Process same session multiple times concurrently
-      tasks = for _i <- 1..10 do
-        Task.async(fn ->
-          CaliforniaSpikeBreakRules.process_spike_break_compliance([work_session], %{}, jurisdiction)
-        end)
-      end
+      tasks =
+        for _i <- 1..10 do
+          Task.async(fn ->
+            CaliforniaSpikeBreakRules.process_spike_break_compliance(
+              [work_session],
+              %{},
+              jurisdiction
+            )
+          end)
+        end
 
       results = Task.await_many(tasks)
 
@@ -675,9 +874,10 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
 
       Enum.each(results, fn result ->
         assert result.summary.total_spike_break_requirements ==
-               first_result.summary.total_spike_break_requirements
+                 first_result.summary.total_spike_break_requirements
+
         assert result.summary.compliance_violations ==
-               first_result.summary.compliance_violations
+                 first_result.summary.compliance_violations
       end)
     end
   end
