@@ -73,16 +73,48 @@ defmodule Presto.Examples.OvertimeRules do
 
   @doc """
   Creates overtime calculation rules based on the provided specification.
+
+  The rule_spec can now include:
+  - rule_execution_order: Array specifying the order of main rules
+  - overtime_rules: Array of overtime rule specifications with priorities
+  - variables: Additional variables for rule processing
+
+  ## Example rule_spec:
+
+      %{
+        "rule_execution_order" => ["time_calculation", "pay_aggregation", "overtime_processing"],
+        "overtime_rules" => [
+          %{
+            "name" => "overtime_bp",
+            "priority" => 1,
+            "threshold" => 15,
+            "filter_pay_code" => "basic_pay", 
+            "pay_code" => "overtime_basic_pay"
+          }
+        ],
+        "variables" => %{}
+      }
   """
   @spec create_rules(rule_spec()) :: [map()]
   def create_rules(rule_spec) do
     variables = extract_variables(rule_spec)
+    execution_order = extract_rule_execution_order(rule_spec)
 
-    [
-      time_calculation_rule(),
-      pay_aggregation_rule(),
-      overtime_processing_rule(variables)
-    ]
+    # Create mapping of rule names to rule creation functions
+    rule_creators = %{
+      "time_calculation" => fn -> time_calculation_rule() end,
+      "pay_aggregation" => fn -> pay_aggregation_rule() end,
+      "overtime_processing" => fn -> overtime_processing_rule(variables, rule_spec) end
+    }
+
+    # Create rules in the specified order
+    execution_order
+    |> Enum.map(fn rule_name ->
+      case Map.get(rule_creators, rule_name) do
+        nil -> raise ArgumentError, "Unknown rule name: #{rule_name}"
+        creator -> creator.()
+      end
+    end)
   end
 
   @doc """
@@ -137,8 +169,8 @@ defmodule Presto.Examples.OvertimeRules do
   Pattern: Matches pay aggregates and overtime rules
   Action: Applies overtime rules, creates overtime entries, marks source entries as paid
   """
-  @spec overtime_processing_rule(rule_variables()) :: map()
-  def overtime_processing_rule(_variables \\ %{}) do
+  @spec overtime_processing_rule(rule_variables(), rule_spec()) :: map()
+  def overtime_processing_rule(_variables \\ %{}, _rule_spec \\ %{}) do
     %{
       name: :process_overtime_rules,
       pattern: fn facts ->
@@ -156,9 +188,19 @@ defmodule Presto.Examples.OvertimeRules do
 
   @doc """
   Processes time entries through the complete overtime calculation workflow.
+
+  If overtime_rules are provided, they will be used directly.
+  If rule_spec contains overtime_rules, those will be used instead.
   """
   @spec process_overtime([time_entry()], [overtime_rule()], rule_spec()) :: overtime_result()
-  def process_overtime(time_entries, overtime_rules, _rule_spec \\ %{}) do
+  def process_overtime(time_entries, overtime_rules, rule_spec \\ %{}) do
+    # Use overtime rules from spec if available, otherwise use provided rules
+    effective_overtime_rules =
+      case extract_overtime_rules_from_spec(rule_spec) do
+        [] -> overtime_rules
+        spec_rules -> spec_rules
+      end
+
     # Step 1: Calculate time durations
     calculated_entries =
       time_entries
@@ -169,7 +211,7 @@ defmodule Presto.Examples.OvertimeRules do
 
     # Step 3: Process overtime rules in sequence
     {final_aggregates, overtime_entries} =
-      process_overtime_rules_sequentially(pay_aggregates, overtime_rules)
+      process_overtime_rules_sequentially(pay_aggregates, effective_overtime_rules)
 
     # Step 4: Update time entries with paid status
     final_entries = update_time_entries_paid_status(calculated_entries, overtime_entries)
@@ -262,6 +304,83 @@ defmodule Presto.Examples.OvertimeRules do
     ]
 
     {time_entries, overtime_rules}
+  end
+
+  @doc """
+  Example rule specification with custom rule ordering and overtime rules.
+  """
+  def generate_example_rule_spec do
+    %{
+      "rule_execution_order" => ["time_calculation", "pay_aggregation", "overtime_processing"],
+      "overtime_rules" => [
+        %{
+          "name" => "overtime_basic_priority_1",
+          "priority" => 1,
+          "threshold" => 15,
+          "filter_pay_code" => "basic_pay",
+          "pay_code" => "overtime_basic_pay"
+        },
+        %{
+          "name" => "overtime_special_priority_2",
+          "priority" => 2,
+          "threshold" => 15,
+          "filter_pay_code" => "special_pay",
+          "pay_code" => "overtime_special_pay"
+        },
+        %{
+          "name" => "overtime_general_priority_3",
+          "priority" => 3,
+          "threshold" => 5,
+          "filter_pay_code" => nil,
+          "pay_code" => "overtime_rest"
+        }
+      ],
+      "variables" => %{
+        "max_overtime_hours" => 20,
+        "calculation_precision" => 2
+      }
+    }
+  end
+
+  @doc """
+  Demonstrates rule ordering with custom execution sequence.
+  """
+  def run_custom_order_example do
+    IO.puts("=== Custom Rule Ordering Example ===\n")
+
+    {time_entries, _} = generate_example_data()
+    rule_spec = generate_example_rule_spec()
+
+    IO.puts("Rule Specification:")
+    IO.puts("  Execution Order: #{inspect(Map.get(rule_spec, "rule_execution_order"))}")
+
+    IO.puts("\nOvertime Rules from Spec:")
+
+    rule_spec["overtime_rules"]
+    |> Enum.each(fn rule ->
+      IO.puts(
+        "  #{rule["name"]}: priority #{rule["priority"]}, threshold #{rule["threshold"]}h -> #{rule["pay_code"]}"
+      )
+    end)
+
+    IO.puts("\nValidating rule specification...")
+
+    case valid_rule_spec?(rule_spec) do
+      true -> IO.puts("✓ Rule specification is valid")
+      false -> IO.puts("✗ Rule specification is invalid")
+    end
+
+    IO.puts("\nCreating rules from specification...")
+    rules = create_rules(rule_spec)
+    IO.puts("✓ Created #{length(rules)} rules in custom order")
+
+    IO.puts("\nProcessing with spec-defined overtime rules...")
+    result = process_overtime(time_entries, [], rule_spec)
+
+    IO.puts("\nResults:")
+    print_summary(result.summary)
+
+    result
   end
 
   @doc """
@@ -485,47 +604,72 @@ defmodule Presto.Examples.OvertimeRules do
 
     # Process each rule in sequence
     {final_aggregates, overtime_entries} =
-      Enum.reduce(sorted_rules, {pay_aggregates, []}, fn rule,
-                                                         {current_aggregates, acc_overtime} ->
-        applicable_aggregates = find_applicable_aggregates(current_aggregates, rule)
-
-        if Enum.empty?(applicable_aggregates) do
-          {current_aggregates, acc_overtime}
-        else
-          results = apply_overtime_rule(applicable_aggregates, rule)
-
-          # Extract the overtime entry and updated aggregates
-          overtime_entry =
-            Enum.find(results, fn
-              {:overtime_entry, _, _} -> true
-              _ -> false
-            end)
-
-          updated_aggregates =
-            results
-            |> Enum.filter(fn
-              {:pay_aggregate, _, _} -> true
-              _ -> false
-            end)
-
-          # Update the aggregates list
-          new_aggregates =
-            current_aggregates
-            |> Enum.map(fn {type, key, _data} = aggregate ->
-              case Enum.find(updated_aggregates, fn
-                     {:pay_aggregate, ^key, _} -> true
-                     _ -> false
-                   end) do
-                nil -> aggregate
-                {:pay_aggregate, ^key, new_data} -> {type, key, new_data}
-              end
-            end)
-
-          {new_aggregates, [overtime_entry | acc_overtime]}
-        end
-      end)
+      Enum.reduce(sorted_rules, {pay_aggregates, []}, &process_single_overtime_rule/2)
 
     {final_aggregates, Enum.reverse(overtime_entries)}
+  end
+
+  defp process_single_overtime_rule(rule, {current_aggregates, acc_overtime}) do
+    applicable_aggregates = find_applicable_aggregates(current_aggregates, rule)
+
+    if Enum.empty?(applicable_aggregates) do
+      {current_aggregates, acc_overtime}
+    else
+      process_applicable_overtime_rule(
+        applicable_aggregates,
+        rule,
+        current_aggregates,
+        acc_overtime
+      )
+    end
+  end
+
+  defp process_applicable_overtime_rule(
+         applicable_aggregates,
+         rule,
+         current_aggregates,
+         acc_overtime
+       ) do
+    results = apply_overtime_rule(applicable_aggregates, rule)
+    overtime_entry = extract_overtime_entry(results)
+    updated_aggregates = extract_pay_aggregates_from_results(results)
+    new_aggregates = update_aggregates_with_results(current_aggregates, updated_aggregates)
+
+    {new_aggregates, [overtime_entry | acc_overtime]}
+  end
+
+  defp extract_overtime_entry(results) do
+    Enum.find(results, fn
+      {:overtime_entry, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  defp extract_pay_aggregates_from_results(results) do
+    results
+    |> Enum.filter(fn
+      {:pay_aggregate, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  defp update_aggregates_with_results(current_aggregates, updated_aggregates) do
+    current_aggregates
+    |> Enum.map(&update_single_aggregate(&1, updated_aggregates))
+  end
+
+  defp update_single_aggregate({type, key, _data} = aggregate, updated_aggregates) do
+    case find_updated_aggregate(updated_aggregates, key) do
+      nil -> aggregate
+      {:pay_aggregate, ^key, new_data} -> {type, key, new_data}
+    end
+  end
+
+  defp find_updated_aggregate(updated_aggregates, key) do
+    Enum.find(updated_aggregates, fn
+      {:pay_aggregate, ^key, _} -> true
+      _ -> false
+    end)
   end
 
   defp update_time_entries_paid_status(time_entries, overtime_entries) do
@@ -602,6 +746,36 @@ defmodule Presto.Examples.OvertimeRules do
     end
   end
 
+  defp extract_rule_execution_order(rule_spec) do
+    case rule_spec do
+      %{"rule_execution_order" => order} when is_list(order) ->
+        order
+
+      _ ->
+        # Default execution order if not specified
+        ["time_calculation", "pay_aggregation", "overtime_processing"]
+    end
+  end
+
+  defp extract_overtime_rules_from_spec(rule_spec) do
+    case rule_spec do
+      %{"overtime_rules" => rules} when is_list(rules) ->
+        rules
+        |> Enum.map(fn rule ->
+          {:overtime_rule, Map.get(rule, "name", "unknown"),
+           %{
+             threshold: Map.get(rule, "threshold", 0),
+             filter_pay_code: Map.get(rule, "filter_pay_code"),
+             pay_code: Map.get(rule, "pay_code", "overtime"),
+             priority: Map.get(rule, "priority", 1)
+           }}
+        end)
+
+      _ ->
+        []
+    end
+  end
+
   # Utility functions for display
 
   defp print_time_entries(entries) do
@@ -652,20 +826,73 @@ defmodule Presto.Examples.OvertimeRules do
 
   @doc """
   Validates an overtime rule specification.
+
+  Supports:
+  - rule_execution_order: Array of valid rule names
+  - overtime_rules: Array of overtime rule objects
+  - variables: Optional variables map
   """
   @spec valid_rule_spec?(rule_spec()) :: boolean()
   def valid_rule_spec?(rule_spec) do
     case rule_spec do
-      %{"rules" => rules} when is_list(rules) ->
-        Enum.all?(rules, &valid_overtime_rule?/1)
+      # Format with rule ordering
+      %{"rule_execution_order" => order} = spec when is_list(order) ->
+        valid_rule_execution_order?(order) and
+          valid_overtime_rules_in_spec?(Map.get(spec, "overtime_rules", []))
+
+      # Format with just overtime rules
+      %{"overtime_rules" => rules} when is_list(rules) ->
+        valid_overtime_rules_in_spec?(rules)
+
+      # Empty spec is valid (uses defaults)
+      spec when map_size(spec) == 0 ->
+        true
 
       _ ->
         false
     end
   end
 
-  defp valid_overtime_rule?(%{"name" => name, "type" => "overtime"}) when is_binary(name),
-    do: true
+  defp valid_rule_execution_order?(order) do
+    valid_rules = ["time_calculation", "pay_aggregation", "overtime_processing"]
 
-  defp valid_overtime_rule?(_), do: false
+    Enum.all?(order, fn rule_name ->
+      is_binary(rule_name) and rule_name in valid_rules
+    end)
+  end
+
+  defp valid_overtime_rules_in_spec?(rules) when is_list(rules) do
+    Enum.all?(rules, &valid_overtime_rule_in_spec?/1)
+  end
+
+  defp valid_overtime_rules_in_spec?(_), do: false
+
+  defp valid_overtime_rule_in_spec?(%{"name" => name} = rule) when is_binary(name) do
+    valid_threshold?(rule) and valid_pay_code?(rule) and valid_priority?(rule)
+  end
+
+  defp valid_overtime_rule_in_spec?(_), do: false
+
+  defp valid_threshold?(rule) do
+    case Map.get(rule, "threshold") do
+      threshold when is_number(threshold) and threshold >= 0 -> true
+      _ -> false
+    end
+  end
+
+  defp valid_pay_code?(rule) do
+    case Map.get(rule, "pay_code") do
+      pay_code when is_binary(pay_code) -> true
+      _ -> false
+    end
+  end
+
+  defp valid_priority?(rule) do
+    case Map.get(rule, "priority") do
+      priority when is_integer(priority) and priority > 0 -> true
+      # Optional field
+      nil -> true
+      _ -> false
+    end
+  end
 end

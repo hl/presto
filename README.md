@@ -14,6 +14,7 @@ Presto is a flexible, high-performance rules engine built on the RETE algorithm 
 **Key Benefits:**
 - **No Deployments for Rule Changes**: Update rules via configuration
 - **High Performance**: RETE algorithm efficiently handles large fact sets
+- **Configurable Rule Ordering**: Control execution sequence through JSON specifications
 - **Type-Safe**: Comprehensive validation and error checking
 - **Auditable**: Clear separation between rules and data
 - **Testable**: Rules can be tested independently of application logic
@@ -429,8 +430,9 @@ end
 
 ## JSON Rule Specifications
 
-Presto uses simple, declarative JSON to specify which rules to run:
+Presto uses simple, declarative JSON to specify which rules to run and in what order:
 
+### Basic Rule Specification
 ```json
 {
   "rules_to_run": ["time_calculation", "overtime_check"],
@@ -438,6 +440,40 @@ Presto uses simple, declarative JSON to specify which rules to run:
     "overtime_threshold": 40.0,
     "overtime_multiplier": 1.5,
     "holiday_rate": 2.0
+  }
+}
+```
+
+### Advanced Rule Ordering and Configuration
+```json
+{
+  "rule_execution_order": ["time_calculation", "pay_aggregation", "overtime_processing"],
+  "overtime_rules": [
+    {
+      "name": "overtime_basic_priority_1",
+      "priority": 1,
+      "threshold": 15,
+      "filter_pay_code": "basic_pay",
+      "pay_code": "overtime_basic_pay"
+    },
+    {
+      "name": "overtime_special_priority_2", 
+      "priority": 2,
+      "threshold": 15,
+      "filter_pay_code": "special_pay",
+      "pay_code": "overtime_special_pay"
+    },
+    {
+      "name": "overtime_general_priority_3",
+      "priority": 3,
+      "threshold": 5,
+      "filter_pay_code": null,
+      "pay_code": "overtime_rest"
+    }
+  ],
+  "variables": {
+    "max_overtime_hours": 20,
+    "calculation_precision": 2
   }
 }
 ```
@@ -450,7 +486,16 @@ def load_client_rules(client_id) do
   case MyApp.ClientRules.get_rules(client_id) do
     %{overtime_threshold: threshold, holiday_multiplier: holiday_rate} ->
       %{
-        "rules_to_run" => ["time_calculation", "overtime_check", "holiday_pay"],
+        "rule_execution_order" => ["time_calculation", "pay_aggregation", "overtime_processing"],
+        "overtime_rules" => [
+          %{
+            "name" => "client_overtime",
+            "priority" => 1,
+            "threshold" => threshold,
+            "filter_pay_code" => "basic_pay",
+            "pay_code" => "overtime_pay"
+          }
+        ],
         "variables" => %{
           "overtime_threshold" => threshold,
           "holiday_multiplier" => holiday_rate
@@ -460,7 +505,7 @@ def load_client_rules(client_id) do
     nil ->
       # Fallback to default rules
       %{
-        "rules_to_run" => ["time_calculation"],
+        "rule_execution_order" => ["time_calculation"],
         "variables" => %{}
       }
   end
@@ -1017,6 +1062,28 @@ Presto includes production-ready examples:
 - **`Presto.Examples.PayrollRules`** - Time calculation, overtime processing
 - **`Presto.Examples.ComplianceRules`** - Weekly hour compliance, violation tracking
 - **`Presto.Examples.CaliforniaSpikeBreakRules`** - Complex jurisdiction-aware break rules
+- **`Presto.Examples.OvertimeRules`** - Advanced overtime calculation with configurable rule ordering
+
+### Advanced Rule Ordering Example
+
+The `OvertimeRules` module demonstrates sophisticated rule ordering capabilities:
+
+```elixir
+# Generate example rule specification with custom ordering
+rule_spec = Presto.Examples.OvertimeRules.generate_example_rule_spec()
+
+# Validate the specification
+valid = Presto.Examples.OvertimeRules.valid_rule_spec?(rule_spec)
+
+# Run with custom rule ordering
+result = Presto.Examples.OvertimeRules.run_custom_order_example()
+```
+
+**Key Features:**
+- **Configurable execution order**: Control the sequence of main rule processing steps
+- **Priority-based overtime rules**: Define multiple overtime rules with specific priorities
+- **Comprehensive validation**: Robust validation of JSON rule specifications
+- **Backward compatibility**: Works with existing rule processing while adding new capabilities
 
 Study these examples in `lib/presto/examples/` for patterns and best practices.
 
