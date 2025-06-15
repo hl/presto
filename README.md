@@ -74,8 +74,8 @@ rule_spec = %{
   }
 }
 
-# Process through Presto
-result = Presto.Examples.PayrollRules.process_time_entries(timesheet_data, rule_spec)
+# Process through Presto RETE engine
+result = Presto.Examples.PayrollRules.process_with_engine(timesheet_data, rule_spec)
 
 # Results
 IO.inspect(result.summary)
@@ -104,9 +104,20 @@ pricing inputs → business rules → final prices + discounts
 ### Core Components
 
 1. **Facts**: Your data (employee records, transactions, etc.)
-2. **Rules**: Business logic defined in modules implementing `Presto.RuleBehaviour`
+2. **Rules**: Business logic defined with RETE conditions and actions
 3. **Rule Specs**: JSON configuration that specifies which rules to run
 4. **Working Memory**: RETE engine that efficiently matches facts to rules
+
+### RETE Engine Architecture
+
+Presto's RETE engine provides:
+
+- **Incremental Processing**: Only processes changes (fact deltas)
+- **Pattern Matching**: Efficient condition evaluation using Elixir's pattern matching
+- **Join Operations**: Complex multi-fact relationships with indexed lookups  
+- **Rule Priorities**: Configurable execution order for rule dependencies
+- **Concurrent Execution**: Parallel rule firing with automatic conflict resolution
+- **Memory Efficiency**: ETS-based storage optimized for read/write patterns
 
 ## Complete Tutorial: Payroll System
 
@@ -212,8 +223,8 @@ defmodule MyPayroll.Processor do
       }
     }
     
-    # Process through Presto
-    result = Presto.Examples.PayrollRules.process_time_entries(timesheet_entries, rule_spec)
+    # Process through Presto RETE engine
+    result = Presto.Examples.PayrollRules.process_with_engine(timesheet_entries, rule_spec)
     
     # Format results for payroll system
     %{
@@ -301,11 +312,11 @@ defmodule MyPayroll.ComplianceProcessor do
       }
     }
     
-    # First process hours
-    payroll_result = Presto.Examples.PayrollRules.process_time_entries(timesheet_entries)
+    # First process hours with RETE engine
+    payroll_result = Presto.Examples.PayrollRules.process_with_engine(timesheet_entries)
     
-    # Then check compliance using the processed entries
-    compliance_result = Presto.Examples.ComplianceRules.process_compliance_check(
+    # Then check compliance using the RETE engine
+    compliance_result = Presto.Examples.ComplianceRules.process_with_engine(
       payroll_result.processed_entries, 
       rule_spec
     )
@@ -1057,35 +1068,111 @@ Presto implements the **RETE algorithm** with a simplified, integrated architect
 
 ## Example Rule Modules
 
-Presto includes production-ready examples:
+Presto includes comprehensive production-ready examples that demonstrate the full power of the RETE engine:
 
-- **`Presto.Examples.PayrollRules`** - Time calculation, overtime processing
-- **`Presto.Examples.ComplianceRules`** - Weekly hour compliance, violation tracking
-- **`Presto.Examples.CaliforniaSpikeBreakRules`** - Complex jurisdiction-aware break rules
+### Core Examples
+
+- **`Presto.Examples.PayrollRules`** - Time calculation, overtime processing with RETE engine
+- **`Presto.Examples.ComplianceRules`** - Weekly hour compliance, violation detection and reporting
+- **`Presto.Examples.CaliforniaSpikeBreakRules`** - Multi-jurisdictional break rules with complex industry requirements
 - **`Presto.Examples.OvertimeRules`** - Advanced overtime calculation with configurable rule ordering
+- **`Presto.Examples.TroncRules`** - TRONC (Tips, Gratuities & Service Charges) distribution system
 
-### Advanced Rule Ordering Example
+### RETE Engine Integration
 
-The `OvertimeRules` module demonstrates sophisticated rule ordering capabilities:
+All examples now showcase the actual Presto RETE engine with:
 
 ```elixir
-# Generate example rule specification with custom ordering
-rule_spec = Presto.Examples.OvertimeRules.generate_example_rule_spec()
+# Each example provides both RETE engine and direct processing approaches
 
-# Validate the specification
-valid = Presto.Examples.OvertimeRules.valid_rule_spec?(rule_spec)
+# RETE Engine Processing (Recommended)
+result = Presto.Examples.PayrollRules.process_with_engine(time_entries, rule_spec)
 
-# Run with custom rule ordering
-result = Presto.Examples.OvertimeRules.run_custom_order_example()
+# Direct Processing (For comparison/migration)
+result = Presto.Examples.PayrollRules.process_time_entries(time_entries, rule_spec)
 ```
 
-**Key Features:**
-- **Configurable execution order**: Control the sequence of main rule processing steps
-- **Priority-based overtime rules**: Define multiple overtime rules with specific priorities
-- **Comprehensive validation**: Robust validation of JSON rule specifications
-- **Backward compatibility**: Works with existing rule processing while adding new capabilities
+### Advanced Features Demonstrated
 
-Study these examples in `lib/presto/examples/` for patterns and best practices.
+**Multi-Stage RETE Workflows:**
+```elixir
+# Compliance Rules Example - 3-stage RETE processing
+result = Presto.Examples.ComplianceRules.run_example()
+# 1. Time processing rule (calculate durations)
+# 2. Weekly aggregation rule (group by employee/week) 
+# 3. Compliance checking rule (detect violations)
+```
+
+**Multi-Jurisdictional Processing:**
+```elixir
+# California Spike Break Rules - Industry-specific processing
+Presto.Examples.CaliforniaSpikeBreakRules.run_multi_jurisdiction_example()
+# 1. Work session analysis rule
+# 2. Spike break detection rule (jurisdiction-aware)
+# 3. Compliance checking rule
+# 4. Penalty calculation rule
+```
+
+**Complex Business Logic:**
+```elixir
+# TRONC Distribution - Multi-factor allocation rules  
+result = Presto.Examples.TroncRules.run_custom_allocation_example()
+# 1. Pool collection rule (aggregate tips/service charges)
+# 2. Admin deduction rule (apply cost deductions) 
+# 3. Role allocation rule (distribute by weighted hours)
+# 4. Staff distribution rule (individual payments)
+```
+
+### Rule Ordering and Priority
+
+The examples demonstrate sophisticated rule execution control:
+
+```elixir
+# Overtime Rules - Configurable execution order
+rule_spec = Presto.Examples.OvertimeRules.generate_example_rule_spec()
+result = Presto.Examples.OvertimeRules.run_custom_order_example()
+
+# Custom rule ordering with priorities
+%{
+  "rule_execution_order" => ["time_calculation", "pay_aggregation", "overtime_processing"],
+  "overtime_rules" => [
+    %{"name" => "overtime_basic_priority_1", "priority" => 1, "threshold" => 15},
+    %{"name" => "overtime_special_priority_2", "priority" => 2, "threshold" => 15},
+    %{"name" => "overtime_general_priority_3", "priority" => 3, "threshold" => 5}
+  ]
+}
+```
+
+### Key RETE Engine Features Showcased
+
+- **Incremental Processing**: Facts trigger rules as they're asserted
+- **Pattern Matching**: Sophisticated condition matching on fact structures
+- **Working Memory**: Efficient fact storage and retrieval
+- **Rule Priorities**: Control execution order within the RETE network
+- **Concurrent Execution**: Parallel rule firing with `concurrent: true`
+- **Complex Joins**: Multi-fact pattern matching across different data types
+
+### Example Usage Patterns
+
+```elixir
+# Start RETE engine and process facts
+{:ok, engine} = Presto.start_engine()
+
+# Add rules to engine
+rules = Presto.Examples.ComplianceRules.create_rules(rule_spec)
+Enum.each(rules, &Presto.add_rule(engine, &1))
+
+# Assert facts into working memory
+Enum.each(time_entries, fn {:time_entry, id, data} ->
+  Presto.assert_fact(engine, {:time_entry, id, data})
+end)
+
+# Fire rules and get results
+results = Presto.fire_rules(engine, concurrent: true)
+Presto.stop_engine(engine)
+```
+
+Study these examples in `lib/presto/examples/` for RETE engine patterns and best practices.
 
 ## Migration Guide
 
