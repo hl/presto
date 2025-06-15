@@ -187,10 +187,63 @@ defmodule Presto.Examples.OvertimeRules do
   end
 
   @doc """
+  Processes time entries and overtime rules using the Presto RETE engine.
+
+  This function demonstrates how to use the actual Presto engine with overtime rules:
+  1. Start the engine
+  2. Add overtime calculation rules
+  3. Assert initial facts (time entries and overtime rules)
+  4. Fire rules to process the data
+  5. Extract results from working memory
+
+  This showcases the incremental processing capabilities of the RETE algorithm
+  as facts are asserted and rules fire in response to pattern matches.
+  """
+  @spec process_with_engine([time_entry()], [overtime_rule()], rule_spec()) :: overtime_result()
+  def process_with_engine(time_entries, overtime_rules, rule_spec \\ %{}) do
+    # Start the Presto RETE engine
+    {:ok, engine} = Presto.start_engine()
+
+    try do
+      # Create and add overtime rules to the engine
+      variables = extract_variables(rule_spec)
+
+      rules = [
+        time_calculation_rule(),
+        pay_aggregation_rule(),
+        overtime_processing_rule(variables, rule_spec)
+      ]
+
+      Enum.each(rules, &Presto.add_rule(engine, &1))
+
+      # Assert initial facts into working memory
+      # Time entries
+      Enum.each(time_entries, fn {:time_entry, id, data} ->
+        Presto.assert_fact(engine, {:time_entry, id, data})
+      end)
+
+      # Overtime rules as facts (if provided)
+      Enum.each(overtime_rules, fn {:overtime_rule, id, data} ->
+        Presto.assert_fact(engine, {:overtime_rule, id, data})
+      end)
+
+      # Fire rules to process the data through the RETE network
+      _rule_results = Presto.fire_rules(engine, concurrent: true)
+
+      # Extract results from working memory
+      all_facts = Presto.get_facts(engine)
+      extract_overtime_results(all_facts)
+    after
+      # Clean up the engine
+      Presto.stop_engine(engine)
+    end
+  end
+
+  @doc """
   Processes time entries through the complete overtime calculation workflow.
 
-  If overtime_rules are provided, they will be used directly.
-  If rule_spec contains overtime_rules, those will be used instead.
+  This is the original implementation that processes data directly without the RETE engine.
+  For demonstrations of the actual RETE engine, use process_with_engine/3.
   """
   @spec process_overtime([time_entry()], [overtime_rule()], rule_spec()) :: overtime_result()
   def process_overtime(time_entries, overtime_rules, rule_spec \\ %{}) do
@@ -234,6 +287,7 @@ defmodule Presto.Examples.OvertimeRules do
     time_entries = [
       {:time_entry, "shift_1",
        %{
+         employee_id: "emp_001",
          start_dt: ~U[2025-01-01 12:00:00Z],
          finish_dt: ~U[2025-01-01 22:00:00Z],
          units: nil,
@@ -243,6 +297,7 @@ defmodule Presto.Examples.OvertimeRules do
        }},
       {:time_entry, "shift_2",
        %{
+         employee_id: "emp_001",
          start_dt: ~U[2025-01-02 12:00:00Z],
          finish_dt: ~U[2025-01-02 22:00:00Z],
          units: nil,
@@ -252,29 +307,32 @@ defmodule Presto.Examples.OvertimeRules do
        }},
       {:time_entry, "shift_3",
        %{
+         employee_id: "emp_002",
          start_dt: ~U[2025-01-03 12:00:00Z],
          finish_dt: ~U[2025-01-03 22:00:00Z],
          units: nil,
          minutes: nil,
-         pay_code: "special_pay",
+         pay_code: "basic_pay",
          paid: false
        }},
       {:time_entry, "shift_4",
        %{
+         employee_id: "emp_002",
          start_dt: ~U[2025-01-04 12:00:00Z],
          finish_dt: ~U[2025-01-04 22:00:00Z],
          units: nil,
          minutes: nil,
-         pay_code: "special_pay",
+         pay_code: "basic_pay",
          paid: false
        }},
       {:time_entry, "shift_5",
        %{
+         employee_id: "emp_003",
          start_dt: ~U[2025-01-05 12:00:00Z],
          finish_dt: ~U[2025-01-05 22:00:00Z],
          units: nil,
          minutes: nil,
-         pay_code: "extra_pay",
+         pay_code: "basic_pay",
          paid: false
        }}
     ]
@@ -343,10 +401,32 @@ defmodule Presto.Examples.OvertimeRules do
   end
 
   @doc """
-  Demonstrates rule ordering with custom execution sequence.
+  Demonstrates custom overtime configuration with the RETE engine.
+  """
+  def run_custom_overtime_example do
+    IO.puts("=== Custom Overtime Rules with RETE Engine ===\n")
+
+    {time_entries, overtime_rules} = generate_example_data()
+    rule_spec = generate_example_rule_spec()
+
+    IO.puts("Custom Rule Specification:")
+    IO.puts("  Overtime Threshold: #{rule_spec["variables"]["overtime_threshold"]} hours")
+    IO.puts("  Max Overtime Hours: #{rule_spec["variables"]["max_overtime_hours"]} hours")
+
+    IO.puts("\nProcessing with custom rules using RETE engine...")
+    result = process_with_engine(time_entries, overtime_rules, rule_spec)
+
+    IO.puts("\nCustom Overtime Results:")
+    print_engine_results(result)
+
+    result
+  end
+
+  @doc """
+  Demonstrates rule ordering with custom execution sequence (direct processing).
   """
   def run_custom_order_example do
-    IO.puts("=== Custom Rule Ordering Example ===\n")
+    IO.puts("=== Custom Rule Ordering Example (Direct Processing) ===\n")
 
     {time_entries, _} = generate_example_data()
     rule_spec = generate_example_rule_spec()
@@ -374,7 +454,7 @@ defmodule Presto.Examples.OvertimeRules do
     rules = create_rules(rule_spec)
     IO.puts("✓ Created #{length(rules)} rules in custom order")
 
-    IO.puts("\nProcessing with spec-defined overtime rules...")
+    IO.puts("\nProcessing with spec-defined overtime rules (direct processing mode)...")
     result = process_overtime(time_entries, [], rule_spec)
 
     IO.puts("\nResults:")
@@ -894,5 +974,82 @@ defmodule Presto.Examples.OvertimeRules do
       nil -> true
       _ -> false
     end
+  end
+
+  # Helper functions for RETE engine processing
+
+  defp extract_overtime_results(all_facts) do
+    processed_entries = extract_facts_by_type(all_facts, :time_entry)
+    overtime_entries = extract_facts_by_type(all_facts, :overtime_entry)
+    pay_aggregates = extract_facts_by_type(all_facts, :pay_aggregate)
+
+    summary = generate_engine_summary(processed_entries, overtime_entries, pay_aggregates)
+
+    %{
+      processed_entries: processed_entries,
+      overtime_entries: overtime_entries,
+      pay_aggregates: pay_aggregates,
+      summary: summary
+    }
+  end
+
+  defp extract_facts_by_type(facts, type) do
+    facts
+    |> Enum.filter(fn
+      {^type, _, _} -> true
+      _ -> false
+    end)
+  end
+
+  defp generate_engine_summary(processed_entries, overtime_entries, pay_aggregates) do
+    total_regular_hours =
+      processed_entries
+      |> Enum.map(fn
+        {:time_entry, _, %{units: units}} when is_number(units) -> units
+        _ -> 0
+      end)
+      |> Enum.sum()
+      |> Float.round(2)
+
+    total_overtime_hours =
+      overtime_entries
+      |> Enum.map(fn
+        {:overtime_entry, _, %{units: units}} when is_number(units) -> units
+        _ -> 0
+      end)
+      |> Enum.sum()
+      |> Float.round(2)
+
+    unique_employees =
+      processed_entries
+      |> Enum.map(fn
+        {:time_entry, _, %{employee_id: emp_id}} -> emp_id
+        _ -> "employee_1"
+      end)
+      |> Enum.uniq()
+      |> length()
+
+    %{
+      total_regular_hours: total_regular_hours,
+      total_overtime_hours: total_overtime_hours,
+      total_hours: total_regular_hours + total_overtime_hours,
+      unique_employees: unique_employees,
+      aggregates_created: length(pay_aggregates),
+      overtime_entries_generated: length(overtime_entries),
+      processed_with_engine: true,
+      summary_generated_at: DateTime.utc_now()
+    }
+  end
+
+  defp print_engine_results(result) do
+    IO.puts("  Processed Entries: #{length(result.processed_entries)}")
+    IO.puts("  Pay Aggregates: #{length(result.pay_aggregates)}")
+    IO.puts("  Overtime Entries: #{length(result.overtime_entries)}")
+    IO.puts("\\nSummary:")
+    IO.puts("  Regular Hours: #{result.summary.total_regular_hours}")
+    IO.puts("  Overtime Hours: #{result.summary.total_overtime_hours}")
+    IO.puts("  Total Hours: #{result.summary.total_hours}")
+    IO.puts("  Employees: #{result.summary.unique_employees}")
+    IO.puts("  Processed with RETE Engine: #{result.summary.processed_with_engine}")
   end
 end
