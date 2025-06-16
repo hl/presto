@@ -9,6 +9,9 @@ defmodule Presto.BetaNetwork do
   use GenServer
 
   alias Presto.AlphaNetwork
+  alias Presto.Optimization.AdvancedIndexing
+  alias Presto.Optimization.JoinOptimizer
+  alias Presto.Optimization.SharedMemoryManager
 
   @type join_condition :: {:join, String.t(), String.t(), atom() | [atom()]}
   @type beta_node :: %{
@@ -17,7 +20,13 @@ defmodule Presto.BetaNetwork do
           right_input: String.t(),
           join_keys: [atom()],
           left_type: :alpha | :beta,
-          right_type: :alpha | :beta
+          right_type: :alpha | :beta,
+          # Shared memory optimization fields
+          shared_memory_ref: String.t() | nil,
+          memory_signature: term() | nil,
+          # Advanced indexing fields
+          advanced_index: map() | nil,
+          index_enabled: boolean()
         }
 
   # Client API
@@ -97,16 +106,24 @@ defmodule Presto.BetaNetwork do
       partial_matches: :ets.new(:partial_matches, [:set, :private]),
       # Track processing for performance monitoring
       process_count: 0,
-      # NEW: Configuration for join optimization
+      # Configuration for join optimization
       join_config: %{
         # Min dataset size for hash joins
         optimization_threshold: 10,
         # Max entries in join index
-        max_index_size: 10_000
+        max_index_size: 10_000,
+        # Join ordering optimization settings
+        enable_join_reordering: true,
+        cost_threshold: 100,
+        selectivity_learning: true,
+        # Advanced indexing settings
+        enable_advanced_indexing: true,
+        indexing_threshold: 50,
+        index_rebuild_frequency: 1000
       },
-      # NEW: Track which alpha nodes have changed for incremental processing
+      # Track which alpha nodes have changed for incremental processing
       changed_alpha_nodes: MapSet.new(),
-      # NEW: Dependency graph cache for efficient change propagation
+      # Dependency graph cache for efficient change propagation
       dependency_cache: :ets.new(:dependency_cache, [:set, :private])
     }
 
@@ -120,6 +137,16 @@ defmodule Presto.BetaNetwork do
     case parse_join_condition(join_condition) do
       {:ok, beta_node} ->
         node = Map.put(beta_node, :id, node_id)
+
+        # Add optimization fields
+        node =
+          Map.merge(node, %{
+            shared_memory_ref: nil,
+            memory_signature: nil,
+            advanced_index: nil,
+            index_enabled: state.join_config.enable_advanced_indexing
+          })
+
         new_nodes = Map.put(state.beta_nodes, node_id, node)
 
         # Initialize empty memories for this node
@@ -136,6 +163,17 @@ defmodule Presto.BetaNetwork do
 
   @impl true
   def handle_call({:remove_beta_node, node_id}, _from, state) do
+    # Clean up shared memory reference if exists
+    case Map.get(state.beta_nodes, node_id) do
+      %{shared_memory_ref: ref} when not is_nil(ref) ->
+        if shared_memory_available?() do
+          SharedMemoryManager.release_shared_memory(ref)
+        end
+
+      _ ->
+        :ok
+    end
+
     new_nodes = Map.delete(state.beta_nodes, node_id)
     :ets.delete(state.beta_memories, node_id)
     :ets.delete(state.partial_matches, node_id)
@@ -258,7 +296,7 @@ defmodule Presto.BetaNetwork do
     {:error, :invalid_join_condition}
   end
 
-  # NEW: Incremental join processing - only process affected nodes
+  # Incremental join processing - only process affected nodes
   defp process_incremental_joins(state) do
     if MapSet.size(state.changed_alpha_nodes) == 0 do
       # No changes, no processing needed
@@ -286,8 +324,13 @@ defmodule Presto.BetaNetwork do
 
   # Fallback: Process all joins when needed (e.g., first run, cache invalidation)
   defp process_all_joins(state) do
-    # Process beta nodes in dependency order (nodes that don't depend on other betas first)
-    ordered_nodes = order_beta_nodes_by_dependencies(state.beta_nodes)
+    # Use selectivity-based join ordering optimization
+    ordered_nodes =
+      if state.join_config.enable_join_reordering do
+        optimize_join_order(state.beta_nodes, state.join_config)
+      else
+        order_beta_nodes_by_dependencies(state.beta_nodes)
+      end
 
     new_state =
       Enum.reduce(ordered_nodes, state, fn {node_id, node}, acc_state ->
@@ -318,8 +361,24 @@ defmodule Presto.BetaNetwork do
     left_data = get_input_data(node.left_input, node.left_type, state)
     right_data = get_input_data(node.right_input, node.right_type, state)
 
-    # Perform joins using optimized algorithm
-    joins = perform_joins(left_data, right_data, node.join_keys, state)
+    # Create memory signature for shared memory optimization
+    memory_signature = create_memory_signature(left_data, right_data, node.join_keys)
+
+    # Try to use shared memory for identical join patterns
+    {joins, updated_node} =
+      get_or_compute_joins(
+        memory_signature,
+        left_data,
+        right_data,
+        node,
+        state
+      )
+
+    # Update selectivity statistics for join optimization learning
+    if state.join_config.selectivity_learning do
+      combined_input_data = left_data ++ right_data
+      JoinOptimizer.update_selectivity_statistics(node_id, combined_input_data, joins)
+    end
 
     # Update beta memory
     :ets.insert(state.beta_memories, {node_id, joins})
@@ -328,7 +387,15 @@ defmodule Presto.BetaNetwork do
     partial_matches = find_partial_matches(left_data, right_data, node.join_keys)
     :ets.insert(state.partial_matches, {node_id, partial_matches})
 
-    state
+    # Update node in state if shared memory reference changed
+    new_nodes =
+      if updated_node.shared_memory_ref != node.shared_memory_ref do
+        Map.put(state.beta_nodes, node_id, updated_node)
+      else
+        state.beta_nodes
+      end
+
+    %{state | beta_nodes: new_nodes}
   end
 
   defp get_input_data(input_id, :alpha, state) do
@@ -344,22 +411,34 @@ defmodule Presto.BetaNetwork do
     end
   end
 
-  # NEW: Main join function that chooses strategy based on data size
-  defp perform_joins(left_data, right_data, join_keys, state) do
+  # Main join function that chooses strategy based on data size
+  @spec perform_joins([map()], [map()], [atom()], map(), beta_node()) :: [map()]
+  defp perform_joins(left_data, right_data, join_keys, state, node) do
     left_size = length(left_data)
     right_size = length(right_data)
     threshold = state.join_config.optimization_threshold
 
     if left_size >= threshold and right_size >= threshold do
-      hash_join(left_data, right_data, join_keys)
+      hash_join(left_data, right_data, join_keys, node, state)
     else
       # Use cartesian join for small datasets where overhead isn't worth it
       cartesian_join(left_data, right_data, join_keys)
     end
   end
 
-  # NEW: Optimized O(N+M) hash join implementation
-  defp hash_join(left_data, right_data, join_keys) do
+  # Optimized O(N+M) hash join implementation with advanced indexing
+  @spec hash_join([map()], [map()], [atom()], beta_node(), map()) :: [map()]
+  defp hash_join(left_data, right_data, join_keys, node, state) do
+    # Check if we should use advanced indexing
+    if should_use_advanced_indexing?(left_data, right_data, join_keys, node, state) do
+      advanced_hash_join(left_data, right_data, join_keys, node, state)
+    else
+      # Use standard hash join
+      standard_hash_join(left_data, right_data, join_keys)
+    end
+  end
+
+  defp standard_hash_join(left_data, right_data, join_keys) do
     # Choose smaller dataset for index to minimize memory usage
     {build_side, probe_side, left_is_build} =
       if length(left_data) <= length(right_data) do
@@ -374,6 +453,21 @@ defmodule Presto.BetaNetwork do
     # Probe index with other dataset
     probe_side
     |> Enum.flat_map(&probe_hash_join(&1, hash_index, join_keys, left_is_build))
+  end
+
+  @spec advanced_hash_join([map()], [map()], [atom()], beta_node(), map()) :: [map()]
+  defp advanced_hash_join(left_data, right_data, join_keys, node, state) do
+    # Use advanced indexing for complex joins
+    {build_side, probe_side, left_is_build} = choose_build_probe_sides(left_data, right_data)
+
+    # Create or update advanced index
+    updated_node = ensure_advanced_index(node, build_side, join_keys, state)
+
+    # Use advanced index for lookup
+    results =
+      probe_advanced_index(probe_side, updated_node.advanced_index, join_keys, left_is_build)
+
+    results
   end
 
   defp probe_hash_join(probe_record, hash_index, join_keys, left_is_build) do
@@ -395,7 +489,7 @@ defmodule Presto.BetaNetwork do
   defp merge_record_pair(build_record, probe_record, false),
     do: Map.merge(probe_record, build_record)
 
-  # NEW: Build hash index on join keys
+  # Build hash index on join keys
   defp build_join_index(records, join_keys) do
     Enum.reduce(records, %{}, fn record, acc ->
       key_values = extract_join_key_values(record, join_keys)
@@ -409,12 +503,12 @@ defmodule Presto.BetaNetwork do
     end)
   end
 
-  # NEW: Extract join key values for indexing
+  # Extract join key values for indexing
   defp extract_join_key_values(record, join_keys) do
     Enum.map(join_keys, &Map.get(record, &1))
   end
 
-  # NEW: Validate that record has all required join keys
+  # Validate that record has all required join keys
   defp valid_join_keys?(record, join_keys) do
     Enum.all?(join_keys, &Map.has_key?(record, &1))
   end
@@ -468,7 +562,7 @@ defmodule Presto.BetaNetwork do
     end)
   end
 
-  # NEW: Helper functions for incremental processing
+  # Helper functions for incremental processing
 
   defp get_cached_dependency_graph(state) do
     case :ets.lookup(state.dependency_cache, :graph) do
@@ -518,5 +612,215 @@ defmodule Presto.BetaNetwork do
         {:beta, :beta} -> 2
       end
     end)
+  end
+
+  # Selectivity-based join ordering optimization
+  defp optimize_join_order(beta_nodes, join_config) do
+    # Convert to list for optimization
+    nodes_list = Enum.map(beta_nodes, fn {_id, node} -> node end)
+
+    # Get optimization plan from JoinOptimizer
+    optimization_plan = JoinOptimizer.optimize_join_order(nodes_list, join_config)
+
+    if optimization_plan.optimization_applied do
+      # Use optimized order
+      optimization_plan.ordered_nodes
+      |> Enum.map(fn node_id -> {node_id, beta_nodes[node_id]} end)
+      |> Enum.filter(fn {_id, node} -> not is_nil(node) end)
+    else
+      # Fall back to dependency-based ordering
+      order_beta_nodes_by_dependencies(beta_nodes)
+    end
+  end
+
+  # Helper functions for shared memory optimization
+
+  defp create_memory_signature(left_data, right_data, join_keys) do
+    # Create a deterministic signature based on input data and join keys
+    # This is used to identify identical join computations across different nodes
+    left_signature = create_data_signature(left_data)
+    right_signature = create_data_signature(right_data)
+    join_signature = :crypto.hash(:sha256, :erlang.term_to_binary(join_keys))
+
+    {left_signature, right_signature, join_signature}
+  end
+
+  defp create_data_signature(data) when is_list(data) do
+    # Create a hash of the data content for signature matching
+    # Sort by a canonical representation to ensure consistent signatures
+    canonical_data = Enum.sort_by(data, &:erlang.term_to_binary/1)
+    :crypto.hash(:sha256, :erlang.term_to_binary(canonical_data))
+  end
+
+  defp get_or_compute_joins(memory_signature, left_data, right_data, node, state) do
+    shared_memory_key = {memory_signature, node.join_keys}
+
+    # Check if we already have this computation in shared memory
+    case node.shared_memory_ref do
+      nil ->
+        # No shared memory reference, try to create one
+        compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
+
+      existing_ref ->
+        # Check if shared memory is still valid for this signature
+        if node.memory_signature == memory_signature and shared_memory_available?() do
+          # Signature matches, reuse shared memory
+          case SharedMemoryManager.get_shared_memory(existing_ref) do
+            {:ok, shared_joins} ->
+              {shared_joins, node}
+
+            {:error, :not_found} ->
+              # Shared memory was cleaned up, recompute
+              compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
+          end
+        else
+          # Signature changed or shared memory not available, need to recompute
+          if shared_memory_available?() do
+            SharedMemoryManager.release_shared_memory(existing_ref)
+          end
+
+          compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
+        end
+    end
+  end
+
+  defp compute_and_share_joins(shared_memory_key, left_data, right_data, node, state) do
+    # Perform the actual join computation
+    joins = perform_joins(left_data, right_data, node.join_keys, state, node)
+
+    # Store in shared memory if beneficial and available
+    if should_share_memory?(joins) and shared_memory_available?() do
+      case SharedMemoryManager.get_or_create_shared_memory(shared_memory_key, joins) do
+        {:ok, memory_ref} ->
+          # Update node with shared memory reference
+          updated_node = %{
+            node
+            | shared_memory_ref: memory_ref,
+              memory_signature: elem(shared_memory_key, 0)
+          }
+
+          {joins, updated_node}
+
+        {:error, _reason} ->
+          # Failed to create shared memory, use local storage
+          {joins, node}
+      end
+    else
+      # Result too small to benefit from sharing or shared memory not available
+      {joins, node}
+    end
+  end
+
+  defp should_share_memory?(joins) when is_list(joins) do
+    # Enable shared memory for moderately large result sets
+    # Too small: overhead isn't worth it
+    # Too large: may consume too much memory
+    join_count = length(joins)
+    join_count >= 10 and join_count <= 1000
+  end
+
+  defp shared_memory_available?() do
+    # Check if SharedMemoryManager is available by trying to get its PID
+    case GenServer.whereis(SharedMemoryManager) do
+      nil -> false
+      _pid -> true
+    end
+  end
+
+  # Advanced indexing helper functions
+
+  defp should_use_advanced_indexing?(left_data, right_data, join_keys, node, state) do
+    # Use advanced indexing if:
+    # 1. Node has indexing enabled
+    # 2. Dataset is large enough
+    # 3. Multiple join keys (complex join)
+    # 4. State has advanced indexing enabled
+
+    node_supports_indexing = node && node.index_enabled
+
+    data_size_sufficient =
+      length(left_data) + length(right_data) >=
+        ((state && state.join_config.indexing_threshold) || 50)
+
+    complex_join = length(join_keys) > 1
+
+    node_supports_indexing && data_size_sufficient && complex_join
+  end
+
+  defp choose_build_probe_sides(left_data, right_data) do
+    # Choose smaller dataset for index building
+    if length(left_data) <= length(right_data) do
+      {left_data, right_data, true}
+    else
+      {right_data, left_data, false}
+    end
+  end
+
+  @spec ensure_advanced_index(beta_node(), [map()], [atom()], map()) :: beta_node()
+  defp ensure_advanced_index(node, build_data, join_keys, state) when is_list(join_keys) do
+    # Create or update advanced index for this node
+    if node.advanced_index == nil do
+      # Create new advanced index
+      # Ensure join_keys are atoms for type safety
+      atom_join_keys = ensure_atom_keys(join_keys)
+
+      index_config = %{
+        type: :composite,
+        keys: atom_join_keys,
+        threshold: state.join_config.indexing_threshold,
+        max_size: state.join_config.max_index_size,
+        rebuild_frequency: state.join_config.index_rebuild_frequency
+      }
+
+      advanced_index = AdvancedIndexing.create_multi_level_index(atom_join_keys, index_config)
+      updated_index = AdvancedIndexing.index_data(advanced_index, build_data)
+
+      %{node | advanced_index: updated_index}
+    else
+      # Update existing index with new data
+      updated_index = AdvancedIndexing.rebuild_indexes_if_needed(node.advanced_index, build_data)
+      %{node | advanced_index: updated_index}
+    end
+  end
+
+  defp probe_advanced_index(probe_data, advanced_index, join_keys, left_is_build) do
+    # Use advanced index to find matching records
+    Enum.flat_map(probe_data, fn probe_record ->
+      # Create lookup criteria from probe record
+      lookup_criteria =
+        Enum.reduce(join_keys, %{}, fn key, acc ->
+          if Map.has_key?(probe_record, key) do
+            Map.put(acc, key, Map.get(probe_record, key))
+          else
+            acc
+          end
+        end)
+
+      # Lookup using advanced index
+      matching_records =
+        AdvancedIndexing.lookup_with_advanced_index(advanced_index, lookup_criteria)
+
+      # Merge probe record with matching records
+      Enum.map(matching_records, fn match_record ->
+        if left_is_build do
+          Map.merge(match_record, probe_record)
+        else
+          Map.merge(probe_record, match_record)
+        end
+      end)
+    end)
+  end
+
+  # Helper function to validate join keys are atoms for type safety
+  @spec ensure_atom_keys([atom()]) :: [atom()]
+  defp ensure_atom_keys(keys) when is_list(keys) do
+    # Since the type spec requires [atom()], we should only get atoms
+    # This function validates that assumption
+    Enum.each(keys, fn
+      key when is_atom(key) -> :ok
+      key -> raise ArgumentError, "Expected atom, got: #{inspect(key)}"
+    end)
+
+    keys
   end
 end

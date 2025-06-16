@@ -13,6 +13,7 @@ defmodule Presto.RuleEngine do
   alias Presto.BetaNetwork
   alias Presto.FastPathExecutor
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.Optimization.CompileTimeOptimizer
   alias Presto.RuleAnalyzer
   alias Presto.WorkingMemory
 
@@ -209,7 +210,19 @@ defmodule Presto.RuleEngine do
           fast_path_threshold: 2,
           # Min rules sharing pattern for alpha node sharing
           sharing_threshold: 2
-        }
+        },
+        # NEW: Compile-time optimization configuration and state
+        compile_time_config: %{
+          enabled: true,
+          pattern_cache_size: 1000,
+          guard_optimization: true,
+          network_sharing: true,
+          code_generation: true,
+          dependency_analysis: true
+        },
+        compiled_rules: %{},
+        network_topology: %{},
+        shared_patterns: %{}
       }
 
       PrestoLogger.log_engine_lifecycle(:info, engine_id, "initialized", %{
@@ -418,11 +431,11 @@ defmodule Presto.RuleEngine do
 
   # Private functions
 
-  defp create_rule_network(rule, rule_analysis, state) do
+  defp create_rule_network(rule, rule_analysis, compiled_rule, state) do
     if should_use_fast_path?(rule_analysis, state) do
       {%{alpha_nodes: [], beta_nodes: []}, state}
     else
-      case compile_rule_to_network(rule, state) do
+      case compile_rule_to_network_optimized(rule, compiled_rule, state) do
         {:ok, network_nodes, updated_state} -> {network_nodes, updated_state}
         {:error, reason} -> throw({:error, reason})
       end
@@ -475,12 +488,33 @@ defmodule Presto.RuleEngine do
   end
 
   defp process_valid_rule(rule, state) do
+    # Phase 1: Standard rule analysis
     rule_analysis = RuleAnalyzer.analyze_rule(rule)
-    {network_nodes, new_state} = create_rule_network(rule, rule_analysis, state)
+
+    # Phase 2: Compile-time optimization (NEW)
+    compiled_rule =
+      if state.compile_time_config.enabled do
+        [compiled] = CompileTimeOptimizer.compile_rules([rule], state.compile_time_config)
+        compiled
+      else
+        %{
+          id: rule.id,
+          original_rule: rule,
+          compiled_patterns: [],
+          optimized_guards: [],
+          execution_plan: %{strategy: :rete_network},
+          shared_nodes: [],
+          estimated_performance: %{}
+        }
+      end
+
+    # Phase 3: Create network with compile-time optimizations
+    {network_nodes, new_state} = create_rule_network(rule, rule_analysis, compiled_rule, state)
 
     updated_rules = Map.put(new_state.rules, rule.id, rule)
     updated_networks = Map.put(new_state.rule_networks, rule.id, network_nodes)
     updated_analyses = Map.put(new_state.rule_analyses, rule.id, rule_analysis)
+    updated_compiled_rules = Map.put(new_state.compiled_rules, rule.id, compiled_rule)
     updated_fast_path_rules = update_fast_path_rules(rule, rule_analysis, new_state)
     updated_statistics = create_rule_statistics(rule, rule_analysis, new_state)
 
@@ -489,12 +523,50 @@ defmodule Presto.RuleEngine do
       | rules: updated_rules,
         rule_networks: updated_networks,
         rule_analyses: updated_analyses,
+        compiled_rules: updated_compiled_rules,
         fast_path_rules: updated_fast_path_rules,
         rule_statistics: updated_statistics,
         engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
     }
 
     {:reply, :ok, final_state}
+  end
+
+  defp compile_rule_to_network_optimized(rule, compiled_rule, state) do
+    # Use compile-time optimizations if available
+    if state.compile_time_config.enabled and length(compiled_rule.compiled_patterns) > 0 do
+      create_optimized_network(rule, compiled_rule, state)
+    else
+      # Fallback to standard compilation
+      compile_rule_to_network(rule, state)
+    end
+  end
+
+  defp create_optimized_network(_rule, compiled_rule, state) do
+    # Create alpha nodes using compiled patterns
+    {alpha_nodes, new_state} =
+      create_optimized_alpha_nodes(compiled_rule.compiled_patterns, state)
+
+    # Create beta nodes using execution plan
+    {beta_nodes, final_state} =
+      create_optimized_beta_nodes(
+        compiled_rule.execution_plan,
+        alpha_nodes,
+        new_state
+      )
+
+    network_nodes = %{
+      alpha_nodes: alpha_nodes,
+      beta_nodes: beta_nodes,
+      compiled_patterns: compiled_rule.compiled_patterns,
+      optimized_guards: compiled_rule.optimized_guards,
+      execution_plan: compiled_rule.execution_plan
+    }
+
+    {:ok, network_nodes, final_state}
+  rescue
+    error ->
+      {:error, {:optimized_compilation_failed, error}}
   end
 
   defp compile_rule_to_network(rule, state) do
@@ -515,6 +587,47 @@ defmodule Presto.RuleEngine do
   rescue
     error ->
       {:error, {:compilation_failed, error}}
+  end
+
+  defp create_optimized_alpha_nodes(compiled_patterns, state) do
+    # Create alpha nodes using compiled pattern matchers
+    Enum.reduce(compiled_patterns, {[], state}, fn compiled_pattern, {acc_nodes, acc_state} ->
+      # Create alpha node with optimized pattern matcher
+      {:ok, node_id} =
+        AlphaNetwork.create_optimized_alpha_node(
+          acc_state.alpha_network,
+          compiled_pattern.original_pattern,
+          compiled_pattern.compiled_matcher
+        )
+
+      {[node_id | acc_nodes], acc_state}
+    end)
+  rescue
+    # Fallback to standard alpha node creation if optimized version fails
+    _error ->
+      patterns = Enum.map(compiled_patterns, & &1.original_pattern)
+      create_alpha_nodes_for_conditions(patterns, state)
+  end
+
+  defp create_optimized_beta_nodes(execution_plan, alpha_nodes, state) do
+    # Create beta nodes using execution plan optimizations
+    case execution_plan.strategy do
+      :fast_path ->
+        # No beta nodes needed for fast path
+        {[], state}
+
+      :rete_network ->
+        # Standard beta node creation with potential optimizations
+        create_beta_nodes_for_rule(alpha_nodes, state)
+
+      :hybrid ->
+        # Hybrid approach - some optimizations
+        create_beta_nodes_for_rule(alpha_nodes, state)
+
+      _ ->
+        # Default to standard creation
+        create_beta_nodes_for_rule(alpha_nodes, state)
+    end
   end
 
   defp create_alpha_nodes_for_conditions(conditions, state) do

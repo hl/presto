@@ -231,11 +231,7 @@ defmodule Presto.WorkingMemory do
     |> Enum.reduce(%{}, fn {{pattern_elem, fact_elem}, index}, acc ->
       # Only bind variables, and skip the fact type (index 0)
       if index > 0 and Utils.variable?(pattern_elem) do
-        var_name =
-          String.trim_leading(Atom.to_string(pattern_elem), ":")
-          |> String.to_atom()
-
-        Map.put(acc, var_name, fact_elem)
+        Map.put(acc, pattern_elem, fact_elem)
       else
         acc
       end

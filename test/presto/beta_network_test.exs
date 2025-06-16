@@ -3,9 +3,13 @@ defmodule Presto.BetaNetworkTest do
 
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
+  alias Presto.Optimization.SharedMemoryManager
   alias Presto.WorkingMemory
 
   setup do
+    # Start shared memory manager for optimization tests
+    shared_memory_pid = start_supervised!(SharedMemoryManager)
+
     {:ok, wm} = WorkingMemory.start_link([])
     {:ok, alpha} = AlphaNetwork.start_link(working_memory: wm)
     {:ok, beta} = BetaNetwork.start_link(alpha_network: alpha)
@@ -13,7 +17,8 @@ defmodule Presto.BetaNetworkTest do
     %{
       working_memory: wm,
       alpha_network: alpha,
-      beta_network: beta
+      beta_network: beta,
+      shared_memory: shared_memory_pid
     }
   end
 

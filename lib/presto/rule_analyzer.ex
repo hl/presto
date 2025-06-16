@@ -113,7 +113,7 @@ defmodule Presto.RuleAnalyzer do
 
   # Private functions
 
-  defp separate_conditions(conditions) do
+  def separate_conditions(conditions) do
     Enum.split_with(conditions, &fact_pattern?/1)
   end
 

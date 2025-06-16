@@ -222,4 +222,22 @@ defmodule Presto.Logger do
       ] ++ Map.to_list(metadata)
     )
   end
+
+  @doc """
+  Logs distributed system events with structured metadata.
+  """
+  def log_distributed(level, node_id, event, metadata \\ %{}) do
+    Logger.log(
+      level,
+      fn ->
+        "Distributed system: #{event} on node #{node_id}"
+      end,
+      [
+        node_id: node_id,
+        event: event,
+        component: :distributed_system,
+        timestamp: DateTime.utc_now()
+      ] ++ Map.to_list(metadata)
+    )
+  end
 end

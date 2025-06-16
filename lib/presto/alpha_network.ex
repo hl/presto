@@ -32,6 +32,11 @@ defmodule Presto.AlphaNetwork do
     GenServer.call(pid, {:create_alpha_node, condition})
   end
 
+  @spec create_optimized_alpha_node(GenServer.server(), tuple(), function()) :: {:ok, String.t()}
+  def create_optimized_alpha_node(pid, pattern, compiled_matcher) do
+    GenServer.call(pid, {:create_optimized_alpha_node, pattern, compiled_matcher})
+  end
+
   @spec remove_alpha_node(GenServer.server(), String.t()) :: :ok
   def remove_alpha_node(pid, node_id) do
     GenServer.call(pid, {:remove_alpha_node, node_id})
@@ -121,6 +126,36 @@ defmodule Presto.AlphaNetwork do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  end
+
+  @impl true
+  def handle_call({:create_optimized_alpha_node, pattern, compiled_matcher}, _from, state) do
+    node_id = generate_node_id()
+
+    # Create optimized alpha node with pre-compiled matcher
+    alpha_node = %{
+      id: node_id,
+      pattern: pattern,
+      test_function: compiled_matcher,
+      # No separate conditions for optimized nodes
+      conditions: [],
+      optimization_type: :compile_time_optimized
+    }
+
+    new_nodes = Map.put(state.alpha_nodes, node_id, alpha_node)
+
+    # Initialize empty memory for this node
+    :ets.insert(state.alpha_memories, {node_id, []})
+
+    # Index node by fact type for O(1) lookup
+    fact_type = extract_fact_type_from_pattern(pattern)
+    fact_type_nodes = Map.get(state.fact_type_index, fact_type, [])
+
+    new_fact_type_index =
+      Map.put(state.fact_type_index, fact_type, [{node_id, alpha_node} | fact_type_nodes])
+
+    new_state = %{state | alpha_nodes: new_nodes, fact_type_index: new_fact_type_index}
+    {:reply, {:ok, node_id}, new_state}
   end
 
   @impl true

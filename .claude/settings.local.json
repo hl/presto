@@ -34,7 +34,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(find:*)",
-      "WebFetch(domain:en.wikipedia.org)"
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }
