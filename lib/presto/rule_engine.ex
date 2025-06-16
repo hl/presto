@@ -7,12 +7,14 @@ defmodule Presto.RuleEngine do
   """
 
   use GenServer
+  require Logger
 
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
   alias Presto.FastPathExecutor
   alias Presto.RuleAnalyzer
   alias Presto.WorkingMemory
+  alias Presto.Logger, as: PrestoLogger
 
   @type rule :: %{
           id: atom(),
@@ -29,11 +31,23 @@ defmodule Presto.RuleEngine do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts)
+    engine_id = Keyword.get(opts, :engine_id, generate_engine_id())
+    PrestoLogger.log_engine_lifecycle(:info, engine_id, "starting", %{opts: opts})
+
+    case GenServer.start_link(__MODULE__, Keyword.put(opts, :engine_id, engine_id)) do
+      {:ok, pid} = result ->
+        PrestoLogger.log_engine_lifecycle(:info, engine_id, "started", %{pid: pid})
+        result
+
+      {:error, reason} = error ->
+        PrestoLogger.log_engine_lifecycle(:error, engine_id, "start_failed", %{reason: reason})
+        error
+    end
   end
 
   @spec add_rule(GenServer.server(), rule()) :: :ok | {:error, term()}
   def add_rule(pid, rule) do
+    PrestoLogger.log_rule_compilation(:info, rule.id, "adding_rule", %{rule: rule})
     GenServer.call(pid, {:add_rule, rule})
   end
 
@@ -49,6 +63,7 @@ defmodule Presto.RuleEngine do
 
   @spec assert_fact(GenServer.server(), tuple()) :: :ok
   def assert_fact(pid, fact) do
+    PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "asserting_fact", %{fact: fact})
     GenServer.call(pid, {:assert_fact, fact})
   end
 
@@ -69,7 +84,14 @@ defmodule Presto.RuleEngine do
 
   @spec fire_rules(GenServer.server(), keyword()) :: [rule_result()]
   def fire_rules(pid, opts \\ []) do
-    GenServer.call(pid, {:fire_rules, opts}, 30_000)
+    PrestoLogger.log_with_timing(
+      :info,
+      "fire_rules",
+      fn ->
+        GenServer.call(pid, {:fire_rules, opts}, 30_000)
+      end,
+      %{opts: opts}
+    )
   end
 
   @spec fire_rules_incremental(GenServer.server()) :: [rule_result()]
@@ -117,55 +139,88 @@ defmodule Presto.RuleEngine do
     GenServer.call(pid, :get_optimization_config)
   end
 
+  # Private functions
+
+  defp generate_engine_id do
+    "engine_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
+  end
+
   # Server implementation
 
   @impl true
-  def init(_opts) do
-    # Start component processes
-    {:ok, working_memory} = WorkingMemory.start_link()
-    {:ok, alpha_network} = AlphaNetwork.start_link(working_memory: working_memory)
-    {:ok, beta_network} = BetaNetwork.start_link(alpha_network: alpha_network)
+  def init(opts) do
+    engine_id = Keyword.get(opts, :engine_id, generate_engine_id())
+    PrestoLogger.log_engine_lifecycle(:info, engine_id, "initializing", %{opts: opts})
+    # Start component processes with error handling
+    try do
+      {:ok, working_memory} = WorkingMemory.start_link()
 
-    state = %{
-      working_memory: working_memory,
-      alpha_network: alpha_network,
-      beta_network: beta_network,
-      rules: %{},
-      # Maps rule_id to network node IDs
-      rule_networks: %{},
-      # NEW: Maps rule_id to rule analysis
-      rule_analyses: %{},
-      # NEW: Fast-path eligible rules grouped by fact type
-      fast_path_rules: %{},
-      last_execution_order: [],
-      rule_statistics: %{},
-      engine_statistics: %{
-        total_facts: 0,
-        total_rules: 0,
-        total_rule_firings: 0,
-        last_execution_time: 0,
-        # NEW: Optimization statistics
-        fast_path_executions: 0,
-        rete_network_executions: 0,
-        alpha_nodes_saved_by_sharing: 0
-      },
-      # Timestamp for incremental processing
-      last_incremental_execution: 0,
-      # Facts added since last incremental execution
-      facts_since_incremental: [],
-      # NEW: Optimization configuration
-      optimization_config: %{
-        enable_fast_path: false,
-        enable_alpha_sharing: true,
-        enable_rule_batching: true,
-        # Max conditions for fast path
-        fast_path_threshold: 2,
-        # Min rules sharing pattern for alpha node sharing
-        sharing_threshold: 2
+      PrestoLogger.log_engine_lifecycle(:debug, engine_id, "working_memory_started", %{
+        pid: working_memory
+      })
+
+      {:ok, alpha_network} = AlphaNetwork.start_link(working_memory: working_memory)
+
+      PrestoLogger.log_engine_lifecycle(:debug, engine_id, "alpha_network_started", %{
+        pid: alpha_network
+      })
+
+      {:ok, beta_network} = BetaNetwork.start_link(alpha_network: alpha_network)
+
+      PrestoLogger.log_engine_lifecycle(:debug, engine_id, "beta_network_started", %{
+        pid: beta_network
+      })
+
+      state = %{
+        engine_id: engine_id,
+        working_memory: working_memory,
+        alpha_network: alpha_network,
+        beta_network: beta_network,
+        rules: %{},
+        # Maps rule_id to network node IDs
+        rule_networks: %{},
+        # NEW: Maps rule_id to rule analysis
+        rule_analyses: %{},
+        # NEW: Fast-path eligible rules grouped by fact type
+        fast_path_rules: %{},
+        last_execution_order: [],
+        rule_statistics: %{},
+        engine_statistics: %{
+          total_facts: 0,
+          total_rules: 0,
+          total_rule_firings: 0,
+          last_execution_time: 0,
+          # NEW: Optimization statistics
+          fast_path_executions: 0,
+          rete_network_executions: 0,
+          alpha_nodes_saved_by_sharing: 0
+        },
+        # Timestamp for incremental processing
+        last_incremental_execution: 0,
+        # Facts added since last incremental execution
+        facts_since_incremental: [],
+        # NEW: Optimization configuration
+        optimization_config: %{
+          enable_fast_path: false,
+          enable_alpha_sharing: true,
+          enable_rule_batching: true,
+          # Max conditions for fast path
+          fast_path_threshold: 2,
+          # Min rules sharing pattern for alpha node sharing
+          sharing_threshold: 2
+        }
       }
-    }
 
-    {:ok, state}
+      PrestoLogger.log_engine_lifecycle(:info, engine_id, "initialized", %{
+        state_keys: Map.keys(state)
+      })
+
+      {:ok, state}
+    rescue
+      error ->
+        PrestoLogger.log_error(error, %{engine_id: engine_id, stage: "initialization"})
+        {:stop, {:initialization_failed, error}}
+    end
   end
 
   @impl true

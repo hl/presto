@@ -238,7 +238,10 @@ defmodule Presto.RuleRegistry do
   end
 
   defp get_configured_rules do
-    case Application.get_env(:presto, :rule_registry, []) do
+    # Use validated configuration
+    config = Presto.Config.get_rule_registry_config()
+
+    case Map.get(config, :rules, []) do
       config when is_list(config) ->
         rules = Keyword.get(config, :rules, [])
         normalize_rule_config(rules)
