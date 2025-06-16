@@ -70,12 +70,12 @@ defmodule Presto.Config.Migration do
   @spec detect_config_version(map()) :: version()
   def detect_config_version(config) do
     # Check which version the configuration most closely matches
-    Enum.reduce_while(@config_versions, "0.1.0", fn {version, schema}, _acc ->
-      if config_matches_schema?(config, schema) do
-        {:cont, version}
-      else
-        {:halt, version}
-      end
+    # Start from the highest version and work backwards
+    versions = Map.keys(@config_versions) |> Enum.sort(:desc)
+
+    Enum.find(versions, "0.1.0", fn version ->
+      schema = @config_versions[version]
+      config_matches_schema?(config, schema)
     end)
   end
 
@@ -126,7 +126,7 @@ defmodule Presto.Config.Migration do
   def restore_config(backup_path) do
     try do
       json_content = File.read!(backup_path)
-      config = Jason.decode!(json_content)
+      config = Jason.decode!(json_content, keys: :atoms)
 
       PrestoLogger.log_configuration(:info, "restore", "completed", %{
         backup_path: backup_path
@@ -248,10 +248,21 @@ defmodule Presto.Config.Migration do
 
   defp put_in_if_missing(config, path, default_value) do
     if get_in(config, path) == nil do
-      put_in(config, path, default_value)
+      # Ensure all intermediate keys exist
+      ensure_path_exists(config, path, default_value)
     else
       config
     end
+  end
+
+  defp ensure_path_exists(config, [key], value) do
+    Map.put(config, key, value)
+  end
+
+  defp ensure_path_exists(config, [key | rest], value) do
+    current_value = Map.get(config, key, %{})
+    updated_value = ensure_path_exists(current_value, rest, value)
+    Map.put(config, key, updated_value)
   end
 
   defp config_matches_schema?(config, schema) do
@@ -259,8 +270,9 @@ defmodule Presto.Config.Migration do
       section_config = Map.get(config, section, %{})
       section_keys = Map.keys(section_config)
 
-      # Check if all expected keys are present
-      Enum.all?(expected_keys, &(&1 in section_keys))
+      # Check if all expected keys are present and no extra keys
+      Enum.all?(expected_keys, &(&1 in section_keys)) and
+        length(section_keys) == length(expected_keys)
     end)
   end
 

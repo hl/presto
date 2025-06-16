@@ -63,7 +63,7 @@ defmodule Presto.LoggerTest do
     test "logs configuration events" do
       log =
         capture_log(fn ->
-          PrestoLogger.log_configuration(:warn, "rule_timeout", "value_changed", %{
+          PrestoLogger.log_configuration(:warning, "rule_timeout", "value_changed", %{
             old: 5000,
             new: 10000
           })
@@ -173,7 +173,7 @@ defmodule Presto.LoggerTest do
   describe "logging levels" do
     test "respects different log levels" do
       # Test that different levels work
-      for level <- [:debug, :info, :warn, :error] do
+      for level <- [:debug, :info, :warning, :error] do
         log =
           capture_log(fn ->
             PrestoLogger.log_rule_execution(level, :test_rule, "test_event")

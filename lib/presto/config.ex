@@ -324,7 +324,10 @@ defmodule Presto.Config do
       "## #{String.upcase(to_string(section))} Configuration\n\n" <>
         Enum.map_join(fields, "\n", fn {key, spec} ->
           required_text = if spec.required, do: " (required)", else: " (optional)"
-          default_text = if spec.default, do: " [default: #{inspect(spec.default)}]", else: ""
+
+          default_text =
+            if spec.default != nil, do: " [default: #{inspect(spec.default)}]", else: ""
+
           "- **#{key}** (#{spec.type})#{required_text}#{default_text}: #{spec.description}"
         end)
     end)

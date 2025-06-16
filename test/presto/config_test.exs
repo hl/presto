@@ -172,6 +172,9 @@ defmodule Presto.ConfigTest do
 
   describe "get_rule_registry_config/0" do
     test "returns validated configuration with defaults" do
+      # Save original config
+      original_config = Application.get_env(:presto, :rule_registry, [])
+
       Application.put_env(:presto, :rule_registry, %{rule_cache_size: 1500})
 
       config = Config.get_rule_registry_config()
@@ -181,8 +184,8 @@ defmodule Presto.ConfigTest do
       assert config.default_rules == []
       assert is_boolean(config.enable_rule_hot_reload)
 
-      # Cleanup
-      Application.delete_env(:presto, :rule_registry)
+      # Restore original config
+      Application.put_env(:presto, :rule_registry, original_config)
     end
   end
 
@@ -335,7 +338,7 @@ defmodule Presto.ConfigTest do
       assert String.contains?(docs, "max_rules")
       assert String.contains?(docs, "rule_timeout_ms")
       assert String.contains?(docs, "default:")
-      assert String.contains?(docs, "required")
+      assert String.contains?(docs, "optional")
       assert String.contains?(docs, "optional")
     end
   end

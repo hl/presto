@@ -47,7 +47,8 @@ defmodule Presto.RuleEngine do
 
   @spec add_rule(GenServer.server(), rule()) :: :ok | {:error, term()}
   def add_rule(pid, rule) do
-    PrestoLogger.log_rule_compilation(:info, rule.id, "adding_rule", %{rule: rule})
+    rule_id = if is_map(rule) and Map.has_key?(rule, :id), do: rule.id, else: :unknown
+    PrestoLogger.log_rule_compilation(:info, rule_id, "adding_rule", %{rule: rule})
     GenServer.call(pid, {:add_rule, rule})
   end
 

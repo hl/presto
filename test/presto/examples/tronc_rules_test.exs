@@ -299,8 +299,10 @@ defmodule Presto.Examples.TroncRulesTest do
     end
 
     test "implements valid_rule_spec?/1 callback" do
-      assert function_exported?(TroncRules, :valid_rule_spec?, 1)
+      # Test that the function exists by calling it directly
       assert TroncRules.valid_rule_spec?(%{}) == true
+      # Also verify it's in the module's function list
+      assert :valid_rule_spec? in (Presto.Examples.TroncRules.__info__(:functions) |> Keyword.keys())
     end
   end
 
