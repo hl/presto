@@ -17,7 +17,13 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-presto-*.tar
+ex_presto-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Temporary files created during development
+tmp_*
+
+# Documentation output
+/doc/

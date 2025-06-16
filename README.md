@@ -29,7 +29,7 @@ Let's process employee timesheets and calculate overtime pay:
 # mix.exs
 def deps do
   [
-    {:presto, "~> 0.1.0"}
+    {:ex_presto, "~> 0.1.0"}
   ]
 end
 ```
@@ -1197,3 +1197,20 @@ Found a bug or want to contribute? Check out the project on GitHub!
 ## License
 
 This library is designed to be flexible and extensible. The example rule modules are provided as templates - you're encouraged to create your own rule implementations that fit your specific business needs.
+
+## 📦 Publishing & Releases
+
+This project uses automated publishing to Hex.pm with GitHub Actions:
+
+- **Automated Publishing**: Push a version tag (e.g., `v0.2.0`) to trigger automatic publishing
+- **Release Preparation**: Use the "Prepare Release" GitHub Action to update versions and changelog
+- **Quality Gates**: All tests, formatting, and code quality checks must pass before publishing
+
+See [docs/PUBLISHING.md](docs/PUBLISHING.md) for detailed setup and usage instructions.
+
+### Quick Release Process
+
+1. Run "Prepare Release" workflow in GitHub Actions
+2. Review and merge the generated PR
+3. Create and push version tag: `git tag v0.2.0 && git push origin v0.2.0`
+4. Automated publishing handles the rest! 🚀
