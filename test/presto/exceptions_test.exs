@@ -2,12 +2,12 @@ defmodule Presto.ExceptionsTest do
   use ExUnit.Case, async: true
 
   alias Presto.Exceptions.{
-    RuleCompilationError,
-    FactValidationError,
-    RuleExecutionError,
-    EngineStateError,
     ConfigurationError,
-    NetworkError
+    EngineStateError,
+    FactValidationError,
+    NetworkError,
+    RuleCompilationError,
+    RuleExecutionError
   }
 
   describe "RuleCompilationError" do

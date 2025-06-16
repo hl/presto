@@ -791,7 +791,6 @@ defmodule Presto.Examples.OvertimeRules do
       |> case do
         hours when is_float(hours) -> Float.round(hours, 2)
         hours when is_integer(hours) -> Float.round(hours * 1.0, 2)
-        _ -> 0.0
       end
 
     total_overtime_hours =
@@ -801,7 +800,6 @@ defmodule Presto.Examples.OvertimeRules do
       |> case do
         hours when is_float(hours) -> Float.round(hours, 2)
         hours when is_integer(hours) -> Float.round(hours * 1.0, 2)
-        _ -> 0.0
       end
 
     pay_code_breakdown =

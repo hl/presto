@@ -65,7 +65,7 @@ defmodule Presto.LoggerTest do
         capture_log(fn ->
           PrestoLogger.log_configuration(:warning, "rule_timeout", "value_changed", %{
             old: 5000,
-            new: 10000
+            new: 10_000
           })
         end)
 

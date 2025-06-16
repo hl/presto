@@ -229,59 +229,68 @@ defmodule Presto.Config do
   """
   @spec validate_rule_spec(map()) :: validation_result()
   def validate_rule_spec(rule_spec) when is_map(rule_spec) do
-    errors = []
-
-    errors =
-      if Map.has_key?(rule_spec, "rules_to_run") do
-        case Map.get(rule_spec, "rules_to_run") do
-          rules when is_list(rules) ->
-            if Enum.all?(rules, &is_binary/1) do
-              errors
-            else
-              ["rules_to_run must contain only strings" | errors]
-            end
-
-          _ ->
-            ["rules_to_run must be a list" | errors]
-        end
-      else
-        errors
-      end
-
-    errors =
-      if Map.has_key?(rule_spec, "variables") do
-        case Map.get(rule_spec, "variables") do
-          variables when is_map(variables) -> errors
-          _ -> ["variables must be a map" | errors]
-        end
-      else
-        errors
-      end
-
-    errors =
-      if Map.has_key?(rule_spec, "rule_execution_order") do
-        case Map.get(rule_spec, "rule_execution_order") do
-          order when is_list(order) ->
-            if Enum.all?(order, &is_binary/1) do
-              errors
-            else
-              ["rule_execution_order must contain only strings" | errors]
-            end
-
-          _ ->
-            ["rule_execution_order must be a list" | errors]
-        end
-      else
-        errors
-      end
-
-    case errors do
-      [] -> :ok
-      _ -> {:error, Enum.reverse(errors)}
-    end
+    []
+    |> validate_rules_to_run(rule_spec)
+    |> validate_variables(rule_spec)
+    |> validate_rule_execution_order(rule_spec)
+    |> format_validation_result()
   end
 
   def validate_rule_spec(_), do: {:error, ["rule_spec must be a map"]}
+
+  defp validate_rules_to_run(errors, rule_spec) do
+    case Map.get(rule_spec, "rules_to_run") do
+      nil ->
+        errors
+
+      rules when is_list(rules) and length(rules) > 0 ->
+        if Enum.all?(rules, &is_binary/1) do
+          errors
+        else
+          ["rules_to_run must contain only strings" | errors]
+        end
+
+      rules when is_list(rules) ->
+        errors
+
+      _ ->
+        ["rules_to_run must be a list" | errors]
+    end
+  end
+
+  defp validate_variables(errors, rule_spec) do
+    if Map.has_key?(rule_spec, "variables") do
+      case Map.get(rule_spec, "variables") do
+        variables when is_map(variables) -> errors
+        _ -> ["variables must be a map" | errors]
+      end
+    else
+      errors
+    end
+  end
+
+  defp validate_rule_execution_order(errors, rule_spec) do
+    case Map.get(rule_spec, "rule_execution_order") do
+      nil ->
+        errors
+
+      order when is_list(order) and length(order) > 0 ->
+        if Enum.all?(order, &is_binary/1) do
+          errors
+        else
+          ["rule_execution_order must contain only strings" | errors]
+        end
+
+      order when is_list(order) ->
+        errors
+
+      _ ->
+        ["rule_execution_order must be a list" | errors]
+    end
+  end
+
+  defp format_validation_result([]), do: :ok
+  defp format_validation_result(errors), do: {:error, Enum.reverse(errors)}
 
   @doc """
   Validates environment-specific configuration.
@@ -322,15 +331,14 @@ defmodule Presto.Config do
 
     Enum.map_join(schema, "\n\n", fn {section, fields} ->
       "## #{String.upcase(to_string(section))} Configuration\n\n" <>
-        Enum.map_join(fields, "\n", fn {key, spec} ->
-          required_text = if spec.required, do: " (required)", else: " (optional)"
-
-          default_text =
-            if spec.default != nil, do: " [default: #{inspect(spec.default)}]", else: ""
-
-          "- **#{key}** (#{spec.type})#{required_text}#{default_text}: #{spec.description}"
-        end)
+        Enum.map_join(fields, "\n", &format_config_field/1)
     end)
+  end
+
+  defp format_config_field({key, spec}) do
+    required_text = if spec.required, do: " (required)", else: " (optional)"
+    default_text = if spec.default != nil, do: " [default: #{inspect(spec.default)}]", else: ""
+    "- **#{key}** (#{spec.type})#{required_text}#{default_text}: #{spec.description}"
   end
 
   # Private functions

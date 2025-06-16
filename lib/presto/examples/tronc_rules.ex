@@ -580,7 +580,6 @@ defmodule Presto.Examples.TroncRules do
       |> case do
         amount when is_float(amount) -> Float.round(amount, 2)
         amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
-        _ -> 0.0
       end
 
     total_admin_amount =
@@ -590,7 +589,6 @@ defmodule Presto.Examples.TroncRules do
       |> case do
         amount when is_float(amount) -> Float.round(amount, 2)
         amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
-        _ -> 0.0
       end
 
     total_payments =
@@ -600,7 +598,6 @@ defmodule Presto.Examples.TroncRules do
       |> case do
         amount when is_float(amount) -> Float.round(amount, 2)
         amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
-        _ -> 0.0
       end
 
     unique_employees =

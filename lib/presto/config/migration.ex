@@ -124,24 +124,22 @@ defmodule Presto.Config.Migration do
   """
   @spec restore_config(String.t()) :: {:ok, map()} | {:error, String.t()}
   def restore_config(backup_path) do
-    try do
-      json_content = File.read!(backup_path)
-      config = Jason.decode!(json_content, keys: :atoms)
+    json_content = File.read!(backup_path)
+    config = Jason.decode!(json_content, keys: :atoms)
 
-      PrestoLogger.log_configuration(:info, "restore", "completed", %{
-        backup_path: backup_path
+    PrestoLogger.log_configuration(:info, "restore", "completed", %{
+      backup_path: backup_path
+    })
+
+    {:ok, config}
+  rescue
+    error ->
+      PrestoLogger.log_configuration(:error, "restore", "failed", %{
+        backup_path: backup_path,
+        error: Exception.message(error)
       })
 
-      {:ok, config}
-    rescue
-      error ->
-        PrestoLogger.log_configuration(:error, "restore", "failed", %{
-          backup_path: backup_path,
-          error: Exception.message(error)
-        })
-
-        {:error, "Failed to restore backup: #{Exception.message(error)}"}
-    end
+      {:error, "Failed to restore backup: #{Exception.message(error)}"}
   end
 
   @doc """

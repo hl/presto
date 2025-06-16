@@ -37,7 +37,7 @@ defmodule Presto.FastPathExecutorTest do
       {:ok, wm} = WorkingMemory.start_link()
 
       # Add facts that don't match the pattern
-      WorkingMemory.assert_fact(wm, {:employee, "emp1", %{salary: 50000}})
+      WorkingMemory.assert_fact(wm, {:employee, "emp1", %{salary: 50_000}})
 
       rule = %{
         id: :person_rule,
@@ -72,9 +72,9 @@ defmodule Presto.FastPathExecutorTest do
     test "handles different fact structures" do
       {:ok, wm} = WorkingMemory.start_link()
 
-      WorkingMemory.assert_fact(wm, {:employee, "emp1", %{age: 25, salary: 60000}})
-      WorkingMemory.assert_fact(wm, {:employee, "emp2", %{age: 30, salary: 40000}})
-      WorkingMemory.assert_fact(wm, {:employee, "emp3", %{age: 20, salary: 70000}})
+      WorkingMemory.assert_fact(wm, {:employee, "emp1", %{age: 25, salary: 60_000}})
+      WorkingMemory.assert_fact(wm, {:employee, "emp2", %{age: 30, salary: 40_000}})
+      WorkingMemory.assert_fact(wm, {:employee, "emp3", %{age: 20, salary: 70_000}})
 
       # Simple pattern matching without test conditions
       rule = %{
@@ -234,7 +234,7 @@ defmodule Presto.FastPathExecutorTest do
           id: :rule2,
           conditions: [
             {:person, :id, :salary},
-            {:salary, :>, 50000}
+            {:salary, :>, 50_000}
           ],
           action: fn _bindings -> [] end
         }
@@ -284,8 +284,8 @@ defmodule Presto.FastPathExecutorTest do
       {:ok, wm} = WorkingMemory.start_link()
 
       # Add facts
-      WorkingMemory.assert_fact(wm, {:person, "john", %{age: 25, salary: 60000}})
-      WorkingMemory.assert_fact(wm, {:person, "jane", %{age: 30, salary: 45000}})
+      WorkingMemory.assert_fact(wm, {:person, "john", %{age: 25, salary: 60_000}})
+      WorkingMemory.assert_fact(wm, {:person, "jane", %{age: 30, salary: 45_000}})
 
       rules = [
         %{

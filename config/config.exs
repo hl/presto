@@ -1,5 +1,9 @@
 import Config
 
+# Configure Logger metadata for Presto
+config :logger, :console,
+  metadata: [:error_type, :error_message, :context, :component, :timestamp, :stacktrace]
+
 # Example configuration for Presto Rule Registry
 # 
 # This shows how to configure custom rule modules for your application.

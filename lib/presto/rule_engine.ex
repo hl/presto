@@ -12,9 +12,9 @@ defmodule Presto.RuleEngine do
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
   alias Presto.FastPathExecutor
+  alias Presto.Logger, as: PrestoLogger
   alias Presto.RuleAnalyzer
   alias Presto.WorkingMemory
-  alias Presto.Logger, as: PrestoLogger
 
   @type rule :: %{
           id: atom(),

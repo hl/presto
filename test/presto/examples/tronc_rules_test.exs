@@ -302,7 +302,8 @@ defmodule Presto.Examples.TroncRulesTest do
       # Test that the function exists by calling it directly
       assert TroncRules.valid_rule_spec?(%{}) == true
       # Also verify it's in the module's function list
-      assert :valid_rule_spec? in (Presto.Examples.TroncRules.__info__(:functions) |> Keyword.keys())
+      functions = TroncRules.__info__(:functions)
+      assert :valid_rule_spec? in Keyword.keys(functions)
     end
   end
 
