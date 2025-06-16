@@ -82,8 +82,8 @@ defmodule Presto.FastPathExecutorTest do
         conditions: [
           {:employee, :id, :data}
         ],
-        action: fn bindings -> 
-          [{:processed_employee, bindings[:id], bindings[:data][:age]}] 
+        action: fn bindings ->
+          [{:processed_employee, bindings[:id], bindings[:data][:age]}]
         end
       }
 
@@ -109,8 +109,8 @@ defmodule Presto.FastPathExecutorTest do
         conditions: [
           {:score, :id, :data}
         ],
-        action: fn bindings -> 
-          [{:processed_score, bindings[:id], bindings[:data][:value]}] 
+        action: fn bindings ->
+          [{:processed_score, bindings[:id], bindings[:data][:value]}]
         end
       }
 
@@ -133,8 +133,8 @@ defmodule Presto.FastPathExecutorTest do
         conditions: [
           {:status, :id, :data}
         ],
-        action: fn bindings -> 
-          [{:processed_status, bindings[:id], bindings[:data][:state]}] 
+        action: fn bindings ->
+          [{:processed_status, bindings[:id], bindings[:data][:state]}]
         end
       }
 
@@ -340,13 +340,16 @@ defmodule Presto.FastPathExecutorTest do
       {:ok, wm} = WorkingMemory.start_link()
 
       # Add facts with different structures
-      WorkingMemory.assert_fact(wm, {:person, "john"})  # 2-tuple
-      WorkingMemory.assert_fact(wm, {:person, "jane", %{age: 25}})  # 3-tuple
+      # 2-tuple
+      WorkingMemory.assert_fact(wm, {:person, "john"})
+      # 3-tuple
+      WorkingMemory.assert_fact(wm, {:person, "jane", %{age: 25}})
 
       rule = %{
         id: :three_element_rule,
         conditions: [
-          {:person, :name, :age}  # Expects 3-tuple
+          # Expects 3-tuple
+          {:person, :name, :age}
         ],
         action: fn bindings -> [{:matched, bindings[:name]}] end
       }
@@ -367,7 +370,8 @@ defmodule Presto.FastPathExecutorTest do
       rule = %{
         id: :any_event_rule,
         conditions: [
-          {:event, :_, :data}  # Wildcard for second element
+          # Wildcard for second element
+          {:event, :_, :data}
         ],
         action: fn bindings -> [{:event_data, bindings[:data][:data]}] end
       }
@@ -389,7 +393,8 @@ defmodule Presto.FastPathExecutorTest do
         conditions: [
           {:person, :name, :age}
         ],
-        action: fn _bindings -> [] end  # Returns empty list
+        # Returns empty list
+        action: fn _bindings -> [] end
       }
 
       {:ok, results} = FastPathExecutor.execute_fast_path(rule, wm)
@@ -406,7 +411,7 @@ defmodule Presto.FastPathExecutorTest do
         conditions: [
           {:person, :name, :age}
         ],
-        action: fn bindings -> 
+        action: fn bindings ->
           [
             {:adult, bindings[:name]},
             {:person_processed, bindings[:name]},

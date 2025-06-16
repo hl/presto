@@ -32,13 +32,13 @@ defmodule Presto.MixProject do
         ],
         groups_for_extras: [
           "Getting Started": ["README.md", "CHANGELOG.md", "docs/OVERVIEW.md"],
-          "Publishing": ["docs/PUBLISHING.md"],
+          Publishing: ["docs/PUBLISHING.md"],
           "Architecture & Design": [
             "specs/presto.md",
-            "specs/architecture.md", 
+            "specs/architecture.md",
             "specs/rete_algorithm.md"
           ],
-          "Implementation": [
+          Implementation: [
             "specs/api_design.md",
             "specs/elixir_implementation.md",
             "specs/performance.md"
@@ -57,25 +57,25 @@ defmodule Presto.MixProject do
             Presto.RuleBehaviour,
             Presto.RuleAnalyzer
           ],
-          "Requirements": [
+          Requirements: [
             Presto.RequirementBehaviour,
             Presto.RequirementScheduler,
             Presto.Requirements.TimeBasedRequirement
           ],
-          "Examples": [
+          Examples: [
             Presto.Examples.PayrollRules,
             Presto.Examples.ComplianceRules,
             Presto.Examples.CaliforniaSpikeBreakRules,
             Presto.Examples.OvertimeRules,
             Presto.Examples.TroncRules
           ],
-          "Benchmarking": [
+          Benchmarking: [
             Presto.Benchmarks.BenchmarkRunner,
             Presto.Benchmarks.MetricsCollector,
             Presto.Benchmarks.PerformanceMonitor,
             Presto.Benchmarks.ResultAnalyzer
           ],
-          "Utilities": [
+          Utilities: [
             Presto.Utils,
             Presto.Application,
             Presto.FastPathExecutor

@@ -9,7 +9,7 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
       assert is_list(rules)
       assert length(rules) > 0
-      
+
       # Check that all rules have required structure
       Enum.each(rules, fn rule ->
         assert is_map(rule)
@@ -66,28 +66,34 @@ defmodule Presto.Examples.OvertimeRulesTest do
   describe "process_overtime/2" do
     test "processes basic overtime scenario" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 19:00:00Z],  # 10 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }},
-        {:time_entry, "shift_2", %{
-          start_dt: ~U[2025-01-02 09:00:00Z],
-          finish_dt: ~U[2025-01-02 19:00:00Z],  # 10 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 10 hours
+           finish_dt: ~U[2025-01-01 19:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }},
+        {:time_entry, "shift_2",
+         %{
+           start_dt: ~U[2025-01-02 09:00:00Z],
+           # 10 hours
+           finish_dt: ~U[2025-01-02 19:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_basic", %{
-          threshold: 15,  # 15 hours threshold
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_basic"
-        }}
+        {:overtime_rule, "overtime_basic",
+         %{
+           # 15 hours threshold
+           threshold: 15,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_basic"
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -117,28 +123,33 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "processes multiple employees" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 17:00:00Z],  # 8 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }},
-        {:time_entry, "shift_2", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 17:00:00Z],  # 8 hours
-          employee_id: "emp_002",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 8 hours
+           finish_dt: ~U[2025-01-01 17:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }},
+        {:time_entry, "shift_2",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 8 hours
+           finish_dt: ~U[2025-01-01 17:00:00Z],
+           employee_id: "emp_002",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_basic", %{
-          threshold: 5,
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_basic"
-        }}
+        {:overtime_rule, "overtime_basic",
+         %{
+           threshold: 5,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_basic"
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -149,21 +160,25 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "respects pay code filters in overtime rules" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 19:00:00Z],  # 10 hours
-          employee_id: "emp_001",
-          pay_code: "special_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 10 hours
+           finish_dt: ~U[2025-01-01 19:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "special_pay",
+           paid: false
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_basic", %{
-          threshold: 5,
-          filter_pay_code: "basic_pay",  # Different pay code
-          pay_code: "overtime_basic"
-        }}
+        {:overtime_rule, "overtime_basic",
+         %{
+           threshold: 5,
+           # Different pay code
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_basic"
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -174,21 +189,24 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "handles already paid entries" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 19:00:00Z],
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: true  # Already paid
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           finish_dt: ~U[2025-01-01 19:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           # Already paid
+           paid: true
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_basic", %{
-          threshold: 5,
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_basic"
-        }}
+        {:overtime_rule, "overtime_basic",
+         %{
+           threshold: 5,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_basic"
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -251,7 +269,7 @@ defmodule Presto.Examples.OvertimeRulesTest do
   describe "RuleBehaviour implementation" do
     test "implements create_rules/1 callback" do
       assert function_exported?(OvertimeRules, :create_rules, 1)
-      
+
       rules = OvertimeRules.create_rules(%{})
       assert is_list(rules)
     end
@@ -268,15 +286,18 @@ defmodule Presto.Examples.OvertimeRulesTest do
     test "calculates hours and minutes correctly" do
       # Test with a known time span
       start_dt = ~U[2025-01-01 09:00:00Z]
-      finish_dt = ~U[2025-01-01 17:30:00Z]  # 8.5 hours
+      # 8.5 hours
+      finish_dt = ~U[2025-01-01 17:30:00Z]
 
-      time_entry = {:time_entry, "test_shift", %{
-        start_dt: start_dt,
-        finish_dt: finish_dt,
-        employee_id: "emp_001",
-        pay_code: "basic_pay",
-        paid: false
-      }}
+      time_entry =
+        {:time_entry, "test_shift",
+         %{
+           start_dt: start_dt,
+           finish_dt: finish_dt,
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
 
       # Process with a simple rule to test time calculation
       overtime_rules = []
@@ -289,15 +310,18 @@ defmodule Presto.Examples.OvertimeRulesTest do
     test "handles overnight shifts" do
       # Shift that crosses midnight
       start_dt = ~U[2025-01-01 22:00:00Z]
-      finish_dt = ~U[2025-01-02 06:00:00Z]  # 8 hours overnight
+      # 8 hours overnight
+      finish_dt = ~U[2025-01-02 06:00:00Z]
 
-      time_entry = {:time_entry, "night_shift", %{
-        start_dt: start_dt,
-        finish_dt: finish_dt,
-        employee_id: "emp_001",
-        pay_code: "basic_pay",
-        paid: false
-      }}
+      time_entry =
+        {:time_entry, "night_shift",
+         %{
+           start_dt: start_dt,
+           finish_dt: finish_dt,
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
 
       result = OvertimeRules.process_overtime([time_entry], [])
       assert is_map(result)
@@ -307,20 +331,24 @@ defmodule Presto.Examples.OvertimeRulesTest do
   describe "pay aggregation" do
     test "aggregates hours by employee and pay code" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 13:00:00Z],  # 4 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }},
-        {:time_entry, "shift_2", %{
-          start_dt: ~U[2025-01-01 14:00:00Z],
-          finish_dt: ~U[2025-01-01 18:00:00Z],  # 4 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 4 hours
+           finish_dt: ~U[2025-01-01 13:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }},
+        {:time_entry, "shift_2",
+         %{
+           start_dt: ~U[2025-01-01 14:00:00Z],
+           # 4 hours
+           finish_dt: ~U[2025-01-01 18:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, [])
@@ -331,20 +359,22 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "separates different pay codes" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 13:00:00Z],
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }},
-        {:time_entry, "shift_2", %{
-          start_dt: ~U[2025-01-01 14:00:00Z],
-          finish_dt: ~U[2025-01-01 18:00:00Z],
-          employee_id: "emp_001",
-          pay_code: "special_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           finish_dt: ~U[2025-01-01 13:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }},
+        {:time_entry, "shift_2",
+         %{
+           start_dt: ~U[2025-01-01 14:00:00Z],
+           finish_dt: ~U[2025-01-01 18:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "special_pay",
+           paid: false
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, [])
@@ -357,28 +387,32 @@ defmodule Presto.Examples.OvertimeRulesTest do
   describe "overtime rule processing" do
     test "applies overtime rules in priority order" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 21:00:00Z],  # 12 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 12 hours
+           finish_dt: ~U[2025-01-01 21:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_high", %{
-          threshold: 8,
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_high",
-          priority: 1
-        }},
-        {:overtime_rule, "overtime_low", %{
-          threshold: 10,
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_low",
-          priority: 2
-        }}
+        {:overtime_rule, "overtime_high",
+         %{
+           threshold: 8,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_high",
+           priority: 1
+         }},
+        {:overtime_rule, "overtime_low",
+         %{
+           threshold: 10,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_low",
+           priority: 2
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -389,21 +423,25 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "respects threshold limits" do
       time_entries = [
-        {:time_entry, "shift_1", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 12:00:00Z],  # 3 hours
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "shift_1",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # 3 hours
+           finish_dt: ~U[2025-01-01 12:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       overtime_rules = [
-        {:overtime_rule, "overtime_basic", %{
-          threshold: 8,  # Higher than worked hours
-          filter_pay_code: "basic_pay",
-          pay_code: "overtime_basic"
-        }}
+        {:overtime_rule, "overtime_basic",
+         %{
+           # Higher than worked hours
+           threshold: 8,
+           filter_pay_code: "basic_pay",
+           pay_code: "overtime_basic"
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, overtime_rules)
@@ -416,13 +454,15 @@ defmodule Presto.Examples.OvertimeRulesTest do
   describe "edge cases" do
     test "handles zero-duration shifts" do
       time_entries = [
-        {:time_entry, "zero_shift", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 09:00:00Z],  # Same time
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "zero_shift",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           # Same time
+           finish_dt: ~U[2025-01-01 09:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, [])
@@ -431,13 +471,15 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "handles invalid datetime ranges" do
       time_entries = [
-        {:time_entry, "invalid_shift", %{
-          start_dt: ~U[2025-01-01 17:00:00Z],
-          finish_dt: ~U[2025-01-01 09:00:00Z],  # Finish before start
-          employee_id: "emp_001",
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "invalid_shift",
+         %{
+           start_dt: ~U[2025-01-01 17:00:00Z],
+           # Finish before start
+           finish_dt: ~U[2025-01-01 09:00:00Z],
+           employee_id: "emp_001",
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       # Should handle gracefully without crashing
@@ -447,13 +489,14 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
     test "handles missing employee IDs" do
       time_entries = [
-        {:time_entry, "no_employee", %{
-          start_dt: ~U[2025-01-01 09:00:00Z],
-          finish_dt: ~U[2025-01-01 17:00:00Z],
-          employee_id: nil,
-          pay_code: "basic_pay",
-          paid: false
-        }}
+        {:time_entry, "no_employee",
+         %{
+           start_dt: ~U[2025-01-01 09:00:00Z],
+           finish_dt: ~U[2025-01-01 17:00:00Z],
+           employee_id: nil,
+           pay_code: "basic_pay",
+           paid: false
+         }}
       ]
 
       result = OvertimeRules.process_overtime(time_entries, [])

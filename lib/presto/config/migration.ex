@@ -1,12 +1,11 @@
 defmodule Presto.Config.Migration do
   @moduledoc """
   Configuration migration utilities for Presto.
-  
+
   Handles upgrading configuration between versions, providing
   backward compatibility and smooth transitions.
   """
 
-  alias Presto.Config
   alias Presto.Logger, as: PrestoLogger
 
   @type migration_result :: {:ok, map()} | {:error, String.t()}
@@ -26,7 +25,13 @@ defmodule Presto.Config.Migration do
     },
     "0.3.0" => %{
       # Added performance monitoring and working memory limits
-      engine: [:max_rules, :rule_timeout_ms, :enable_concurrent_execution, :max_concurrent_rules, :working_memory_limit],
+      engine: [
+        :max_rules,
+        :rule_timeout_ms,
+        :enable_concurrent_execution,
+        :max_concurrent_rules,
+        :working_memory_limit
+      ],
       rule_registry: [:default_rules, :rule_cache_size, :enable_rule_hot_reload],
       performance: [:enable_metrics, :metrics_interval_ms, :enable_profiling]
     }
@@ -47,12 +52,14 @@ defmodule Presto.Config.Migration do
     case get_migration_path(from_version, @current_version) do
       {:ok, migration_steps} ->
         apply_migrations(config, migration_steps)
+
       {:error, reason} ->
         PrestoLogger.log_configuration(:error, "migration", "path_not_found", %{
           from_version: from_version,
           to_version: @current_version,
           reason: reason
         })
+
         {:error, reason}
     end
   end
@@ -76,7 +83,7 @@ defmodule Presto.Config.Migration do
   Validates that a configuration can be migrated to the current version.
   """
   @spec can_migrate?(map(), version()) :: boolean()
-  def can_migrate?(config, from_version) do
+  def can_migrate?(_config, from_version) do
     case get_migration_path(from_version, @current_version) do
       {:ok, _} -> true
       {:error, _} -> false
@@ -95,18 +102,19 @@ defmodule Presto.Config.Migration do
     try do
       json_config = Jason.encode!(config, pretty: true)
       File.write!(backup_path, json_config)
-      
+
       PrestoLogger.log_configuration(:info, "backup", "created", %{
         backup_path: backup_path,
         config_size: byte_size(json_config)
       })
-      
+
       {:ok, backup_path}
     rescue
       error ->
         PrestoLogger.log_configuration(:error, "backup", "failed", %{
           error: Exception.message(error)
         })
+
         {:error, "Failed to create backup: #{Exception.message(error)}"}
     end
   end
@@ -119,11 +127,11 @@ defmodule Presto.Config.Migration do
     try do
       json_content = File.read!(backup_path)
       config = Jason.decode!(json_content)
-      
+
       PrestoLogger.log_configuration(:info, "restore", "completed", %{
         backup_path: backup_path
       })
-      
+
       {:ok, config}
     rescue
       error ->
@@ -131,6 +139,7 @@ defmodule Presto.Config.Migration do
           backup_path: backup_path,
           error: Exception.message(error)
         })
+
         {:error, "Failed to restore backup: #{Exception.message(error)}"}
     end
   end
@@ -139,23 +148,24 @@ defmodule Presto.Config.Migration do
   Generates a migration report showing what will change.
   """
   @spec generate_migration_report(map(), version()) :: String.t()
-  def generate_migration_report(config, from_version) do
+  def generate_migration_report(_config, from_version) do
     case get_migration_path(from_version, @current_version) do
       {:ok, migration_steps} ->
         changes = Enum.map(migration_steps, &describe_migration_step/1)
-        
+
         """
         Configuration Migration Report
         =============================
-        
+
         From Version: #{from_version}
         To Version: #{@current_version}
-        
+
         Changes to be applied:
         #{Enum.join(changes, "\n")}
-        
+
         Current configuration will be backed up before migration.
         """
+
       {:error, reason} ->
         "Migration not possible: #{reason}"
     end
@@ -169,12 +179,18 @@ defmodule Presto.Config.Migration do
 
   defp get_migration_path(from_version, to_version) do
     versions = Map.keys(@config_versions) |> Enum.sort()
-    
-    case {Enum.find_index(versions, &(&1 == from_version)), 
+
+    case {Enum.find_index(versions, &(&1 == from_version)),
           Enum.find_index(versions, &(&1 == to_version))} do
-      {nil, _} -> {:error, "Unknown source version: #{from_version}"}
-      {_, nil} -> {:error, "Unknown target version: #{to_version}"}
-      {from_idx, to_idx} when from_idx > to_idx -> {:error, "Cannot downgrade configuration"}
+      {nil, _} ->
+        {:error, "Unknown source version: #{from_version}"}
+
+      {_, nil} ->
+        {:error, "Unknown target version: #{to_version}"}
+
+      {from_idx, to_idx} when from_idx > to_idx ->
+        {:error, "Cannot downgrade configuration"}
+
       {from_idx, to_idx} ->
         migration_versions = Enum.slice(versions, (from_idx + 1)..to_idx)
         {:ok, migration_versions}
@@ -189,19 +205,22 @@ defmodule Presto.Config.Migration do
         PrestoLogger.log_configuration(:info, "migration", "step_completed", %{
           version: version
         })
+
         apply_migrations(migrated_config, remaining_versions)
+
       {:error, reason} ->
         PrestoLogger.log_configuration(:error, "migration", "step_failed", %{
           version: version,
           reason: reason
         })
+
         {:error, "Migration to #{version} failed: #{reason}"}
     end
   end
 
   defp apply_single_migration(config, "0.2.0") do
     # Migration from 0.1.0 to 0.2.0: Add concurrent execution defaults
-    updated_config = 
+    updated_config =
       config
       |> put_in_if_missing([:engine, :enable_concurrent_execution], false)
       |> put_in_if_missing([:engine, :max_concurrent_rules], 10)
@@ -212,7 +231,7 @@ defmodule Presto.Config.Migration do
 
   defp apply_single_migration(config, "0.3.0") do
     # Migration from 0.2.0 to 0.3.0: Add performance monitoring and memory limits
-    updated_config = 
+    updated_config =
       config
       |> put_in_if_missing([:engine, :working_memory_limit], 100_000)
       |> put_in_if_missing([:rule_registry, :enable_rule_hot_reload], false)
@@ -239,7 +258,7 @@ defmodule Presto.Config.Migration do
     Enum.all?(schema, fn {section, expected_keys} ->
       section_config = Map.get(config, section, %{})
       section_keys = Map.keys(section_config)
-      
+
       # Check if all expected keys are present
       Enum.all?(expected_keys, &(&1 in section_keys))
     end)

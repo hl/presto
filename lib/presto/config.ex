@@ -1,7 +1,7 @@
 defmodule Presto.Config do
   @moduledoc """
   Configuration validation and management for the Presto rules engine.
-  
+
   Provides schema validation, environment-specific configuration handling,
   and runtime configuration validation to ensure system reliability.
   """
@@ -33,86 +33,86 @@ defmodule Presto.Config do
         validator: &(&1 > 0),
         description: "Maximum number of rules allowed in the engine"
       },
-    rule_timeout_ms: %{
-      type: :integer,
-      required: false,
-      default: 5000,
-      validator: &(&1 > 0 and &1 <= 60_000),
-      description: "Maximum time in milliseconds for rule execution"
-    },
-    enable_concurrent_execution: %{
-      type: :boolean,
-      required: false,
-      default: false,
-      validator: &is_boolean/1,
-      description: "Whether to enable concurrent rule execution"
-    },
-    max_concurrent_rules: %{
-      type: :integer,
-      required: false,
-      default: 10,
-      validator: &(&1 > 0 and &1 <= 100),
-      description: "Maximum number of rules to execute concurrently"
-    },
-    working_memory_limit: %{
-      type: :integer,
-      required: false,
-      default: 100_000,
-      validator: &(&1 > 0),
-      description: "Maximum number of facts in working memory"
-    }
+      rule_timeout_ms: %{
+        type: :integer,
+        required: false,
+        default: 5000,
+        validator: &(&1 > 0 and &1 <= 60_000),
+        description: "Maximum time in milliseconds for rule execution"
+      },
+      enable_concurrent_execution: %{
+        type: :boolean,
+        required: false,
+        default: false,
+        validator: &is_boolean/1,
+        description: "Whether to enable concurrent rule execution"
+      },
+      max_concurrent_rules: %{
+        type: :integer,
+        required: false,
+        default: 10,
+        validator: &(&1 > 0 and &1 <= 100),
+        description: "Maximum number of rules to execute concurrently"
+      },
+      working_memory_limit: %{
+        type: :integer,
+        required: false,
+        default: 100_000,
+        validator: &(&1 > 0),
+        description: "Maximum number of facts in working memory"
+      }
     }
   end
 
   defp rule_registry_schema do
     %{
-    default_rules: %{
-      type: :list,
-      required: false,
-      default: [],
-      validator: &is_list/1,
-      description: "List of default rule modules to load"
-    },
-    rule_cache_size: %{
-      type: :integer,
-      required: false,
-      default: 1000,
-      validator: &(&1 > 0),
-      description: "Maximum number of compiled rules to cache"
-    },
-    enable_rule_hot_reload: %{
-      type: :boolean,
-      required: false,
-      default: false,
-      validator: &is_boolean/1,
-      description: "Whether to enable hot reloading of rule modules"
-    }
+      default_rules: %{
+        type: :list,
+        required: false,
+        default: [],
+        validator: &is_list/1,
+        description: "List of default rule modules to load"
+      },
+      rule_cache_size: %{
+        type: :integer,
+        required: false,
+        default: 1000,
+        validator: &(&1 > 0),
+        description: "Maximum number of compiled rules to cache"
+      },
+      enable_rule_hot_reload: %{
+        type: :boolean,
+        required: false,
+        default: false,
+        validator: &is_boolean/1,
+        description: "Whether to enable hot reloading of rule modules"
+      }
     }
   end
 
   defp performance_schema do
     %{
-    enable_metrics: %{
-      type: :boolean,
-      required: false,
-      default: true,
-      validator: &is_boolean/1,
-      description: "Whether to collect performance metrics"
-    },
-    metrics_interval_ms: %{
-      type: :integer,
-      required: false,
-      default: 60_000,
-      validator: &(&1 >= 1000),
-      description: "Interval for collecting performance metrics"
-    },
-    enable_profiling: %{
-      type: :boolean,
-      required: false,
-      default: false,
-      validator: &is_boolean/1,
-      description: "Whether to enable detailed profiling"
-    }
+      enable_metrics: %{
+        type: :boolean,
+        required: false,
+        default: true,
+        validator: &is_boolean/1,
+        description: "Whether to collect performance metrics"
+      },
+      metrics_interval_ms: %{
+        type: :integer,
+        required: false,
+        default: 60_000,
+        validator: &(&1 >= 1000),
+        description: "Interval for collecting performance metrics"
+      },
+      enable_profiling: %{
+        type: :boolean,
+        required: false,
+        default: false,
+        validator: &is_boolean/1,
+        description: "Whether to enable detailed profiling"
+      }
     }
   end
 
@@ -164,11 +164,15 @@ defmodule Presto.Config do
   @spec get_engine_config() :: map()
   def get_engine_config do
     config = Application.get_env(:presto, :engine, %{})
-    
+
     case validate_and_apply_defaults(config, engine_schema()) do
       {:ok, validated_config} ->
-        PrestoLogger.log_configuration(:info, "engine", "config_loaded", %{config: validated_config})
+        PrestoLogger.log_configuration(:info, "engine", "config_loaded", %{
+          config: validated_config
+        })
+
         validated_config
+
       {:error, errors} ->
         PrestoLogger.log_configuration(:error, "engine", "config_invalid", %{errors: errors})
         raise ConfigurationError, config_key: "engine", validation_errors: errors
@@ -181,13 +185,20 @@ defmodule Presto.Config do
   @spec get_rule_registry_config() :: map()
   def get_rule_registry_config do
     config = Application.get_env(:presto, :rule_registry, %{})
-    
+
     case validate_and_apply_defaults(config, rule_registry_schema()) do
       {:ok, validated_config} ->
-        PrestoLogger.log_configuration(:info, "rule_registry", "config_loaded", %{config: validated_config})
+        PrestoLogger.log_configuration(:info, "rule_registry", "config_loaded", %{
+          config: validated_config
+        })
+
         validated_config
+
       {:error, errors} ->
-        PrestoLogger.log_configuration(:error, "rule_registry", "config_invalid", %{errors: errors})
+        PrestoLogger.log_configuration(:error, "rule_registry", "config_invalid", %{
+          errors: errors
+        })
+
         raise ConfigurationError, config_key: "rule_registry", validation_errors: errors
     end
   end
@@ -198,11 +209,15 @@ defmodule Presto.Config do
   @spec get_performance_config() :: map()
   def get_performance_config do
     config = Application.get_env(:presto, :performance, %{})
-    
+
     case validate_and_apply_defaults(config, performance_schema()) do
       {:ok, validated_config} ->
-        PrestoLogger.log_configuration(:info, "performance", "config_loaded", %{config: validated_config})
+        PrestoLogger.log_configuration(:info, "performance", "config_loaded", %{
+          config: validated_config
+        })
+
         validated_config
+
       {:error, errors} ->
         PrestoLogger.log_configuration(:error, "performance", "config_invalid", %{errors: errors})
         raise ConfigurationError, config_key: "performance", validation_errors: errors
@@ -216,7 +231,7 @@ defmodule Presto.Config do
   def validate_rule_spec(rule_spec) when is_map(rule_spec) do
     errors = []
 
-    errors = 
+    errors =
       if Map.has_key?(rule_spec, "rules_to_run") do
         case Map.get(rule_spec, "rules_to_run") do
           rules when is_list(rules) ->
@@ -225,6 +240,7 @@ defmodule Presto.Config do
             else
               ["rules_to_run must contain only strings" | errors]
             end
+
           _ ->
             ["rules_to_run must be a list" | errors]
         end
@@ -232,7 +248,7 @@ defmodule Presto.Config do
         errors
       end
 
-    errors = 
+    errors =
       if Map.has_key?(rule_spec, "variables") do
         case Map.get(rule_spec, "variables") do
           variables when is_map(variables) -> errors
@@ -242,7 +258,7 @@ defmodule Presto.Config do
         errors
       end
 
-    errors = 
+    errors =
       if Map.has_key?(rule_spec, "rule_execution_order") do
         case Map.get(rule_spec, "rule_execution_order") do
           order when is_list(order) ->
@@ -251,6 +267,7 @@ defmodule Presto.Config do
             else
               ["rule_execution_order must contain only strings" | errors]
             end
+
           _ ->
             ["rule_execution_order must be a list" | errors]
         end
@@ -272,7 +289,7 @@ defmodule Presto.Config do
   @spec validate_environment_config(atom()) :: validation_result()
   def validate_environment_config(env) when env in [:dev, :test, :prod] do
     config = Application.get_all_env(:presto)
-    
+
     case env do
       :prod -> validate_production_config(config)
       :test -> validate_test_config(config)
@@ -302,14 +319,14 @@ defmodule Presto.Config do
   @spec generate_config_docs() :: String.t()
   def generate_config_docs do
     schema = get_config_schema()
-    
+
     Enum.map_join(schema, "\n\n", fn {section, fields} ->
       "## #{String.upcase(to_string(section))} Configuration\n\n" <>
-      Enum.map_join(fields, "\n", fn {key, spec} ->
-        required_text = if spec.required, do: " (required)", else: " (optional)"
-        default_text = if spec.default, do: " [default: #{inspect(spec.default)}]", else: ""
-        "- **#{key}** (#{spec.type})#{required_text}#{default_text}: #{spec.description}"
-      end)
+        Enum.map_join(fields, "\n", fn {key, spec} ->
+          required_text = if spec.required, do: " (required)", else: " (optional)"
+          default_text = if spec.default, do: " [default: #{inspect(spec.default)}]", else: ""
+          "- **#{key}** (#{spec.type})#{required_text}#{default_text}: #{spec.description}"
+        end)
     end)
   end
 
@@ -317,15 +334,20 @@ defmodule Presto.Config do
 
   defp validate_config(config, schema, section_name) do
     case validate_and_apply_defaults(config, schema) do
-      {:ok, _validated_config} -> :ok
-      {:error, errors} -> 
-        PrestoLogger.log_configuration(:error, section_name, "validation_failed", %{errors: errors})
+      {:ok, _validated_config} ->
+        :ok
+
+      {:error, errors} ->
+        PrestoLogger.log_configuration(:error, section_name, "validation_failed", %{
+          errors: errors
+        })
+
         {:error, errors}
     end
   end
 
   defp validate_and_apply_defaults(config, schema) do
-    {validated_config, errors} = 
+    {validated_config, errors} =
       Enum.reduce(schema, {%{}, []}, fn {key, spec}, {acc_config, acc_errors} ->
         case validate_field(config, key, spec) do
           {:ok, value} -> {Map.put(acc_config, key, value), acc_errors}
@@ -374,13 +396,13 @@ defmodule Presto.Config do
     errors = []
 
     # Production-specific validations
-    errors = 
+    errors =
       case get_in(config, [:engine, :enable_concurrent_execution]) do
         true -> errors
         _ -> ["Production should enable concurrent execution for performance" | errors]
       end
 
-    errors = 
+    errors =
       case get_in(config, [:performance, :enable_metrics]) do
         true -> errors
         _ -> ["Production should enable metrics collection" | errors]
@@ -396,7 +418,7 @@ defmodule Presto.Config do
     errors = []
 
     # Test-specific validations
-    errors = 
+    errors =
       case get_in(config, [:engine, :rule_timeout_ms]) do
         timeout when is_integer(timeout) and timeout <= 1000 -> errors
         _ -> ["Test environment should use short timeouts for faster tests" | errors]

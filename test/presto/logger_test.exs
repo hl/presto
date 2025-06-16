@@ -6,9 +6,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_rule_execution/4" do
     test "logs rule execution with structured metadata" do
-      log = capture_log(fn ->
-        PrestoLogger.log_rule_execution(:info, :test_rule, "rule_fired", %{facts_matched: 3})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_rule_execution(:info, :test_rule, "rule_fired", %{facts_matched: 3})
+        end)
 
       assert log =~ "Rule execution: rule_fired"
     end
@@ -16,9 +17,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_fact_processing/4" do
     test "logs fact processing events" do
-      log = capture_log(fn ->
-        PrestoLogger.log_fact_processing(:debug, :person, "fact_added", %{fact_count: 10})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_fact_processing(:debug, :person, "fact_added", %{fact_count: 10})
+        end)
 
       assert log =~ "Fact processing: fact_added"
     end
@@ -26,9 +28,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_network_operation/4" do
     test "logs network operations" do
-      log = capture_log(fn ->
-        PrestoLogger.log_network_operation(:info, "alpha", "node_created", %{node_id: "alpha_1"})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_network_operation(:info, "alpha", "node_created", %{node_id: "alpha_1"})
+        end)
 
       assert log =~ "Network operation: node_created on alpha"
     end
@@ -36,9 +39,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_performance/4" do
     test "logs performance metrics" do
-      log = capture_log(fn ->
-        PrestoLogger.log_performance(:info, "rule_compilation", 150, %{rule_count: 5})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_performance(:info, "rule_compilation", 150, %{rule_count: 5})
+        end)
 
       assert log =~ "Performance: rule_compilation completed in 150ms"
     end
@@ -46,9 +50,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_engine_lifecycle/4" do
     test "logs engine lifecycle events" do
-      log = capture_log(fn ->
-        PrestoLogger.log_engine_lifecycle(:info, "engine_123", "started", %{pid: self()})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_engine_lifecycle(:info, "engine_123", "started", %{pid: self()})
+        end)
 
       assert log =~ "Engine lifecycle: started"
     end
@@ -56,9 +61,13 @@ defmodule Presto.LoggerTest do
 
   describe "log_configuration/4" do
     test "logs configuration events" do
-      log = capture_log(fn ->
-        PrestoLogger.log_configuration(:warn, "rule_timeout", "value_changed", %{old: 5000, new: 10000})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_configuration(:warn, "rule_timeout", "value_changed", %{
+            old: 5000,
+            new: 10000
+          })
+        end)
 
       assert log =~ "Configuration: value_changed for rule_timeout"
     end
@@ -69,9 +78,10 @@ defmodule Presto.LoggerTest do
       error = %RuntimeError{message: "Something went wrong"}
       context = %{operation: "rule_execution", rule_id: :test_rule}
 
-      log = capture_log(fn ->
-        PrestoLogger.log_error(error, context)
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_error(error, context)
+        end)
 
       assert log =~ "Error occurred: Something went wrong"
     end
@@ -80,10 +90,11 @@ defmodule Presto.LoggerTest do
   describe "log_debug/3" do
     test "logs debug information with trace ID" do
       trace_id = "abc123"
-      
-      log = capture_log(fn ->
-        PrestoLogger.log_debug("Debug message", trace_id, %{step: 1})
-      end)
+
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_debug("Debug message", trace_id, %{step: 1})
+        end)
 
       assert log =~ "[abc123] Debug message"
     end
@@ -97,20 +108,28 @@ defmodule Presto.LoggerTest do
       assert is_binary(id1)
       assert is_binary(id2)
       assert id1 != id2
-      assert String.length(id1) == 16  # 8 bytes * 2 hex chars per byte
+      # 8 bytes * 2 hex chars per byte
+      assert String.length(id1) == 16
     end
   end
 
   describe "log_with_timing/4" do
     test "logs successful operation with timing" do
-      log = capture_log(fn ->
-        result = PrestoLogger.log_with_timing(:info, "test_operation", fn ->
-          Process.sleep(10)
-          :success
-        end, %{test: true})
+      log =
+        capture_log(fn ->
+          result =
+            PrestoLogger.log_with_timing(
+              :info,
+              "test_operation",
+              fn ->
+                Process.sleep(10)
+                :success
+              end,
+              %{test: true}
+            )
 
-        assert result == :success
-      end)
+          assert result == :success
+        end)
 
       assert log =~ "Performance: test_operation completed in"
       assert log =~ "ms"
@@ -129,9 +148,10 @@ defmodule Presto.LoggerTest do
 
   describe "log_rule_compilation/4" do
     test "logs rule compilation stages" do
-      log = capture_log(fn ->
-        PrestoLogger.log_rule_compilation(:info, :my_rule, "parsing", %{line_count: 10})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_rule_compilation(:info, :my_rule, "parsing", %{line_count: 10})
+        end)
 
       assert log =~ "Rule compilation: parsing for rule my_rule"
     end
@@ -141,9 +161,10 @@ defmodule Presto.LoggerTest do
     test "logs working memory statistics" do
       stats = %{fact_count: 100, memory_usage_bytes: 1024}
 
-      log = capture_log(fn ->
-        PrestoLogger.log_memory_stats(:info, stats, %{engine_id: "test_engine"})
-      end)
+      log =
+        capture_log(fn ->
+          PrestoLogger.log_memory_stats(:info, stats, %{engine_id: "test_engine"})
+        end)
 
       assert log =~ "Working memory stats: 100 facts, 1024 bytes"
     end
@@ -153,9 +174,10 @@ defmodule Presto.LoggerTest do
     test "respects different log levels" do
       # Test that different levels work
       for level <- [:debug, :info, :warn, :error] do
-        log = capture_log(fn ->
-          PrestoLogger.log_rule_execution(level, :test_rule, "test_event")
-        end)
+        log =
+          capture_log(fn ->
+            PrestoLogger.log_rule_execution(level, :test_rule, "test_event")
+          end)
 
         # Should contain the message regardless of level in test environment
         assert log =~ "Rule execution: test_event"

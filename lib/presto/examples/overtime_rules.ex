@@ -680,8 +680,8 @@ defmodule Presto.Examples.OvertimeRules do
   defp process_overtime_rules_sequentially(pay_aggregates, overtime_rules) do
     # Sort rules by priority (default to 0 if priority not specified)
     sorted_rules =
-      Enum.sort_by(overtime_rules, fn {:overtime_rule, _, rule_data} -> 
-        Map.get(rule_data, :priority, 0) 
+      Enum.sort_by(overtime_rules, fn {:overtime_rule, _, rule_data} ->
+        Map.get(rule_data, :priority, 0)
       end)
 
     # Process each rule in sequence

@@ -20,29 +20,36 @@ defmodule Presto.ConfigTest do
 
     test "rejects invalid max_rules" do
       config = %{max_rules: -1}
-      
+
       assert {:error, errors} = Config.validate_engine_config(config)
       assert Enum.any?(errors, &String.contains?(&1, "max_rules failed validation"))
     end
 
     test "rejects invalid rule_timeout_ms" do
-      config = %{rule_timeout_ms: 70_000}  # Too high
-      
+      # Too high
+      config = %{rule_timeout_ms: 70_000}
+
       assert {:error, errors} = Config.validate_engine_config(config)
       assert Enum.any?(errors, &String.contains?(&1, "rule_timeout_ms failed validation"))
     end
 
     test "accepts configuration with defaults" do
-      config = %{}  # Empty config should use defaults
-      
+      # Empty config should use defaults
+      config = %{}
+
       assert Config.validate_engine_config(config) == :ok
     end
 
     test "rejects wrong types" do
-      config = %{enable_concurrent_execution: "true"}  # Should be boolean
-      
+      # Should be boolean
+      config = %{enable_concurrent_execution: "true"}
+
       assert {:error, errors} = Config.validate_engine_config(config)
-      assert Enum.any?(errors, &String.contains?(&1, "enable_concurrent_execution must be of type boolean"))
+
+      assert Enum.any?(
+               errors,
+               &String.contains?(&1, "enable_concurrent_execution must be of type boolean")
+             )
     end
   end
 
@@ -59,14 +66,14 @@ defmodule Presto.ConfigTest do
 
     test "rejects invalid rule_cache_size" do
       config = %{rule_cache_size: 0}
-      
+
       assert {:error, errors} = Config.validate_rule_registry_config(config)
       assert Enum.any?(errors, &String.contains?(&1, "rule_cache_size failed validation"))
     end
 
     test "validates default_rules as list" do
       config = %{default_rules: "not a list"}
-      
+
       assert {:error, errors} = Config.validate_rule_registry_config(config)
       assert Enum.any?(errors, &String.contains?(&1, "default_rules must be of type list"))
     end
@@ -84,8 +91,9 @@ defmodule Presto.ConfigTest do
     end
 
     test "rejects invalid metrics_interval_ms" do
-      config = %{metrics_interval_ms: 500}  # Too low
-      
+      # Too low
+      config = %{metrics_interval_ms: 500}
+
       assert {:error, errors} = Config.validate_performance_config(config)
       assert Enum.any?(errors, &String.contains?(&1, "metrics_interval_ms failed validation"))
     end
@@ -104,13 +112,14 @@ defmodule Presto.ConfigTest do
 
     test "validates with missing sections using defaults" do
       config = %{engine: %{max_rules: 100}}
-      
+
       assert Config.validate_presto_config(config) == :ok
     end
 
     test "fails when any section is invalid" do
       config = %{
-        engine: %{max_rules: -1},  # Invalid
+        # Invalid
+        engine: %{max_rules: -1},
         rule_registry: %{rule_cache_size: 500}
       }
 
@@ -122,13 +131,14 @@ defmodule Presto.ConfigTest do
     test "returns validated configuration with defaults" do
       # Mock the application environment
       Application.put_env(:presto, :engine, %{max_rules: 200})
-      
+
       config = Config.get_engine_config()
-      
+
       assert config.max_rules == 200
-      assert config.rule_timeout_ms == 5000  # Default value
+      # Default value
+      assert config.rule_timeout_ms == 5000
       assert is_boolean(config.enable_concurrent_execution)
-      
+
       # Cleanup
       Application.delete_env(:presto, :engine)
     end
@@ -136,24 +146,25 @@ defmodule Presto.ConfigTest do
     test "raises ConfigurationError for invalid configuration" do
       # Set invalid configuration
       Application.put_env(:presto, :engine, %{max_rules: -1})
-      
+
       assert_raise ConfigurationError, fn ->
         Config.get_engine_config()
       end
-      
+
       # Cleanup
       Application.delete_env(:presto, :engine)
     end
 
     test "logs configuration loading" do
       Application.put_env(:presto, :engine, %{})
-      
-      log = capture_log(fn ->
-        Config.get_engine_config()
-      end)
-      
+
+      log =
+        capture_log(fn ->
+          Config.get_engine_config()
+        end)
+
       assert log =~ "Configuration: config_loaded for engine"
-      
+
       # Cleanup
       Application.delete_env(:presto, :engine)
     end
@@ -162,13 +173,14 @@ defmodule Presto.ConfigTest do
   describe "get_rule_registry_config/0" do
     test "returns validated configuration with defaults" do
       Application.put_env(:presto, :rule_registry, %{rule_cache_size: 1500})
-      
+
       config = Config.get_rule_registry_config()
-      
+
       assert config.rule_cache_size == 1500
-      assert config.default_rules == []  # Default value
+      # Default value
+      assert config.default_rules == []
       assert is_boolean(config.enable_rule_hot_reload)
-      
+
       # Cleanup
       Application.delete_env(:presto, :rule_registry)
     end
@@ -177,13 +189,15 @@ defmodule Presto.ConfigTest do
   describe "get_performance_config/0" do
     test "returns validated configuration with defaults" do
       Application.put_env(:presto, :performance, %{enable_profiling: true})
-      
+
       config = Config.get_performance_config()
-      
+
       assert config.enable_profiling == true
-      assert config.enable_metrics == true  # Default value
-      assert config.metrics_interval_ms == 60_000  # Default value
-      
+      # Default value
+      assert config.enable_metrics == true
+      # Default value
+      assert config.metrics_interval_ms == 60_000
+
       # Cleanup
       Application.delete_env(:presto, :performance)
     end
@@ -202,29 +216,35 @@ defmodule Presto.ConfigTest do
 
     test "validates minimal rule specification" do
       rule_spec = %{}
-      
+
       assert Config.validate_rule_spec(rule_spec) == :ok
     end
 
     test "rejects invalid rules_to_run" do
-      rule_spec = %{"rules_to_run" => ["rule1", 123]}  # Mixed types
-      
+      # Mixed types
+      rule_spec = %{"rules_to_run" => ["rule1", 123]}
+
       assert {:error, errors} = Config.validate_rule_spec(rule_spec)
       assert Enum.any?(errors, &String.contains?(&1, "rules_to_run must contain only strings"))
     end
 
     test "rejects invalid variables" do
       rule_spec = %{"variables" => "not a map"}
-      
+
       assert {:error, errors} = Config.validate_rule_spec(rule_spec)
       assert Enum.any?(errors, &String.contains?(&1, "variables must be a map"))
     end
 
     test "rejects invalid rule_execution_order" do
-      rule_spec = %{"rule_execution_order" => [1, 2, 3]}  # Should be strings
-      
+      # Should be strings
+      rule_spec = %{"rule_execution_order" => [1, 2, 3]}
+
       assert {:error, errors} = Config.validate_rule_spec(rule_spec)
-      assert Enum.any?(errors, &String.contains?(&1, "rule_execution_order must contain only strings"))
+
+      assert Enum.any?(
+               errors,
+               &String.contains?(&1, "rule_execution_order must contain only strings")
+             )
     end
 
     test "rejects non-map rule specification" do
@@ -238,9 +258,9 @@ defmodule Presto.ConfigTest do
       # Set production-friendly configuration
       Application.put_env(:presto, :engine, %{enable_concurrent_execution: true})
       Application.put_env(:presto, :performance, %{enable_metrics: true})
-      
+
       assert Config.validate_environment_config(:prod) == :ok
-      
+
       # Cleanup
       Application.delete_env(:presto, :engine)
       Application.delete_env(:presto, :performance)
@@ -249,10 +269,14 @@ defmodule Presto.ConfigTest do
     test "fails production validation with poor configuration" do
       # Set non-production configuration
       Application.put_env(:presto, :engine, %{enable_concurrent_execution: false})
-      
+
       assert {:error, errors} = Config.validate_environment_config(:prod)
-      assert Enum.any?(errors, &String.contains?(&1, "Production should enable concurrent execution"))
-      
+
+      assert Enum.any?(
+               errors,
+               &String.contains?(&1, "Production should enable concurrent execution")
+             )
+
       # Cleanup
       Application.delete_env(:presto, :engine)
     end
@@ -260,9 +284,9 @@ defmodule Presto.ConfigTest do
     test "validates test environment" do
       # Set test-friendly configuration
       Application.put_env(:presto, :engine, %{rule_timeout_ms: 500})
-      
+
       assert Config.validate_environment_config(:test) == :ok
-      
+
       # Cleanup
       Application.delete_env(:presto, :engine)
     end
@@ -281,16 +305,16 @@ defmodule Presto.ConfigTest do
   describe "get_config_schema/0" do
     test "returns complete configuration schema" do
       schema = Config.get_config_schema()
-      
+
       assert Map.has_key?(schema, :engine)
       assert Map.has_key?(schema, :rule_registry)
       assert Map.has_key?(schema, :performance)
-      
+
       # Check engine schema structure
       engine_schema = schema.engine
       assert Map.has_key?(engine_schema, :max_rules)
       assert Map.has_key?(engine_schema, :rule_timeout_ms)
-      
+
       # Check field specifications
       max_rules_spec = engine_schema.max_rules
       assert max_rules_spec.type == :integer
@@ -303,7 +327,7 @@ defmodule Presto.ConfigTest do
   describe "generate_config_docs/0" do
     test "generates configuration documentation" do
       docs = Config.generate_config_docs()
-      
+
       assert is_binary(docs)
       assert String.contains?(docs, "ENGINE Configuration")
       assert String.contains?(docs, "RULE_REGISTRY Configuration")
@@ -320,7 +344,7 @@ defmodule Presto.ConfigTest do
     test "validates integer types correctly" do
       config = %{max_rules: 100}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{max_rules: "100"}
       assert {:error, _} = Config.validate_engine_config(config)
     end
@@ -328,7 +352,7 @@ defmodule Presto.ConfigTest do
     test "validates boolean types correctly" do
       config = %{enable_concurrent_execution: true}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{enable_concurrent_execution: "true"}
       assert {:error, _} = Config.validate_engine_config(config)
     end
@@ -336,7 +360,7 @@ defmodule Presto.ConfigTest do
     test "validates list types correctly" do
       config = %{default_rules: []}
       assert Config.validate_rule_registry_config(config) == :ok
-      
+
       config = %{default_rules: "not a list"}
       assert {:error, _} = Config.validate_rule_registry_config(config)
     end
@@ -346,10 +370,10 @@ defmodule Presto.ConfigTest do
     test "validates positive integers" do
       config = %{max_rules: 1}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{max_rules: 0}
       assert {:error, _} = Config.validate_engine_config(config)
-      
+
       config = %{max_rules: -1}
       assert {:error, _} = Config.validate_engine_config(config)
     end
@@ -357,10 +381,10 @@ defmodule Presto.ConfigTest do
     test "validates timeout ranges" do
       config = %{rule_timeout_ms: 1000}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{rule_timeout_ms: 60_000}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{rule_timeout_ms: 60_001}
       assert {:error, _} = Config.validate_engine_config(config)
     end
@@ -368,10 +392,10 @@ defmodule Presto.ConfigTest do
     test "validates concurrent rule limits" do
       config = %{max_concurrent_rules: 1}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{max_concurrent_rules: 100}
       assert Config.validate_engine_config(config) == :ok
-      
+
       config = %{max_concurrent_rules: 101}
       assert {:error, _} = Config.validate_engine_config(config)
     end

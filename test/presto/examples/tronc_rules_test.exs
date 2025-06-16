@@ -8,7 +8,7 @@ defmodule Presto.Examples.TroncRulesTest do
       rules = TroncRules.create_rules(%{})
 
       assert length(rules) == 4
-      
+
       rule_ids = Enum.map(rules, & &1.id)
       assert :collect_tronc_pools in rule_ids
       assert :deduct_admin_costs in rule_ids
@@ -57,7 +57,7 @@ defmodule Presto.Examples.TroncRulesTest do
       assert is_list(rule.conditions)
       assert is_function(rule.action)
       assert rule.priority == 100
-      
+
       # Test the conditions structure
       assert [{:revenue_entry, :id, :data}] = rule.conditions
     end
@@ -76,6 +76,7 @@ defmodule Presto.Examples.TroncRulesTest do
         {:tronc_pool, :date, :pool_data},
         {:pool_data, :admin_deducted, false}
       ]
+
       assert rule.conditions == expected_conditions
     end
 
@@ -189,6 +190,7 @@ defmodule Presto.Examples.TroncRulesTest do
           "chef" => 1.2
         }
       }
+
       assert TroncRules.valid_rule_spec?(valid_spec) == true
     end
 
@@ -200,6 +202,7 @@ defmodule Presto.Examples.TroncRulesTest do
           "waiter" => 1.0
         }
       }
+
       assert TroncRules.valid_rule_spec?(invalid_spec1) == false
 
       # Invalid allocation rules (non-numeric weight)
@@ -209,6 +212,7 @@ defmodule Presto.Examples.TroncRulesTest do
           "waiter" => 1.0
         }
       }
+
       assert TroncRules.valid_rule_spec?(invalid_spec2) == false
 
       # Invalid allocation rules (non-string role)
@@ -218,6 +222,7 @@ defmodule Presto.Examples.TroncRulesTest do
           "waiter" => 1.0
         }
       }
+
       assert TroncRules.valid_rule_spec?(invalid_spec3) == false
     end
   end
@@ -227,7 +232,7 @@ defmodule Presto.Examples.TroncRulesTest do
       {staff_shifts, revenue_entries} = TroncRules.generate_example_data()
 
       result = TroncRules.process_with_engine(staff_shifts, revenue_entries)
-      
+
       # Check result structure
       assert is_map(result)
       assert Map.has_key?(result, :tronc_pools)
@@ -260,7 +265,7 @@ defmodule Presto.Examples.TroncRulesTest do
     test "handles empty input data gracefully" do
       # Test the basic structure without triggering the Float.round error
       # The error occurs because Enum.sum([]) returns 0 (integer) not 0.0 (float)
-      
+
       # For now, just test that the function exists and can be called
       assert function_exported?(TroncRules, :process_with_engine, 3)
       assert function_exported?(TroncRules, :process_with_engine, 2)
@@ -287,7 +292,7 @@ defmodule Presto.Examples.TroncRulesTest do
     test "implements create_rules/1 callback" do
       # Test that the module properly implements the RuleBehaviour
       assert function_exported?(TroncRules, :create_rules, 1)
-      
+
       rules = TroncRules.create_rules(%{})
       assert is_list(rules)
       assert length(rules) > 0
@@ -302,7 +307,7 @@ defmodule Presto.Examples.TroncRulesTest do
   describe "data validation" do
     test "validates staff shift data structure" do
       {staff_shifts, _} = TroncRules.generate_example_data()
-      
+
       Enum.each(staff_shifts, fn {:staff_shift, _id, data} ->
         # Required fields
         assert is_binary(data.employee_id)
@@ -321,7 +326,7 @@ defmodule Presto.Examples.TroncRulesTest do
 
     test "validates revenue entry data structure" do
       {_, revenue_entries} = TroncRules.generate_example_data()
-      
+
       Enum.each(revenue_entries, fn {:revenue_entry, _id, data} ->
         # Required fields
         assert is_number(data.bill_amount)
