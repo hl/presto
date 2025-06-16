@@ -4,6 +4,164 @@
 
 Presto implements the RETE algorithm using Elixir's OTP principles with a supervision tree, GenServers for coordination, and ETS tables for high-performance memory management. The architecture balances RETE's memory-intensive approach with Elixir's process-oriented design.
 
+## Hybrid Rule Creation Architecture
+
+Presto implements a **hybrid approach** to rule creation, supporting both compile-time optimization and runtime flexibility. This design balances performance with adaptability for different use cases.
+
+### Rule Types and Creation Times
+
+#### 1. RETE Processing Rules (Engine Rules)
+These are the actual pattern-matching rules in the RETE network:
+
+**Compile-time Creation:**
+```elixir
+# Rules defined as functions - logic compiled at build time
+def time_calculation_rule() do
+  %Presto.Rule{
+    name: "time_calculation",
+    conditions: [{:timesheet_entry, :employee_id, :hours, :date}],
+    action: fn bindings -> calculate_time_totals(bindings) end
+  }
+end
+```
+
+**Runtime Creation:**
+```elixir
+# Rule instances created when engine starts
+rules = [time_calculation_rule(), pay_aggregation_rule()]
+Enum.each(rules, &Presto.add_rule(engine, &1))
+
+# Dynamic rule creation based on specifications
+def create_rules(rule_spec) do
+  rule_spec.rule_execution_order
+  |> Enum.map(&create_rule_by_type/1)
+end
+```
+
+#### 2. Business Policy Rules (Data Rules)
+These are configuration data loaded as facts:
+
+```elixir
+# Always created at runtime - pure data
+overtimepolicy_rules = [
+  {:overtime_rule, "overtime_bp", %{threshold: 15, filter_pay_code: "basic_pay"}},
+  {:overtime_rule, "overtime_sp", %{threshold: 10, filter_pay_code: "special_pay"}}
+]
+
+Enum.each(overtime_rules, fn rule ->
+  Presto.assert_fact(engine, rule)
+end)
+```
+
+### Hybrid Architecture Benefits
+
+#### Performance Optimization
+- **Compile-time**: Rule logic optimized during compilation
+- **Network Structure**: Pre-computed optimal network topology
+- **Pattern Matching**: Generated efficient matching functions
+- **Memory Layout**: Optimized data structures
+
+#### Runtime Flexibility
+- **Dynamic Configuration**: Business policies changeable without code updates
+- **Rule Parameterization**: Same processing logic, different parameters
+- **Hot Updates**: Modify behavior without engine restart
+- **A/B Testing**: Switch between rule configurations dynamically
+
+#### Resource Management
+- **Memory Efficiency**: Compile-time rules use less memory
+- **Network Sharing**: Compile-time rules can share network nodes
+- **Incremental Updates**: Runtime rules only affect specific network portions
+- **Cleanup Optimization**: Different GC strategies for each rule type
+
+### Configuration Strategies
+
+#### Static Rule Sets (Compile-time Optimized)
+```elixir
+# Best for: High-performance, stable rule sets
+config = %{
+  rule_creation: :compile_time,
+  optimization_level: :maximum,
+  network_sharing: :aggressive,
+  memory_preallocation: true
+}
+
+{:ok, engine} = Presto.start_link(static_rules, config)
+```
+
+#### Dynamic Rule Sets (Runtime Flexible)
+```elixir
+# Best for: Configurable business logic, frequent changes
+config = %{
+  rule_creation: :runtime,
+  policy_reload: :automatic,
+  rule_versioning: true,
+  hot_updates: :enabled
+}
+
+{:ok, engine} = Presto.start_link([], config)
+Presto.load_policy_rules(engine, policy_file)
+```
+
+#### Hybrid Configuration (Balanced)
+```elixir
+# Best for: Core logic stable, policies flexible
+config = %{
+  rule_creation: :hybrid,
+  core_rules: :compile_time,     # Processing logic
+  policy_rules: :runtime,        # Business policies  
+  optimization: :balanced
+}
+
+core_rules = [time_calc_rule(), pay_agg_rule()]
+{:ok, engine} = Presto.start_link(core_rules, config)
+Presto.load_runtime_policies(engine, policy_rules)
+```
+
+### Performance Characteristics
+
+| Aspect | Compile-time | Runtime | Hybrid |
+|--------|-------------|---------|--------|
+| **Startup Time** | Fast | Slow | Medium |
+| **Rule Addition** | Rebuild required | Instant | Mixed |
+| **Memory Usage** | Optimal | Higher | Balanced |
+| **Execution Speed** | Fastest | Fast | Fast |
+| **Flexibility** | Limited | Maximum | High |
+| **Hot Updates** | No | Yes | Partial |
+
+### Use Case Guidelines
+
+#### Choose Compile-time When:
+- **High Performance**: Sub-millisecond response requirements
+- **Stable Rules**: Logic changes infrequently
+- **Large Scale**: Thousands of rules, millions of facts
+- **Resource Constraints**: Memory/CPU optimization critical
+
+#### Choose Runtime When:
+- **Dynamic Business Logic**: Rules change frequently
+- **Multi-tenant**: Different rule sets per tenant
+- **Configuration-driven**: Non-developers modify rules
+- **A/B Testing**: Rapid rule variation testing
+
+#### Choose Hybrid When:
+- **Core + Policy**: Stable processing, flexible policies
+- **Layered Architecture**: Different change frequencies
+- **Performance + Flexibility**: Need both characteristics
+- **Incremental Migration**: Gradually moving between approaches
+
+### Memory Management Implications
+
+#### Compile-time Rules
+- **Network Structure**: Immutable, shared across processes
+- **Pattern Matchers**: Pre-compiled, minimal runtime allocation
+- **Memory Layout**: Optimized for cache efficiency
+- **Garbage Collection**: Minimal GC pressure
+
+#### Runtime Rules
+- **Dynamic Allocation**: Rules created in working memory
+- **Network Updates**: Incremental network modifications
+- **Token Management**: Dynamic partial match creation/destruction
+- **Cleanup Strategy**: Active garbage collection required
+
 ## Module Structure
 
 ### Core Library Modules
