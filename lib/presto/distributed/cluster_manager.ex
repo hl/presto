@@ -25,7 +25,7 @@ defmodule Presto.Distributed.ClusterManager do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{NodeRegistry, PartitionManager, HealthMonitor}
+  alias Presto.Distributed.{HealthMonitor, NodeRegistry, PartitionManager}
   alias Presto.Logger, as: PrestoLogger
 
   @type node_type :: :coordinator | :worker | :storage | :gateway

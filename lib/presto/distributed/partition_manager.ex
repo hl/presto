@@ -10,7 +10,6 @@ defmodule Presto.Distributed.PartitionManager do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.NodeRegistry
   alias Presto.Logger, as: PrestoLogger
 
   @type partition_id :: String.t()
@@ -208,37 +207,23 @@ defmodule Presto.Distributed.PartitionManager do
 
   @impl true
   def handle_call(:trigger_rebalance, _from, state) do
-    case perform_rebalance(state) do
-      {:ok, new_state} ->
-        PrestoLogger.log_distributed(:info, state.local_node.id, "rebalance_completed", %{
-          partition_count: map_size(new_state.partitions)
-        })
+    {:ok, new_state} = perform_rebalance(state)
+    PrestoLogger.log_distributed(:info, state.local_node.id, "rebalance_completed", %{
+      partition_count: map_size(new_state.partitions)
+    })
 
-        {:reply, :ok, new_state}
-
-      {:error, reason} ->
-        PrestoLogger.log_distributed(:error, state.local_node.id, "rebalance_failed", %{
-          reason: reason
-        })
-
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok, new_state}
   end
 
   @impl true
   def handle_call({:handle_node_failure, failed_node_id}, _from, state) do
-    case handle_node_failure_internal(failed_node_id, state) do
-      {:ok, new_state} ->
-        PrestoLogger.log_distributed(:info, state.local_node.id, "node_failure_handled", %{
-          failed_node_id: failed_node_id,
-          affected_partitions: count_affected_partitions(failed_node_id, state)
-        })
+    {:ok, new_state} = handle_node_failure_internal(failed_node_id, state)
+    PrestoLogger.log_distributed(:info, state.local_node.id, "node_failure_handled", %{
+      failed_node_id: failed_node_id,
+      affected_partitions: count_affected_partitions(failed_node_id, state)
+    })
 
-        {:reply, :ok, new_state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -263,29 +248,15 @@ defmodule Presto.Distributed.PartitionManager do
 
     new_state =
       if should_rebalance do
-        case perform_rebalance(state) do
-          {:ok, rebalanced_state} ->
-            PrestoLogger.log_distributed(
-              :info,
-              state.local_node.id,
-              "auto_rebalance_completed",
-              %{}
-            )
+        {:ok, rebalanced_state} = perform_rebalance(state)
+        PrestoLogger.log_distributed(
+          :info,
+          state.local_node.id,
+          "auto_rebalance_completed",
+          %{}
+        )
 
-            rebalanced_state
-
-          {:error, reason} ->
-            PrestoLogger.log_distributed(
-              :warning,
-              state.local_node.id,
-              "auto_rebalance_failed",
-              %{
-                reason: reason
-              }
-            )
-
-            state
-        end
+        rebalanced_state
       else
         state
       end
@@ -439,7 +410,7 @@ defmodule Presto.Distributed.PartitionManager do
     end
   end
 
-  defp hash_fact_to_partition(fact, consistent_hash_ring, partition_count) do
+  defp hash_fact_to_partition(fact, consistent_hash_ring, _partition_count) do
     # Hash the fact and find the appropriate partition
     fact_hash = :crypto.hash(:sha256, :erlang.term_to_binary(fact))
     hash_value = :binary.decode_unsigned(binary_part(fact_hash, 0, 8))
@@ -504,10 +475,7 @@ defmodule Presto.Distributed.PartitionManager do
     {:ok, state}
   end
 
-  defp perform_load_based_rebalancing(state, load_distribution) do
-    # Sort partitions by load
-    sorted_partitions = Enum.sort_by(load_distribution, & &1.load_metric, :desc)
-
+  defp perform_load_based_rebalancing(state, _load_distribution) do
     # For now, just mark rebalancing timestamp - full implementation would move segments
     updated_partitions =
       state.partitions

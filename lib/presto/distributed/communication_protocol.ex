@@ -12,7 +12,7 @@ defmodule Presto.Distributed.CommunicationProtocol do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{ClusterManager, NodeRegistry, PartitionManager}
+  alias Presto.Distributed.{NodeRegistry, PartitionManager}
   alias Presto.Logger, as: PrestoLogger
 
   @type node_id :: String.t()
@@ -682,12 +682,6 @@ defmodule Presto.Distributed.CommunicationProtocol do
     }
   end
 
-  defp decompress_payload(%{compressed: true, data: compressed_data}) do
-    :erlang.binary_to_term(compressed_data)
-  end
-
-  defp decompress_payload(payload), do: payload
-
   defp track_message_sent(message_id, _node_id, state) do
     case Map.get(state.delivery_tracking, message_id) do
       nil ->
@@ -887,7 +881,7 @@ defmodule Presto.Distributed.CommunicationProtocol do
   end
 
   defp handle_aggregate_update(message, state) do
-    aggregate_data = message.payload.aggregate_data
+    _aggregate_data = message.payload.aggregate_data
 
     PrestoLogger.log_distributed(:debug, state.local_node_id, "aggregate_update_received", %{
       source_node: message.source_node
@@ -899,7 +893,7 @@ defmodule Presto.Distributed.CommunicationProtocol do
   end
 
   defp handle_network_sync(message, state) do
-    sync_data = message.payload.sync_data
+    _sync_data = message.payload.sync_data
 
     PrestoLogger.log_distributed(:debug, state.local_node_id, "network_sync_received", %{
       source_node: message.source_node
@@ -1057,7 +1051,7 @@ defmodule Presto.Distributed.CommunicationProtocol do
     %{state | connection_pool: updated_connections}
   end
 
-  defp retry_failed_message(message_id, state) do
+  defp retry_failed_message(_message_id, state) do
     # Implementation for retrying failed messages
     state
   end

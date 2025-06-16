@@ -245,8 +245,13 @@ defmodule Presto.Examples.TroncRules do
   This showcases the incremental processing capabilities of the RETE algorithm
   as facts are asserted and rules fire in response to pattern matches.
   """
+  @spec process_with_engine([staff_shift()], [revenue_entry()]) :: tronc_result()
+  def process_with_engine(staff_shifts, revenue_entries) do
+    process_with_engine(staff_shifts, revenue_entries, %{})
+  end
+
   @spec process_with_engine([staff_shift()], [revenue_entry()], rule_spec()) :: tronc_result()
-  def process_with_engine(staff_shifts, revenue_entries, rule_spec \\ %{}) do
+  def process_with_engine(staff_shifts, revenue_entries, rule_spec) do
     # Start the Presto RETE engine
     {:ok, engine} = Presto.start_engine()
 

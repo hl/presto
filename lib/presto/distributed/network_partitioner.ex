@@ -10,7 +10,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{ClusterManager, PartitionManager, NodeRegistry}
+  alias Presto.Distributed.ClusterManager
   alias Presto.Logger, as: PrestoLogger
 
   @type segment_id :: String.t()
@@ -243,17 +243,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
             {:reply, :ok, new_state}
 
-          {:error, reason} ->
-            PrestoLogger.log_distributed(:error, state.local_node_id, "rebalancing_failed", %{
-              strategy: strategy,
-              reason: reason
-            })
-
-            {:reply, {:error, reason}, state}
         end
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
     end
   end
 
@@ -292,8 +282,6 @@ defmodule Presto.Distributed.NetworkPartitioner do
           {:ok, new_state} ->
             {:reply, :ok, new_state}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
         end
     end
   end
@@ -356,8 +344,6 @@ defmodule Presto.Distributed.NetworkPartitioner do
                 state
             end
 
-          {:error, _reason} ->
-            state
         end
       else
         state
@@ -431,7 +417,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
   defp determine_initial_assignment(segment, state) do
     # Get available nodes from cluster
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
 
     available_nodes =
       cluster_state.nodes
@@ -544,7 +530,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
   defp compute_hash_based_plan(state) do
     # Simple hash-based partitioning
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
     available_nodes = Map.keys(cluster_state.nodes)
 
     segment_assignments =
@@ -578,7 +564,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   end
 
   defp compute_load_balanced_plan(state) do
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
     available_nodes = Map.keys(cluster_state.nodes)
 
     # Sort nodes by current load
@@ -681,8 +667,8 @@ defmodule Presto.Distributed.NetworkPartitioner do
     end)
   end
 
-  defp assign_dependency_groups_to_nodes(dependency_groups, state) do
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+  defp assign_dependency_groups_to_nodes(dependency_groups, _state) do
+    cluster_state = ClusterManager.get_cluster_state()
     available_nodes = Map.keys(cluster_state.nodes)
 
     # Assign each group to nodes
@@ -825,7 +811,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
       1.0
     else
       # Calculate aggregate performance metrics
-      total_segments = map_size(state.network_segments)
+      _total_segments = map_size(state.network_segments)
 
       # Load balance score (how evenly distributed segments are)
       load_balance_score = calculate_load_balance_score(state)
@@ -847,7 +833,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   end
 
   defp calculate_load_balance_score(state) do
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
 
     node_loads =
       Enum.map(Map.keys(cluster_state.nodes), fn node_id ->
@@ -872,8 +858,8 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
   defp calculate_network_efficiency_score(state) do
     # Calculate how many network dependencies are co-located
-    total_dependencies = 0
-    co_located_dependencies = 0
+    _total_dependencies = 0
+    _co_located_dependencies = 0
 
     {total, co_located} =
       Enum.reduce(state.network_segments, {0, 0}, fn {_id, segment}, {tot_acc, col_acc} ->
@@ -904,7 +890,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   end
 
   defp calculate_resource_utilization_score(state) do
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
 
     if map_size(cluster_state.nodes) == 0 do
       0.0
@@ -921,7 +907,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   end
 
   defp analyze_current_load_distribution(state) do
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
 
     Map.keys(cluster_state.nodes)
     |> Enum.into(%{}, fn node_id ->

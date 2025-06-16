@@ -13,7 +13,6 @@ defmodule Presto.Distributed.WorkingMemory do
 
   alias Presto.Distributed.{ClusterManager, PartitionManager}
   alias Presto.Logger, as: PrestoLogger
-  alias Presto.WorkingMemory
 
   @type fact :: tuple()
   @type fact_id :: String.t()
@@ -153,15 +152,10 @@ defmodule Presto.Distributed.WorkingMemory do
     case operation.options.consistency do
       :eventual ->
         # Execute locally and replicate asynchronously
-        case execute_local_operation(operation, state) do
-          {:ok, new_state} ->
-            # Start async replication
-            spawn(fn -> replicate_operation_async(operation, new_state) end)
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        {:ok, new_state} = execute_local_operation(operation, state)
+        # Start async replication
+        spawn(fn -> replicate_operation_async(operation, new_state) end)
+        {:reply, :ok, new_state}
 
       :strong ->
         # Execute with strong consistency (requires quorum)
@@ -194,11 +188,8 @@ defmodule Presto.Distributed.WorkingMemory do
 
         :strong ->
           # Ensure we have the latest facts from cluster
-          case sync_for_strong_read(state) do
-            {:ok, synced_facts} -> synced_facts
-            # Fallback to local
-            {:error, _reason} -> get_local_facts(state)
-          end
+          {:ok, synced_facts} = sync_for_strong_read(state)
+          synced_facts
 
         :bounded_staleness ->
           # Return facts within staleness bounds
@@ -220,21 +211,12 @@ defmodule Presto.Distributed.WorkingMemory do
 
   @impl true
   def handle_call(:sync_with_cluster, _from, state) do
-    case perform_cluster_sync(state) do
-      {:ok, new_state} ->
-        PrestoLogger.log_distributed(:info, state.local_node_id, "cluster_sync_completed", %{
-          local_fact_count: map_size(new_state.local_facts)
-        })
+    {:ok, new_state} = perform_cluster_sync(state)
+    PrestoLogger.log_distributed(:info, state.local_node_id, "cluster_sync_completed", %{
+      local_fact_count: map_size(new_state.local_facts)
+    })
 
-        {:reply, :ok, new_state}
-
-      {:error, reason} ->
-        PrestoLogger.log_distributed(:error, state.local_node_id, "cluster_sync_failed", %{
-          reason: reason
-        })
-
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -293,12 +275,7 @@ defmodule Presto.Distributed.WorkingMemory do
   @impl true
   def handle_info(:perform_sync, state) do
     # Periodic synchronization
-    new_state =
-      case perform_background_sync(state) do
-        {:ok, synced_state} -> synced_state
-        # Continue with current state on sync failure
-        {:error, _reason} -> state
-      end
+    {:ok, new_state} = perform_background_sync(state)
 
     # Schedule next sync
     schedule_sync(state.config.sync_interval)
@@ -448,13 +425,8 @@ defmodule Presto.Distributed.WorkingMemory do
       end)
 
     # Wait for responses and merge
-    case collect_sync_responses(sync_responses, state.config.consistency_timeout) do
-      {:ok, merged_facts} ->
-        {:ok, merged_facts}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, merged_facts} = collect_sync_responses(sync_responses, state.config.consistency_timeout)
+    {:ok, merged_facts}
   end
 
   defp get_bounded_staleness_facts(state, opts) do
@@ -653,13 +625,8 @@ defmodule Presto.Distributed.WorkingMemory do
     # Perform lightweight sync
     new_state =
       Enum.reduce(active_nodes, state, fn node_id, acc ->
-        case sync_with_node(node_id, acc) do
-          {:ok, node_facts} ->
-            merge_facts_from_node(node_facts, acc)
-
-          {:error, _reason} ->
-            acc
-        end
+        {:ok, node_facts} = sync_with_node(node_id, acc)
+        merge_facts_from_node(node_facts, acc)
       end)
 
     {:ok, new_state}

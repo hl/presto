@@ -13,7 +13,7 @@ defmodule Presto.Distributed.LoadBalancer do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{ClusterManager, NodeRegistry, PartitionManager, HealthMonitor}
+  alias Presto.Distributed.NodeRegistry
   alias Presto.Logger, as: PrestoLogger
 
   @type node_id :: String.t()
@@ -257,13 +257,8 @@ defmodule Presto.Distributed.LoadBalancer do
   def handle_call({:trigger_scaling, action, target_capacity}, _from, state) do
     case can_perform_scaling_action?(action, state) do
       true ->
-        case execute_scaling_action(action, target_capacity, state) do
-          {:ok, new_state} ->
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        {:ok, new_state} = execute_scaling_action(action, target_capacity, state)
+        {:reply, :ok, new_state}
 
       false ->
         {:reply, {:error, :scaling_cooldown_active}, state}
@@ -612,7 +607,7 @@ defmodule Presto.Distributed.LoadBalancer do
     end
   end
 
-  defp calculate_adaptive_score(node_id, workload_type, request_metadata, state) do
+  defp calculate_adaptive_score(node_id, _workload_type, request_metadata, state) do
     config = state.config
 
     # Combine multiple scoring factors
@@ -709,7 +704,7 @@ defmodule Presto.Distributed.LoadBalancer do
     active_nodes = get_available_nodes(state)
 
     # Request fresh metrics from health monitor
-    Enum.each(active_nodes, fn node_id ->
+    Enum.each(active_nodes, fn _node_id ->
       # In a real implementation, this would actively poll nodes
       # For now, we rely on nodes reporting their metrics
       :ok
@@ -781,10 +776,8 @@ defmodule Presto.Distributed.LoadBalancer do
         :scale_down -> max(1, current_capacity - 1)
       end
 
-    case execute_scaling_action(action, target_capacity, state) do
-      {:ok, new_state} -> new_state
-      {:error, _reason} -> state
-    end
+    {:ok, new_state} = execute_scaling_action(action, target_capacity, state)
+    new_state
   end
 
   defp can_perform_scaling_action?(_action, state) do
@@ -891,7 +884,7 @@ defmodule Presto.Distributed.LoadBalancer do
       total_cpu =
         state.node_metrics
         |> Map.values()
-        |> Enum.sum(fn metrics -> metrics.cpu_utilization end)
+        |> Enum.reduce(0, fn metrics, acc -> acc + metrics.cpu_utilization end)
 
       total_cpu / map_size(state.node_metrics)
     end
@@ -904,7 +897,7 @@ defmodule Presto.Distributed.LoadBalancer do
       total_memory =
         state.node_metrics
         |> Map.values()
-        |> Enum.sum(fn metrics -> metrics.memory_utilization end)
+        |> Enum.reduce(0, fn metrics, acc -> acc + metrics.memory_utilization end)
 
       total_memory / map_size(state.node_metrics)
     end
@@ -913,13 +906,13 @@ defmodule Presto.Distributed.LoadBalancer do
   defp calculate_total_connections(state) do
     state.node_metrics
     |> Map.values()
-    |> Enum.sum(fn metrics -> metrics.active_connections end)
+    |> Enum.reduce(0, fn metrics, acc -> acc + metrics.active_connections end)
   end
 
   defp calculate_cluster_throughput(state) do
     state.node_metrics
     |> Map.values()
-    |> Enum.sum(fn metrics -> metrics.throughput_ops_per_sec end)
+    |> Enum.reduce(0, fn metrics, acc -> acc + metrics.throughput_ops_per_sec end)
   end
 
   defp calculate_avg_response_time(state) do
@@ -929,7 +922,7 @@ defmodule Presto.Distributed.LoadBalancer do
       total_response_time =
         state.node_metrics
         |> Map.values()
-        |> Enum.sum(fn metrics -> metrics.response_time_p95 end)
+        |> Enum.reduce(0, fn metrics, acc -> acc + metrics.response_time_p95 end)
 
       total_response_time / map_size(state.node_metrics)
     end

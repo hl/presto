@@ -13,7 +13,7 @@ defmodule Presto.Distributed.FaultTolerance do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{ClusterManager, NodeRegistry, PartitionManager, HealthMonitor}
+  alias Presto.Distributed.{ClusterManager, HealthMonitor, NodeRegistry}
   alias Presto.Logger, as: PrestoLogger
 
   @type node_id :: String.t()
@@ -381,7 +381,7 @@ defmodule Presto.Distributed.FaultTolerance do
   defp assess_cascading_failure_risk(fault_event, state) do
     # Calculate the potential for cascading failures
     affected_partitions = length(fault_event.impact_assessment.affected_partitions)
-    cluster_state = ClusterManager.get_cluster_state(state.cluster_manager)
+    cluster_state = ClusterManager.get_cluster_state()
     total_partitions = cluster_state.partition_count
 
     partition_impact_ratio = affected_partitions / max(total_partitions, 1)
@@ -717,10 +717,8 @@ defmodule Presto.Distributed.FaultTolerance do
     # Execute failover for specified nodes
     failed_nodes = action.parameters.failed_nodes
 
-    case perform_leadership_failover(failed_nodes, action.target_nodes, state) do
-      {:ok, new_state} -> {:ok, new_state}
-      {:error, reason} -> {:error, reason}
-    end
+    {:ok, new_state} = perform_leadership_failover(failed_nodes, action.target_nodes, state)
+    {:ok, new_state}
   end
 
   defp execute_redistribute_action(action, state) do
@@ -728,10 +726,8 @@ defmodule Presto.Distributed.FaultTolerance do
     partitions = action.parameters.partitions
     target_nodes = action.target_nodes
 
-    case redistribute_partitions(partitions, target_nodes, state) do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, reason}
-    end
+    :ok = redistribute_partitions(partitions, target_nodes, state)
+    {:ok, state}
   end
 
   defp execute_scale_up_action(_action, state) do
@@ -826,9 +822,6 @@ defmodule Presto.Distributed.FaultTolerance do
       case perform_leadership_failover([failed_node], [replacement_node], state) do
         {:ok, new_state} ->
           {:ok, new_state}
-
-        {:error, reason} ->
-          {:error, reason}
       end
     end
   end
