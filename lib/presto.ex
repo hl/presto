@@ -18,7 +18,7 @@ defmodule Presto do
 
       # Start a rule engine
       {:ok, engine} = Presto.start_engine()
-      
+
       # Define a rule
       rule = %{
         id: :adult_rule,
@@ -28,11 +28,11 @@ defmodule Presto do
         ],
         action: fn facts -> [{:adult, facts[:name]}] end
       }
-      
+
       # Add rule and facts
       Presto.add_rule(engine, rule)
       Presto.assert_fact(engine, {:person, "John", 25})
-      
+
       # Execute rules
       results = Presto.fire_rules(engine)
       # => [{:adult, "John"}]
@@ -106,7 +106,7 @@ defmodule Presto do
         ],
         action: fn facts -> [{:can_drink, facts[:name]}] end
       }
-      
+
       Presto.add_rule(engine, rule)
   """
   @spec add_rule(GenServer.server(), rule()) :: :ok | {:error, term()}

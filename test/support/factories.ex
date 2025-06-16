@@ -24,7 +24,7 @@ defmodule Presto.Factories do
     minutes = calculate_minutes(start_datetime, finish_datetime)
     units = minutes / 60.0
 
-    {:time_entry, id,
+    {:processed_time_entry, id,
      %{
        start_datetime: start_datetime,
        finish_datetime: finish_datetime,

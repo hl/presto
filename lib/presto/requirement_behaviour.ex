@@ -2,7 +2,7 @@ defmodule Presto.RequirementBehaviour do
   @moduledoc """
   Behaviour for all rule requirements that can participate in priority-based scheduling.
 
-  This enables conflict detection and resolution across all rule types (payroll, 
+  This enables conflict detection and resolution across all rule types (payroll,
   compliance, spike break, etc.) in a unified way.
   """
 
@@ -18,7 +18,7 @@ defmodule Presto.RequirementBehaviour do
   Standard priority levels:
   - 100: Critical legal compliance (meal breaks, safety requirements)
   - 90: Regulatory compliance (weekly hour limits, overtime calculations)
-  - 70: Industry standards and best practices  
+  - 70: Industry standards and best practices
   - 50: Operational efficiency and enhancements
   """
   @callback priority(requirement()) :: integer()

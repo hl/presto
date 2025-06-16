@@ -3,7 +3,7 @@ defmodule Presto.Examples.TroncRules do
   TRONC (Tips, Gratuities & Service Charges) rules engine implementation for Presto.
 
   This example demonstrates how to use the Presto RETE engine for complex business
-  rule processing. It implements a comprehensive TRONC distribution system compliant 
+  rule processing. It implements a comprehensive TRONC distribution system compliant
   with UK legislation covering the Employment (Allocation of Tips) Act 2023.
 
   Features implemented using the RETE engine:
@@ -687,6 +687,4 @@ defmodule Presto.Examples.TroncRules do
       is_binary(role) and is_number(weight) and weight > 0
     end)
   end
-
-  defp valid_tronc_allocation_rules?(_), do: false
 end

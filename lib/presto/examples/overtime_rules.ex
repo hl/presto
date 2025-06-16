@@ -88,7 +88,7 @@ defmodule Presto.Examples.OvertimeRules do
             "name" => "overtime_bp",
             "priority" => 1,
             "threshold" => 15,
-            "filter_pay_code" => "basic_pay", 
+            "filter_pay_code" => "basic_pay",
             "pay_code" => "overtime_basic_pay"
           }
         ],

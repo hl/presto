@@ -65,7 +65,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
 
       %{
         region: "bay_area",
-        city: "san_francisco", 
+        city: "san_francisco",
         industry: "technology"
       }
   """

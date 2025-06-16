@@ -258,7 +258,13 @@ defmodule Presto.RuleEngine do
     {time, {results, updated_state}} =
       :timer.tc(fn ->
         concurrent = Keyword.get(opts, :concurrent, false)
-        execute_rules(state, concurrent)
+        auto_chain = Keyword.get(opts, :auto_chain, false)
+
+        if auto_chain do
+          execute_rules_with_chaining(state, concurrent)
+        else
+          execute_rules(state, concurrent)
+        end
       end)
 
     # Clear incremental tracking since we've processed all facts
@@ -752,6 +758,51 @@ defmodule Presto.RuleEngine do
       end)
 
     Task.await_many(tasks, 30_000)
+  end
+
+  # NEW: Execute rules with automatic chaining until convergence
+  defp execute_rules_with_chaining(state, concurrent) do
+    execute_rules_with_chaining(state, concurrent, [], 0, 10)
+  end
+
+  defp execute_rules_with_chaining(state, _concurrent, all_results, cycle, max_cycles)
+       when cycle >= max_cycles do
+    # Prevent infinite loops - return results after max cycles
+    {List.flatten(all_results), state}
+  end
+
+  defp execute_rules_with_chaining(state, concurrent, all_results, cycle, max_cycles) do
+    # Execute one cycle of rules using traditional execution (avoid recursion)
+    {cycle_results, updated_state} = execute_rules_traditional(state, concurrent)
+
+    # If no new facts were produced, we've reached convergence
+    if Enum.empty?(cycle_results) do
+      {List.flatten(all_results), updated_state}
+    else
+      # Assert all results back into working memory for next cycle
+      new_state =
+        Enum.reduce(cycle_results, updated_state, fn fact, acc_state ->
+          # Assert fact into working memory
+          WorkingMemory.assert_fact(acc_state.working_memory, fact)
+
+          # Update engine statistics
+          %{
+            acc_state
+            | engine_statistics:
+                Map.update!(acc_state.engine_statistics, :total_facts, &(&1 + 1)),
+              facts_since_incremental: [fact | acc_state.facts_since_incremental]
+          }
+        end)
+
+      # Continue with next cycle
+      execute_rules_with_chaining(
+        new_state,
+        concurrent,
+        [cycle_results | all_results],
+        cycle + 1,
+        max_cycles
+      )
+    end
   end
 
   defp execute_single_rule(rule_id, rule, state) do

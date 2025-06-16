@@ -331,10 +331,16 @@ defmodule Presto.Examples.ComplianceRules do
   """
   def validate_week_boundaries(time_entries) do
     time_entries
-    |> Enum.map(fn {:time_entry, _, %{start_datetime: start_dt}} ->
-      date = DateTime.to_date(start_dt)
-      week_start = week_start_date(date)
-      {date, week_start, Date.day_of_week(week_start)}
+    |> Enum.map(fn
+      {:time_entry, _, %{start_datetime: start_dt}} ->
+        date = DateTime.to_date(start_dt)
+        week_start = week_start_date(date)
+        {date, week_start, Date.day_of_week(week_start)}
+
+      {:processed_time_entry, _, %{start_datetime: start_dt}} ->
+        date = DateTime.to_date(start_dt)
+        week_start = week_start_date(date)
+        {date, week_start, Date.day_of_week(week_start)}
     end)
     # Monday is 1
     |> Enum.all?(fn {_, _, day_of_week} -> day_of_week == 1 end)
@@ -344,10 +350,16 @@ defmodule Presto.Examples.ComplianceRules do
 
   defp group_by_employee_and_week(time_entries) do
     time_entries
-    |> Enum.group_by(fn {:time_entry, _, %{employee_id: emp_id, start_datetime: start_dt}} ->
-      date = DateTime.to_date(start_dt)
-      week_start = week_start_date(date)
-      {emp_id, week_start}
+    |> Enum.group_by(fn
+      {:time_entry, _, %{employee_id: emp_id, start_datetime: start_dt}} ->
+        date = DateTime.to_date(start_dt)
+        week_start = week_start_date(date)
+        {emp_id, week_start}
+
+      {:processed_time_entry, _, %{employee_id: emp_id, start_datetime: start_dt}} ->
+        date = DateTime.to_date(start_dt)
+        week_start = week_start_date(date)
+        {emp_id, week_start}
     end)
   end
 
@@ -376,13 +388,18 @@ defmodule Presto.Examples.ComplianceRules do
     |> Enum.map(fn
       {:time_entry, _, %{units: units}} when is_number(units) -> units
       {:time_entry, _, _} -> 0
+      {:processed_time_entry, _, %{units: units}} when is_number(units) -> units
+      {:processed_time_entry, _, _} -> 0
     end)
     |> Enum.sum()
   end
 
   defp extract_entry_ids(entries) do
     entries
-    |> Enum.map(fn {:time_entry, id, _} -> id end)
+    |> Enum.map(fn
+      {:time_entry, id, _} -> id
+      {:processed_time_entry, id, _} -> id
+    end)
   end
 
   @spec process_raw_time_entries([time_entry()]) :: [time_entry()]
@@ -637,7 +654,7 @@ defmodule Presto.Examples.ComplianceRules do
       {:time_entry, "shift_8",
        %{
          employee_id: "emp_002",
-         # Tuesday  
+         # Tuesday
          start_datetime: ~U[2025-01-14 08:00:00Z],
          # 12 hours
          finish_datetime: ~U[2025-01-14 20:00:00Z],
@@ -760,7 +777,7 @@ defmodule Presto.Examples.ComplianceRules do
         aggregated_at: DateTime.utc_now()
       }
 
-      # Create compliance result  
+      # Create compliance result
       status = if total_hours > max_weekly_hours, do: :non_compliant, else: :compliant
 
       reason =

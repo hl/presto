@@ -48,8 +48,8 @@ defmodule Presto.RuleRegistry do
       # Simple format in config
       config :presto, :rule_registry,
         rules: %{"rule_name" => Module}
-      
-      # Advanced format in config  
+
+      # Advanced format in config
       config :presto, :rule_registry,
         rules: [{Module, ["rule1", "rule2"]}]
 

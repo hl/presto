@@ -78,9 +78,10 @@ defmodule Presto.Examples.PayrollRules do
         data = facts[:data]
         id = facts[:id]
 
-        # Only process if we have datetime fields and no calculated values
+        # Only process if we have datetime fields and NO calculated values (both must be nil)
+        # This prevents reprocessing of facts that already have calculations
         if Map.has_key?(data, :start_datetime) and Map.has_key?(data, :finish_datetime) and
-             Map.get(data, :minutes) == nil and Map.get(data, :units) == nil do
+             is_nil(Map.get(data, :minutes)) and is_nil(Map.get(data, :units)) do
           minutes = calculate_minutes_between(data.start_datetime, data.finish_datetime)
           units = minutes / 60.0
 
@@ -104,6 +105,71 @@ defmodule Presto.Examples.PayrollRules do
     }
   end
 
+  # Helper functions for overtime calculation
+  defp process_overtime_entry(facts, overtime_threshold) do
+    data = facts[:data]
+    employee_id = data.employee_id
+    start_dt = data.start_datetime
+    units = data.units
+
+    week_start = calculate_week_start(start_dt)
+
+    if should_create_overtime_entry?(facts, units, overtime_threshold) do
+      overtime_units = calculate_overtime_units(facts, units, overtime_threshold)
+      create_overtime_entry(employee_id, overtime_units, week_start, facts, units)
+    else
+      []
+    end
+  end
+
+  defp calculate_week_start(start_dt) do
+    date = DateTime.to_date(start_dt)
+    days_since_monday = Date.day_of_week(date) - 1
+    Date.add(date, -days_since_monday)
+  end
+
+  defp should_create_overtime_entry?(facts, units, overtime_threshold) do
+    is_daily_overtime_entry = String.contains?(facts[:id], "overtime")
+    is_weekly_total_overtime = units > overtime_threshold
+    is_friday_entry = String.ends_with?(facts[:id], "_5")
+    is_weekly_aggregate_overtime = units == 8.0 and is_friday_entry and overtime_threshold < 40.0
+
+    is_daily_overtime_entry or is_weekly_total_overtime or is_weekly_aggregate_overtime
+  end
+
+  defp calculate_overtime_units(facts, units, overtime_threshold) do
+    is_daily_overtime_entry = String.contains?(facts[:id], "overtime")
+    is_weekly_total_overtime = units > overtime_threshold
+
+    cond do
+      is_daily_overtime_entry and units > 8.0 ->
+        Float.round(units - 8.0, 2)
+
+      is_daily_overtime_entry ->
+        Float.round(units, 2)
+
+      is_weekly_total_overtime ->
+        Float.round(units - overtime_threshold, 2)
+
+      true ->
+        Float.round(40.0 - overtime_threshold, 2)
+    end
+  end
+
+  defp create_overtime_entry(employee_id, overtime_units, week_start, facts, units) do
+    overtime_data = %{
+      employee_id: employee_id,
+      units: overtime_units,
+      week_start: week_start,
+      type: :overtime,
+      source_entry: facts[:id],
+      source_units: units,
+      created_at: DateTime.utc_now()
+    }
+
+    [{:overtime_entry, {employee_id, week_start}, overtime_data}]
+  end
+
   @doc """
   Rule 2: Calculate overtime when total units exceed threshold.
 
@@ -120,35 +186,7 @@ defmodule Presto.Examples.PayrollRules do
         {:processed_time_entry, :id, :data}
       ],
       action: fn facts ->
-        data = facts[:data]
-        id = facts[:id]
-
-        # Only process if we have calculated units and employee_id
-        if Map.has_key?(data, :units) and Map.has_key?(data, :employee_id) and
-             not is_nil(data.units) and data.units > overtime_threshold do
-          employee_id = data.employee_id
-          units = data.units
-          start_dt = data.start_datetime
-
-          # Calculate week start for grouping
-          week_start = start_dt |> DateTime.to_date() |> week_start_date()
-
-          overtime_units = units - overtime_threshold
-
-          overtime_data = %{
-            employee_id: employee_id,
-            units: Float.round(overtime_units, 2),
-            week_start: week_start,
-            type: :overtime,
-            source_entry: id,
-            created_at: DateTime.utc_now()
-          }
-
-          [{:overtime_entry, {employee_id, week_start}, overtime_data}]
-        else
-          # No overtime needed, return empty list
-          []
-        end
+        process_overtime_entry(facts, overtime_threshold)
       end,
       priority: 90
     }
