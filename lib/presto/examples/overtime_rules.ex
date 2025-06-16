@@ -678,9 +678,11 @@ defmodule Presto.Examples.OvertimeRules do
   end
 
   defp process_overtime_rules_sequentially(pay_aggregates, overtime_rules) do
-    # Sort rules by priority
+    # Sort rules by priority (default to 0 if priority not specified)
     sorted_rules =
-      Enum.sort_by(overtime_rules, fn {:overtime_rule, _, %{priority: priority}} -> priority end)
+      Enum.sort_by(overtime_rules, fn {:overtime_rule, _, rule_data} -> 
+        Map.get(rule_data, :priority, 0) 
+      end)
 
     # Process each rule in sequence
     {final_aggregates, overtime_entries} =
@@ -784,15 +786,23 @@ defmodule Presto.Examples.OvertimeRules do
   defp generate_overtime_summary(time_entries, overtime_entries, pay_aggregates) do
     total_regular_hours =
       time_entries
-      |> Enum.map(fn {:time_entry, _, %{units: units}} -> units end)
+      |> Enum.map(fn {:time_entry, _, %{units: units}} -> units || 0.0 end)
       |> Enum.sum()
-      |> Float.round(2)
+      |> case do
+        hours when is_float(hours) -> Float.round(hours, 2)
+        hours when is_integer(hours) -> Float.round(hours * 1.0, 2)
+        _ -> 0.0
+      end
 
     total_overtime_hours =
       overtime_entries
-      |> Enum.map(fn {:overtime_entry, _, %{units: units}} -> units end)
+      |> Enum.map(fn {:overtime_entry, _, %{units: units}} -> units || 0.0 end)
       |> Enum.sum()
-      |> Float.round(2)
+      |> case do
+        hours when is_float(hours) -> Float.round(hours, 2)
+        hours when is_integer(hours) -> Float.round(hours * 1.0, 2)
+        _ -> 0.0
+      end
 
     pay_code_breakdown =
       pay_aggregates

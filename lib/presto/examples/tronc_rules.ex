@@ -122,7 +122,7 @@ defmodule Presto.Examples.TroncRules do
 
         # This is simplified - in a full RETE implementation, we'd aggregate
         # all revenue entries for the same date before creating a pool
-        create_tronc_pool_fact(date, [revenue_data])
+        [create_tronc_pool_fact(date, [revenue_data])]
       end,
       priority: 100
     }
@@ -226,7 +226,7 @@ defmodule Presto.Examples.TroncRules do
         allocation_data = facts[:allocation_data]
         shift_data = facts[:shift_data]
 
-        create_staff_payment_fact(allocation_data, shift_data)
+        [create_staff_payment_fact(allocation_data, shift_data)]
       end,
       priority: 70
     }
@@ -577,19 +577,31 @@ defmodule Presto.Examples.TroncRules do
       tronc_pools
       |> Enum.map(fn {:tronc_pool, _, %{gross_amount: amount}} -> amount end)
       |> Enum.sum()
-      |> Float.round(2)
+      |> case do
+        amount when is_float(amount) -> Float.round(amount, 2)
+        amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
+        _ -> 0.0
+      end
 
     total_admin_amount =
       admin_deductions
       |> Enum.map(fn {:admin_deduction, _, %{admin_amount: amount}} -> amount end)
       |> Enum.sum()
-      |> Float.round(2)
+      |> case do
+        amount when is_float(amount) -> Float.round(amount, 2)
+        amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
+        _ -> 0.0
+      end
 
     total_payments =
       staff_payments
       |> Enum.map(fn {:staff_payment, _, %{payment_amount: amount}} -> amount end)
       |> Enum.sum()
-      |> Float.round(2)
+      |> case do
+        amount when is_float(amount) -> Float.round(amount, 2)
+        amount when is_integer(amount) -> Float.round(amount * 1.0, 2)
+        _ -> 0.0
+      end
 
     unique_employees =
       staff_payments
