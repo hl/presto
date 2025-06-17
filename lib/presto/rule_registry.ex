@@ -232,10 +232,196 @@ defmodule Presto.RuleRegistry do
     if function_exported?(module, :valid_rule_spec?, 1) do
       module.valid_rule_spec?(rule_spec)
     else
-      # If validation not implemented, assume valid
-      true
+      # Implement default validation if module doesn't provide custom validation
+      default_rule_spec_validation(rule_spec)
     end
   end
+
+  @spec default_rule_spec_validation(rule_spec()) :: boolean()
+  defp default_rule_spec_validation(rule_spec) when is_map(rule_spec) do
+    # Check for valid rule spec formats
+    cond do
+      # Format 1: {"rules_to_run" => [...], "variables" => {...}}
+      has_rules_to_run_format?(rule_spec) ->
+        validate_rules_to_run_format(rule_spec)
+
+      # Format 2: {"rules" => [...]}
+      has_rules_list_format?(rule_spec) ->
+        validate_rules_list_format(rule_spec)
+
+      # Format 3: Variables only (for backward compatibility)
+      variables_only?(rule_spec) ->
+        validate_variables_map(rule_spec)
+
+      # Unknown format
+      true ->
+        false
+    end
+  end
+
+  defp default_rule_spec_validation(_), do: false
+
+  defp has_rules_to_run_format?(rule_spec) do
+    Map.has_key?(rule_spec, "rules_to_run") and Map.has_key?(rule_spec, "variables")
+  end
+
+  defp has_rules_list_format?(rule_spec) do
+    Map.has_key?(rule_spec, "rules")
+  end
+
+  defp variables_only?(rule_spec) do
+    # Check if all keys look like variable names (no special rule keys)
+    special_keys = ["rules_to_run", "rules", "variables"]
+    Map.keys(rule_spec) |> Enum.all?(fn key -> key not in special_keys end)
+  end
+
+  defp validate_rules_to_run_format(rule_spec) do
+    rules_to_run = Map.get(rule_spec, "rules_to_run", [])
+    variables = Map.get(rule_spec, "variables", %{})
+
+    is_list(rules_to_run) and
+      Enum.all?(rules_to_run, &is_binary/1) and
+      is_map(variables) and
+      validate_variables_map(variables)
+  end
+
+  defp validate_rules_list_format(rule_spec) do
+    rules = Map.get(rule_spec, "rules", [])
+
+    is_list(rules) and
+      Enum.all?(rules, &validate_rule_definition/1)
+  end
+
+  defp validate_rule_definition(rule) when is_map(rule) do
+    # Validate rule has required fields
+    required_fields = ["name"]
+    _optional_fields = ["type", "conditions", "variables", "priority", "enabled"]
+
+    has_required_fields = Enum.all?(required_fields, &Map.has_key?(rule, &1))
+    valid_field_types = validate_rule_field_types(rule)
+
+    has_required_fields and valid_field_types
+  end
+
+  defp validate_rule_definition(_), do: false
+
+  defp validate_rule_field_types(rule) do
+    validations = [
+      {"name", &is_binary/1},
+      {"type", &(is_binary(&1) or is_atom(&1))},
+      {"conditions", &is_list/1},
+      {"variables", &is_map/1},
+      {"priority", &is_integer/1},
+      {"enabled", &is_boolean/1}
+    ]
+
+    Enum.all?(validations, fn {field, validator} ->
+      case Map.get(rule, field) do
+        # Optional field
+        nil -> true
+        value -> validator.(value)
+      end
+    end)
+  end
+
+  defp validate_variables_map(variables) when is_map(variables) do
+    # Validate that variable values are of acceptable types
+    acceptable_types = [
+      &is_binary/1,
+      &is_number/1,
+      &is_boolean/1,
+      &is_list/1,
+      &is_map/1
+    ]
+
+    Enum.all?(variables, fn {key, value} ->
+      is_binary(key) and Enum.any?(acceptable_types, fn validator -> validator.(value) end)
+    end)
+  end
+
+  defp validate_variables_map(_), do: false
+
+  @doc """
+  Validates that a rule specification is compatible with a specific rule module.
+
+  This function checks module-specific requirements beyond basic structure validation.
+  """
+  @spec validate_module_compatibility(module(), rule_spec()) ::
+          {:ok, rule_spec()} | {:error, String.t()}
+  def validate_module_compatibility(module, rule_spec) do
+    cond do
+      not implements_rule_behaviour?(module) ->
+        {:error, "Module #{inspect(module)} does not implement Presto.RuleBehaviour"}
+
+      not module_validates_spec?(module, rule_spec) ->
+        {:error, "Rule specification is not valid for module #{inspect(module)}"}
+
+      true ->
+        case validate_module_specific_requirements(module, rule_spec) do
+          :ok -> {:ok, rule_spec}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp implements_rule_behaviour?(module) do
+    case Code.ensure_loaded(module) do
+      {:module, _} ->
+        behaviours = module.__info__(:attributes)[:behaviour] || []
+        Presto.RuleBehaviour in behaviours
+
+      {:error, _} ->
+        false
+    end
+  end
+
+  defp validate_module_specific_requirements(module, rule_spec) do
+    # Check if module has specific validation requirements
+    cond do
+      function_exported?(module, :validate_rule_dependencies, 1) ->
+        module.validate_rule_dependencies(rule_spec)
+
+      function_exported?(module, :required_variables, 0) ->
+        validate_required_variables(module, rule_spec)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_required_variables(module, rule_spec) do
+    required_vars = module.required_variables()
+    variables = extract_variables_from_spec(rule_spec)
+
+    missing_vars = required_vars -- Map.keys(variables)
+
+    if Enum.empty?(missing_vars) do
+      :ok
+    else
+      {:error, "Missing required variables: #{inspect(missing_vars)}"}
+    end
+  end
+
+  defp extract_variables_from_spec(rule_spec) do
+    cond do
+      Map.has_key?(rule_spec, "variables") ->
+        Map.get(rule_spec, "variables", %{})
+
+      variables_without_rules_key?(rule_spec) ->
+        rule_spec
+
+      true ->
+        %{}
+    end
+  end
+
+  # Check if rule_spec contains only variables (no "rules" key)
+  defp variables_without_rules_key?(rule_spec)
+       when is_map(rule_spec) and map_size(rule_spec) > 0 do
+    not Map.has_key?(rule_spec, "rules")
+  end
+
+  defp variables_without_rules_key?(_), do: false
 
   defp get_configured_rules do
     # Get raw configuration directly since the config system doesn't handle the rules key properly

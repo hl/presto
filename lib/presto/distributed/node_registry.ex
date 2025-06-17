@@ -327,7 +327,7 @@ defmodule Presto.Distributed.NodeRegistry do
 
   # Private functions
 
-  defp generate_node_id() do
+  defp generate_node_id do
     "node_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
   end
 

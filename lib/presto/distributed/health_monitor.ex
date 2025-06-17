@@ -43,6 +43,7 @@ defmodule Presto.Distributed.HealthMonitor do
           local_node_id: node_id(),
           cluster_manager: pid(),
           monitored_nodes: %{node_id() => node_health()},
+          pid_to_node: %{pid() => node_id()},
           config: monitor_config(),
           gossip_timer: reference() | nil,
           health_check_timer: reference() | nil
@@ -77,9 +78,9 @@ defmodule Presto.Distributed.HealthMonitor do
     GenServer.start_link(__MODULE__, {cluster_manager, opts}, name: __MODULE__)
   end
 
-  @spec monitor_node(GenServer.server(), node_id()) :: :ok
-  def monitor_node(pid, node_id) do
-    GenServer.call(pid, {:monitor_node, node_id})
+  @spec monitor_node(GenServer.server(), node_id(), pid() | nil) :: :ok
+  def monitor_node(pid, node_id, node_pid \\ nil) do
+    GenServer.call(pid, {:monitor_node, node_id, node_pid})
   end
 
   @spec unmonitor_node(GenServer.server(), node_id()) :: :ok
@@ -118,6 +119,7 @@ defmodule Presto.Distributed.HealthMonitor do
       local_node_id: local_node_id,
       cluster_manager: cluster_manager,
       monitored_nodes: %{},
+      pid_to_node: %{},
       config: config,
       gossip_timer: nil,
       health_check_timer: nil
@@ -138,16 +140,32 @@ defmodule Presto.Distributed.HealthMonitor do
   end
 
   @impl true
-  def handle_call({:monitor_node, node_id}, _from, state) do
+  def handle_call({:monitor_node, node_id}, from, state) do
+    handle_call({:monitor_node, node_id, nil}, from, state)
+  end
+
+  @impl true
+  def handle_call({:monitor_node, node_id, node_pid}, _from, state) do
     case Map.get(state.monitored_nodes, node_id) do
       nil ->
         # Add new node to monitoring
         initial_health = create_initial_node_health(node_id)
         updated_nodes = Map.put(state.monitored_nodes, node_id, initial_health)
-        new_state = %{state | monitored_nodes: updated_nodes}
+
+        # Set up process monitoring if PID is provided
+        updated_pid_mapping =
+          if node_pid do
+            Process.monitor(node_pid)
+            Map.put(state.pid_to_node, node_pid, node_id)
+          else
+            state.pid_to_node
+          end
+
+        new_state = %{state | monitored_nodes: updated_nodes, pid_to_node: updated_pid_mapping}
 
         PrestoLogger.log_distributed(:info, state.local_node_id, "monitoring_node", %{
-          target_node_id: node_id
+          target_node_id: node_id,
+          has_pid: not is_nil(node_pid)
         })
 
         {:reply, :ok, new_state}
@@ -161,7 +179,14 @@ defmodule Presto.Distributed.HealthMonitor do
   @impl true
   def handle_call({:unmonitor_node, node_id}, _from, state) do
     updated_nodes = Map.delete(state.monitored_nodes, node_id)
-    new_state = %{state | monitored_nodes: updated_nodes}
+
+    # Clean up PID mappings for this node
+    updated_pid_mapping =
+      state.pid_to_node
+      |> Enum.reject(fn {_pid, mapped_node_id} -> mapped_node_id == node_id end)
+      |> Map.new()
+
+    new_state = %{state | monitored_nodes: updated_nodes, pid_to_node: updated_pid_mapping}
 
     PrestoLogger.log_distributed(:info, state.local_node_id, "stopped_monitoring_node", %{
       target_node_id: node_id
@@ -264,7 +289,7 @@ defmodule Presto.Distributed.HealthMonitor do
 
   # Private implementation functions
 
-  defp generate_node_id() do
+  defp generate_node_id do
     "monitor_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
   end
 
@@ -338,34 +363,54 @@ defmodule Presto.Distributed.HealthMonitor do
     time_since_heartbeat = now - metrics.last_heartbeat
 
     cond do
-      # Check for complete failure
-      time_since_heartbeat > config.failure_timeout ->
-        :failed
-
-      # Check for suspect conditions
-      time_since_heartbeat > config.suspect_timeout or
-        metrics.cpu_usage > 0.9 or
-        metrics.memory_usage > 0.9 or
-          metrics.error_rate > 0.1 ->
-        :suspect
-
-      # Check for recovery from failed/suspect state
-      health.status in [:failed, :suspect] and
-        time_since_heartbeat < config.heartbeat_interval * 2 and
-        metrics.cpu_usage < 0.7 and
-        metrics.memory_usage < 0.7 and
-          metrics.error_rate < 0.05 ->
-        :recovering
-
-      # Check for full recovery
-      health.status == :recovering and
-          now - health.last_status_change > config.recovery_timeout ->
-        :healthy
-
-      # Default to current status if no clear change
-      true ->
-        health.status
+      failed?(time_since_heartbeat, config) -> :failed
+      suspect?(time_since_heartbeat, metrics, config) -> :suspect
+      recovering?(health, time_since_heartbeat, metrics, config) -> :recovering
+      fully_recovered?(health, now, config) -> :healthy
+      true -> health.status
     end
+  end
+
+  defp failed?(time_since_heartbeat, config) do
+    time_since_heartbeat > config.failure_timeout
+  end
+
+  defp suspect?(time_since_heartbeat, metrics, config) do
+    time_since_heartbeat > config.suspect_timeout or
+      high_resource_usage?(metrics) or
+      high_error_rate?(metrics)
+  end
+
+  defp recovering?(health, time_since_heartbeat, metrics, config) do
+    health.status in [:failed, :suspect] and
+      recent_heartbeat?(time_since_heartbeat, config) and
+      acceptable_resource_usage?(metrics) and
+      low_error_rate?(metrics)
+  end
+
+  defp fully_recovered?(health, now, config) do
+    health.status == :recovering and
+      now - health.last_status_change > config.recovery_timeout
+  end
+
+  defp high_resource_usage?(metrics) do
+    metrics.cpu_usage > 0.9 or metrics.memory_usage > 0.9
+  end
+
+  defp high_error_rate?(metrics) do
+    metrics.error_rate > 0.1
+  end
+
+  defp recent_heartbeat?(time_since_heartbeat, config) do
+    time_since_heartbeat < config.heartbeat_interval * 2
+  end
+
+  defp acceptable_resource_usage?(metrics) do
+    metrics.cpu_usage < 0.7 and metrics.memory_usage < 0.7
+  end
+
+  defp low_error_rate?(metrics) do
+    metrics.error_rate < 0.05
   end
 
   defp create_detection_event(status, metrics, timestamp) do
@@ -519,33 +564,40 @@ defmodule Presto.Distributed.HealthMonitor do
 
   defp process_gossip_health_update(gossip_data, state) do
     # Process incoming gossip and merge with local view
-    _sender_id = gossip_data.sender_id
     health_updates = gossip_data.health_updates
 
     updated_nodes =
       Enum.reduce(health_updates, state.monitored_nodes, fn {node_id, remote_health}, acc ->
-        case Map.get(acc, node_id) do
-          nil ->
-            # Not monitoring this node locally
-            acc
-
-          local_health ->
-            # Merge based on gossip version (higher version wins)
-            if remote_health.gossip_version > local_health.gossip_version do
-              updated_health = %{
-                local_health
-                | status: remote_health.status,
-                  gossip_version: remote_health.gossip_version
-              }
-
-              Map.put(acc, node_id, updated_health)
-            else
-              acc
-            end
-        end
+        merge_gossip_health_for_node(node_id, remote_health, acc)
       end)
 
     %{state | monitored_nodes: updated_nodes}
+  end
+
+  defp merge_gossip_health_for_node(node_id, remote_health, monitored_nodes) do
+    case Map.get(monitored_nodes, node_id) do
+      nil ->
+        # Not monitoring this node locally
+        monitored_nodes
+
+      local_health ->
+        merge_health_versions(node_id, local_health, remote_health, monitored_nodes)
+    end
+  end
+
+  defp merge_health_versions(node_id, local_health, remote_health, monitored_nodes) do
+    # Merge based on gossip version (higher version wins)
+    if remote_health.gossip_version > local_health.gossip_version do
+      updated_health = %{
+        local_health
+        | status: remote_health.status,
+          gossip_version: remote_health.gossip_version
+      }
+
+      Map.put(monitored_nodes, node_id, updated_health)
+    else
+      monitored_nodes
+    end
   end
 
   defp notify_status_change(node_id, old_status, new_status, state) do
@@ -559,9 +611,8 @@ defmodule Presto.Distributed.HealthMonitor do
     })
   end
 
-  defp find_node_by_pid(_pid, _state) do
-    # Placeholder for finding node by process PID
-    nil
+  defp find_node_by_pid(pid, state) do
+    Map.get(state.pid_to_node, pid)
   end
 
   defp handle_node_process_death(node_id, reason, state) do

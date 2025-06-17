@@ -442,22 +442,30 @@ defmodule Presto.Distributed.CommunicationProtocol do
     case Keyword.get(opts, :target_nodes) do
       nil ->
         # Determine target nodes based on partitioning
-        case Keyword.get(opts, :partition_manager) do
-          nil ->
-            []
-
-          partition_manager ->
-            case PartitionManager.get_partition_for_fact(partition_manager, fact) do
-              {:ok, partition_id} ->
-                PartitionManager.get_nodes_for_partition(partition_manager, partition_id)
-
-              {:error, _} ->
-                []
-            end
-        end
+        determine_nodes_via_partitioning(fact, opts)
 
       explicit_nodes ->
         explicit_nodes
+    end
+  end
+
+  defp determine_nodes_via_partitioning(fact, opts) do
+    case Keyword.get(opts, :partition_manager) do
+      nil ->
+        []
+
+      partition_manager ->
+        get_partition_nodes(partition_manager, fact)
+    end
+  end
+
+  defp get_partition_nodes(partition_manager, fact) do
+    case PartitionManager.get_partition_for_fact(partition_manager, fact) do
+      {:ok, partition_id} ->
+        PartitionManager.get_nodes_for_partition(partition_manager, partition_id)
+
+      {:error, _} ->
+        []
     end
   end
 
@@ -540,14 +548,10 @@ defmodule Presto.Distributed.CommunicationProtocol do
   end
 
   defp get_all_active_nodes(state) do
-    case NodeRegistry.get_nodes_by_status(state.node_registry, :active) do
-      nodes when is_list(nodes) ->
-        Enum.map(nodes, fn node -> node.node_id end)
-        |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
+    nodes = NodeRegistry.get_nodes_by_status(state.node_registry, :active)
 
-      _ ->
-        []
-    end
+    Enum.map(nodes, fn node -> node.node_id end)
+    |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
   end
 
   defp process_outbound_queues(state) do
@@ -845,7 +849,6 @@ defmodule Presto.Distributed.CommunicationProtocol do
 
   defp handle_rule_activation(message, state) do
     rule_id = message.payload.rule_id
-    _activation_data = message.payload.activation_data
 
     PrestoLogger.log_distributed(:debug, state.local_node_id, "rule_activation_received", %{
       rule_id: rule_id,
@@ -881,8 +884,6 @@ defmodule Presto.Distributed.CommunicationProtocol do
   end
 
   defp handle_aggregate_update(message, state) do
-    _aggregate_data = message.payload.aggregate_data
-
     PrestoLogger.log_distributed(:debug, state.local_node_id, "aggregate_update_received", %{
       source_node: message.source_node
     })
@@ -893,8 +894,6 @@ defmodule Presto.Distributed.CommunicationProtocol do
   end
 
   defp handle_network_sync(message, state) do
-    _sync_data = message.payload.sync_data
-
     PrestoLogger.log_distributed(:debug, state.local_node_id, "network_sync_received", %{
       source_node: message.source_node
     })

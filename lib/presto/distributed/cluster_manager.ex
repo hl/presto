@@ -161,32 +161,23 @@ defmodule Presto.Distributed.ClusterManager do
 
   @impl true
   def handle_call({:join_cluster, seed_nodes, opts}, _from, state) do
-    case attempt_cluster_join(seed_nodes, state.local_node, opts) do
-      {:ok, cluster_state} ->
-        # Start partition manager if we're joining successfully
-        {:ok, partition_manager} =
-          PartitionManager.start_link(
-            cluster_state,
-            state.local_node
-          )
+    {:ok, cluster_state} = attempt_cluster_join(seed_nodes, state.local_node, opts)
 
-        new_state = %{state | cluster_state: cluster_state, partition_manager: partition_manager}
+    # Start partition manager if we're joining successfully
+    {:ok, partition_manager} =
+      PartitionManager.start_link(
+        cluster_state,
+        state.local_node
+      )
 
-        PrestoLogger.log_distributed(:info, state.node_id, "cluster_joined", %{
-          cluster_id: cluster_state.cluster_id,
-          node_count: map_size(cluster_state.nodes)
-        })
+    new_state = %{state | cluster_state: cluster_state, partition_manager: partition_manager}
 
-        {:reply, :ok, new_state}
+    PrestoLogger.log_distributed(:info, state.node_id, "cluster_joined", %{
+      cluster_id: cluster_state.cluster_id,
+      node_count: map_size(cluster_state.nodes)
+    })
 
-      {:error, reason} ->
-        PrestoLogger.log_distributed(:error, state.node_id, "cluster_join_failed", %{
-          reason: reason,
-          seed_nodes: seed_nodes
-        })
-
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -401,9 +392,6 @@ defmodule Presto.Distributed.ClusterManager do
         }
 
         {:ok, new_cluster_state}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

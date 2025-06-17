@@ -224,25 +224,37 @@ defmodule Presto.Optimization.AdvancedIndexing do
 
     # Index in secondary indexes (individual keys)
     Enum.each(config.keys, fn key ->
-      if Map.has_key?(record, key) do
-        value = Map.get(record, key)
-        secondary_table = Map.get(index.secondary_indexes, key)
-
-        if secondary_table do
-          :ets.insert(secondary_table, {value, record})
-        end
-      end
+      index_record_in_secondary_index(index, record, key)
     end)
 
     # Index in composite indexes
     Enum.each(index.composite_indexes, fn {key_combo, table} ->
-      if Enum.all?(key_combo, &Map.has_key?(record, &1)) do
-        composite_key = Enum.map(key_combo, &Map.get(record, &1))
-        :ets.insert(table, {composite_key, record})
-      end
+      index_record_in_composite_index(record, key_combo, table)
     end)
 
     index
+  end
+
+  defp index_record_in_secondary_index(index, record, key) do
+    if Map.has_key?(record, key) do
+      insert_into_secondary_index(index, record, key)
+    end
+  end
+
+  defp insert_into_secondary_index(index, record, key) do
+    value = Map.get(record, key)
+    secondary_table = Map.get(index.secondary_indexes, key)
+
+    if secondary_table do
+      :ets.insert(secondary_table, {value, record})
+    end
+  end
+
+  defp index_record_in_composite_index(record, key_combo, table) do
+    if Enum.all?(key_combo, &Map.has_key?(record, &1)) do
+      composite_key = Enum.map(key_combo, &Map.get(record, &1))
+      :ets.insert(table, {composite_key, record})
+    end
   end
 
   defp generate_primary_key(record, join_keys) do
@@ -312,22 +324,31 @@ defmodule Presto.Optimization.AdvancedIndexing do
 
   defp lookup_composite_indexes(index, lookup_criteria) do
     # Find the best matching composite index
-    best_composite =
-      Map.keys(index.composite_indexes)
-      |> Enum.filter(fn composite_keys ->
-        Enum.all?(composite_keys, &Map.has_key?(lookup_criteria, &1))
-      end)
-      |> Enum.max_by(&length/1, fn -> nil end)
+    best_composite = find_best_composite_index(index, lookup_criteria)
 
     if best_composite do
-      composite_table = Map.get(index.composite_indexes, best_composite)
-      composite_key = Enum.map(best_composite, &Map.get(lookup_criteria, &1))
-
-      case :ets.lookup(composite_table, composite_key) do
-        results -> Enum.map(results, fn {_key, record} -> record end)
-      end
+      lookup_with_composite_index(index, lookup_criteria, best_composite)
     else
       []
+    end
+  end
+
+  defp find_best_composite_index(index, lookup_criteria) do
+    Map.keys(index.composite_indexes)
+    |> Enum.filter(&composite_index_matches_criteria?(&1, lookup_criteria))
+    |> Enum.max_by(&length/1, fn -> nil end)
+  end
+
+  defp composite_index_matches_criteria?(composite_keys, lookup_criteria) do
+    Enum.all?(composite_keys, &Map.has_key?(lookup_criteria, &1))
+  end
+
+  defp lookup_with_composite_index(index, lookup_criteria, best_composite) do
+    composite_table = Map.get(index.composite_indexes, best_composite)
+    composite_key = Enum.map(best_composite, &Map.get(lookup_criteria, &1))
+
+    case :ets.lookup(composite_table, composite_key) do
+      results -> Enum.map(results, fn {_key, record} -> record end)
     end
   end
 
@@ -339,21 +360,27 @@ defmodule Presto.Optimization.AdvancedIndexing do
     if Enum.empty?(available_keys) do
       []
     else
-      # Use first available key for initial filtering
-      first_key = List.first(available_keys)
-      first_value = Map.get(lookup_criteria, first_key)
+      perform_hierarchical_lookup(index, lookup_criteria, available_keys)
+    end
+  end
 
-      # Get candidates from secondary index
-      secondary_table = Map.get(index.secondary_indexes, first_key)
+  defp perform_hierarchical_lookup(index, lookup_criteria, available_keys) do
+    # Use first available key for initial filtering
+    first_key = List.first(available_keys)
+    first_value = Map.get(lookup_criteria, first_key)
 
-      candidates =
-        case :ets.lookup(secondary_table, first_value) do
-          results -> Enum.map(results, fn {_key, record} -> record end)
-        end
+    # Get candidates from secondary index
+    secondary_table = Map.get(index.secondary_indexes, first_key)
+    candidates = extract_records_from_lookup(secondary_table, first_value)
 
-      # Filter candidates by remaining criteria
-      remaining_criteria = Map.delete(lookup_criteria, first_key)
-      filter_candidates(candidates, remaining_criteria)
+    # Filter candidates by remaining criteria
+    remaining_criteria = Map.delete(lookup_criteria, first_key)
+    filter_candidates(candidates, remaining_criteria)
+  end
+
+  defp extract_records_from_lookup(secondary_table, value) do
+    case :ets.lookup(secondary_table, value) do
+      results -> Enum.map(results, fn {_key, record} -> record end)
     end
   end
 
@@ -379,7 +406,7 @@ defmodule Presto.Optimization.AdvancedIndexing do
     end)
   end
 
-  defp init_stats() do
+  defp init_stats do
     %{
       lookups: 0,
       hits: 0,

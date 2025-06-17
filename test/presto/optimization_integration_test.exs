@@ -1,14 +1,14 @@
 defmodule Presto.OptimizationIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Presto.BetaNetwork
   alias Presto.AlphaNetwork
+  alias Presto.BetaNetwork
 
   alias Presto.Optimization.{
-    SharedMemoryManager,
-    JoinOptimizer,
     AdvancedIndexing,
-    PerformanceMonitor
+    JoinOptimizer,
+    PerformanceMonitor,
+    SharedMemoryManager
   }
 
   describe "optimization integration" do

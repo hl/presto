@@ -622,7 +622,7 @@ defmodule Presto.BetaNetwork do
     # Get optimization plan from JoinOptimizer
     optimization_plan = JoinOptimizer.optimize_join_order(nodes_list, join_config)
 
-    if optimization_plan.optimization_applied do
+    if optimization_plan.optimisation_applied do
       # Use optimized order
       optimization_plan.ordered_nodes
       |> Enum.map(fn node_id -> {node_id, beta_nodes[node_id]} end)
@@ -662,26 +662,71 @@ defmodule Presto.BetaNetwork do
         compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
 
       existing_ref ->
-        # Check if shared memory is still valid for this signature
-        if node.memory_signature == memory_signature and shared_memory_available?() do
-          # Signature matches, reuse shared memory
-          case SharedMemoryManager.get_shared_memory(existing_ref) do
-            {:ok, shared_joins} ->
-              {shared_joins, node}
-
-            {:error, :not_found} ->
-              # Shared memory was cleaned up, recompute
-              compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
-          end
-        else
-          # Signature changed or shared memory not available, need to recompute
-          if shared_memory_available?() do
-            SharedMemoryManager.release_shared_memory(existing_ref)
-          end
-
-          compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
-        end
+        handle_existing_shared_memory(
+          existing_ref,
+          memory_signature,
+          shared_memory_key,
+          left_data,
+          right_data,
+          node,
+          state
+        )
     end
+  end
+
+  defp handle_existing_shared_memory(
+         existing_ref,
+         memory_signature,
+         shared_memory_key,
+         left_data,
+         right_data,
+         node,
+         state
+       ) do
+    # Check if shared memory is still valid for this signature
+    if signature_matches_and_available?(node, memory_signature) do
+      try_reuse_shared_memory(existing_ref, shared_memory_key, left_data, right_data, node, state)
+    else
+      recompute_after_cleanup(existing_ref, shared_memory_key, left_data, right_data, node, state)
+    end
+  end
+
+  defp signature_matches_and_available?(node, memory_signature) do
+    node.memory_signature == memory_signature and shared_memory_available?()
+  end
+
+  defp try_reuse_shared_memory(
+         existing_ref,
+         shared_memory_key,
+         left_data,
+         right_data,
+         node,
+         state
+       ) do
+    case SharedMemoryManager.get_shared_memory(existing_ref) do
+      {:ok, shared_joins} ->
+        {shared_joins, node}
+
+      {:error, :not_found} ->
+        # Shared memory was cleaned up, recompute
+        compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
+    end
+  end
+
+  defp recompute_after_cleanup(
+         existing_ref,
+         shared_memory_key,
+         left_data,
+         right_data,
+         node,
+         state
+       ) do
+    # Signature changed or shared memory not available, need to recompute
+    if shared_memory_available?() do
+      SharedMemoryManager.release_shared_memory(existing_ref)
+    end
+
+    compute_and_share_joins(shared_memory_key, left_data, right_data, node, state)
   end
 
   defp compute_and_share_joins(shared_memory_key, left_data, right_data, node, state) do
@@ -719,7 +764,7 @@ defmodule Presto.BetaNetwork do
     join_count >= 10 and join_count <= 1000
   end
 
-  defp shared_memory_available?() do
+  defp shared_memory_available? do
     # Check if SharedMemoryManager is available by trying to get its PID
     case GenServer.whereis(SharedMemoryManager) do
       nil -> false
@@ -786,28 +831,39 @@ defmodule Presto.BetaNetwork do
   defp probe_advanced_index(probe_data, advanced_index, join_keys, left_is_build) do
     # Use advanced index to find matching records
     Enum.flat_map(probe_data, fn probe_record ->
-      # Create lookup criteria from probe record
-      lookup_criteria =
-        Enum.reduce(join_keys, %{}, fn key, acc ->
-          if Map.has_key?(probe_record, key) do
-            Map.put(acc, key, Map.get(probe_record, key))
-          else
-            acc
-          end
-        end)
+      process_probe_record(probe_record, advanced_index, join_keys, left_is_build)
+    end)
+  end
 
-      # Lookup using advanced index
-      matching_records =
-        AdvancedIndexing.lookup_with_advanced_index(advanced_index, lookup_criteria)
+  defp process_probe_record(probe_record, advanced_index, join_keys, left_is_build) do
+    # Create lookup criteria from probe record
+    lookup_criteria = create_lookup_criteria(probe_record, join_keys)
 
-      # Merge probe record with matching records
-      Enum.map(matching_records, fn match_record ->
-        if left_is_build do
-          Map.merge(match_record, probe_record)
-        else
-          Map.merge(probe_record, match_record)
-        end
-      end)
+    # Lookup using advanced index
+    matching_records =
+      AdvancedIndexing.lookup_with_advanced_index(advanced_index, lookup_criteria)
+
+    # Merge probe record with matching records
+    merge_probe_with_matches(probe_record, matching_records, left_is_build)
+  end
+
+  defp create_lookup_criteria(probe_record, join_keys) do
+    Enum.reduce(join_keys, %{}, fn key, acc ->
+      if Map.has_key?(probe_record, key) do
+        Map.put(acc, key, Map.get(probe_record, key))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp merge_probe_with_matches(probe_record, matching_records, left_is_build) do
+    Enum.map(matching_records, fn match_record ->
+      if left_is_build do
+        Map.merge(match_record, probe_record)
+      else
+        Map.merge(probe_record, match_record)
+      end
     end)
   end
 

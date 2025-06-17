@@ -1,8 +1,8 @@
 defmodule Presto.Optimization.JoinOptimizer do
   @moduledoc """
-  Selectivity-based join ordering optimization for RETE networks.
+  Selectivity-based join ordering optimisation for RETE networks.
 
-  This module implements RETE-II/RETE-NT style join optimization by analyzing
+  This module implements RETE-II/RETE-NT style join optimisation by analyzing
   the selectivity of different patterns and reordering joins to process the
   most selective (filtering) conditions first. This can significantly improve
   performance by reducing the number of tuples that need to be processed
@@ -22,7 +22,7 @@ defmodule Presto.Optimization.JoinOptimizer do
           ordered_nodes: [String.t()],
           estimated_total_cost: float(),
           selectivity_order: [float()],
-          optimization_applied: boolean()
+          optimisation_applied: boolean()
         }
 
   # Default selectivity estimates for different pattern types
@@ -68,27 +68,26 @@ defmodule Presto.Optimization.JoinOptimizer do
   end
 
   @spec optimize_join_order([map()], map()) :: join_plan()
-  def optimize_join_order(nodes, optimization_config \\ %{}) do
-    enable_optimization = Map.get(optimization_config, :enable_join_reordering, true)
-    cost_threshold = Map.get(optimization_config, :cost_threshold, 100)
+  def optimize_join_order(nodes, optimisation_config \\ %{}) do
+    enable_optimisation = Map.get(optimisation_config, :enable_join_reordering, true)
+    cost_threshold = Map.get(optimisation_config, :cost_threshold, 100)
 
-    if enable_optimization and should_optimize?(nodes, cost_threshold) do
-      perform_join_optimization(nodes)
+    if enable_optimisation and should_optimize?(nodes, cost_threshold) do
+      perform_join_optimisation(nodes)
     else
       # Return original order
       %{
         ordered_nodes: Enum.map(nodes, & &1.id),
         estimated_total_cost: estimate_total_cost(nodes),
         selectivity_order: Enum.map(nodes, fn _ -> 1.0 end),
-        optimization_applied: false
+        optimisation_applied: false
       }
     end
   end
 
-  @spec update_selectivity_statistics(String.t(), [map()], [map()]) :: :ok
+  @spec update_selectivity_statistics(String.t(), [map()], [map()]) :: true
   def update_selectivity_statistics(node_id, input_data, output_data) do
-    # Store actual selectivity data for future optimization
-    # This would typically go to an ETS table or persistent storage
+    # Store actual selectivity data for future optimisation
     input_size = length(input_data)
     output_size = length(output_data)
 
@@ -99,24 +98,50 @@ defmodule Presto.Optimization.JoinOptimizer do
         1.0
       end
 
+    # Calculate improvement if we have previous estimates
+    estimated_size = get_statistic({:estimated_size, node_id}, output_size)
+
+    improvement =
+      if estimated_size > 0, do: abs(estimated_size - output_size) / estimated_size, else: 0.0
+
+    # Record the improvement for statistics
+    if improvement > 0, do: record_optimisation_improvement(improvement)
+
     # Update selectivity learning (implement adaptive learning)
     update_learned_selectivity(node_id, actual_selectivity)
+
+    # Store the actual output size for future comparison
+    store_statistic({:actual_size, node_id}, output_size)
   end
 
-  @spec get_optimization_statistics() :: %{
-          total_optimizations: non_neg_integer(),
+  @spec get_optimisation_statistics() :: %{
+          total_optimisations: non_neg_integer(),
           average_improvement: float(),
           best_case_improvement: float(),
           worst_case_improvement: float()
         }
-  def get_optimization_statistics() do
-    # Return optimization performance statistics
-    # This would be implemented with persistent storage
+  def get_optimisation_statistics do
+    ensure_statistics_table_exists()
+
+    # Aggregate statistics from persistent storage
+    total_optimisations = get_statistic(:total_optimisations, 0)
+    improvements = get_all_improvements()
+
+    {average_improvement, best_case, worst_case} =
+      if Enum.empty?(improvements) do
+        {0.0, 0.0, 0.0}
+      else
+        avg = Enum.sum(improvements) / length(improvements)
+        best = Enum.max(improvements)
+        worst = Enum.min(improvements)
+        {avg, best, worst}
+      end
+
     %{
-      total_optimizations: 0,
-      average_improvement: 0.0,
-      best_case_improvement: 0.0,
-      worst_case_improvement: 0.0
+      total_optimisations: total_optimisations,
+      average_improvement: average_improvement,
+      best_case_improvement: best_case,
+      worst_case_improvement: worst_case
     }
   end
 
@@ -142,16 +167,18 @@ defmodule Presto.Optimization.JoinOptimizer do
     max(1, round(base_size * condition_selectivity))
   end
 
-  defp analyze_condition_selectivity(join_keys, _node) do
-    # Analyze the selectivity of join conditions
+  defp analyze_condition_selectivity(join_keys, node) do
+    # Use learned selectivity if available, otherwise fall back to defaults
+    node_id = get_node_id(node)
+
     case length(join_keys) do
       0 ->
         # No join conditions - cartesian product
         @default_selectivities.no_conditions
 
       1 ->
-        # Single join key - typically equality join
-        @default_selectivities.equality
+        # Single join key - use learned selectivity if available
+        get_learned_selectivity(node_id)
 
       multiple when multiple > 1 ->
         # Multiple join keys - compound conditions are more selective
@@ -199,7 +226,7 @@ defmodule Presto.Optimization.JoinOptimizer do
     end)
   end
 
-  defp perform_join_optimization(nodes) do
+  defp perform_join_optimisation(nodes) do
     # Calculate selectivity for each node
     nodes_with_selectivity =
       Enum.map(nodes, fn node ->
@@ -211,7 +238,7 @@ defmodule Presto.Optimization.JoinOptimizer do
     # Sort by selectivity (most selective first) and dependency constraints
     optimized_order = sort_by_selectivity_and_dependencies(nodes_with_selectivity)
 
-    # Calculate optimization benefit
+    # Calculate optimisation benefit
     original_cost = estimate_execution_cost(nodes)
     optimized_cost = estimate_execution_cost(optimized_order)
 
@@ -219,7 +246,7 @@ defmodule Presto.Optimization.JoinOptimizer do
       ordered_nodes: Enum.map(optimized_order, & &1.id),
       estimated_total_cost: optimized_cost,
       selectivity_order: Enum.map(optimized_order, & &1.estimated_selectivity),
-      optimization_applied: true,
+      optimisation_applied: true,
       estimated_improvement: (original_cost - optimized_cost) / original_cost
     }
   end
@@ -298,10 +325,106 @@ defmodule Presto.Optimization.JoinOptimizer do
     total_cost
   end
 
-  defp update_learned_selectivity(_node_id, _actual_selectivity) do
-    # Update learned selectivity statistics
-    # In a full implementation, this would update persistent storage
-    # and use exponential moving averages to adapt to changing data patterns
+  defp update_learned_selectivity(node_id, actual_selectivity) do
+    ensure_statistics_table_exists()
+
+    # Update learned selectivity using exponential moving average
+    # Learning rate
+    alpha = 0.1
+    current_selectivity = get_statistic({:selectivity, node_id}, @default_selectivities.equality)
+
+    new_selectivity = alpha * actual_selectivity + (1 - alpha) * current_selectivity
+
+    # Store updated selectivity
+    store_statistic({:selectivity, node_id}, new_selectivity)
+
+    # Update optimisation count
+    increment_statistic(:total_optimisations)
+
     :ok
+  end
+
+  # Persistent storage implementation using ETS
+
+  @table_name :presto_join_optimizer_stats
+
+  defp ensure_statistics_table_exists do
+    case :ets.whereis(@table_name) do
+      :undefined ->
+        :ets.new(@table_name, [:named_table, :public, :set, {:read_concurrency, true}])
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp store_statistic(key, value) do
+    ensure_statistics_table_exists()
+    :ets.insert(@table_name, {key, value})
+  end
+
+  defp get_statistic(key, default) do
+    ensure_statistics_table_exists()
+
+    case :ets.lookup(@table_name, key) do
+      [{^key, value}] -> value
+      [] -> default
+    end
+  end
+
+  defp increment_statistic(key) do
+    ensure_statistics_table_exists()
+    :ets.update_counter(@table_name, key, {2, 1}, {key, 0})
+  end
+
+  defp store_improvement(improvement) do
+    timestamp = System.system_time(:microsecond)
+    store_statistic({:improvement, timestamp}, improvement)
+  end
+
+  defp get_all_improvements do
+    ensure_statistics_table_exists()
+
+    # Get all improvement records
+    :ets.select(@table_name, [
+      {{{:improvement, :"$1"}, :"$2"}, [], [:"$2"]}
+    ])
+  end
+
+  defp get_node_id(node) do
+    # Generate a unique identifier for the node based on its properties
+    node_signature = %{
+      join_keys: Map.get(node, :join_keys, []),
+      left_input: Map.get(node, :left_input),
+      right_input: Map.get(node, :right_input)
+    }
+
+    :crypto.hash(:sha256, :erlang.term_to_binary(node_signature))
+    |> Base.encode16(case: :lower)
+    # Use first 16 chars for readability
+    |> String.slice(0, 16)
+  end
+
+  @doc """
+  Records an optimisation improvement for statistical tracking.
+  """
+  def record_optimisation_improvement(improvement) when is_number(improvement) do
+    store_improvement(improvement)
+    increment_statistic(:total_optimisations)
+  end
+
+  @doc """
+  Clears all optimisation statistics (for testing or maintenance).
+  """
+  def clear_optimisation_statistics do
+    ensure_statistics_table_exists()
+    :ets.delete_all_objects(@table_name)
+  end
+
+  @doc """
+  Gets learned selectivity for a specific node.
+  """
+  def get_learned_selectivity(node_id) do
+    get_statistic({:selectivity, node_id}, @default_selectivities.equality)
   end
 end

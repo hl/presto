@@ -342,11 +342,11 @@ defmodule Presto.Distributed.LoadBalancer do
 
   # Private implementation functions
 
-  defp generate_node_id() do
+  defp generate_node_id do
     "lb_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
   end
 
-  defp initialize_default_strategies() do
+  defp initialize_default_strategies do
     %{
       fact_processing: :resource_aware,
       rule_evaluation: :weighted_response_time,
@@ -355,7 +355,7 @@ defmodule Presto.Distributed.LoadBalancer do
     }
   end
 
-  defp initialize_auto_scaling_state() do
+  defp initialize_auto_scaling_state do
     %{
       scale_up_triggers: [
         %{
@@ -392,7 +392,7 @@ defmodule Presto.Distributed.LoadBalancer do
     }
   end
 
-  defp initialize_performance_baseline() do
+  defp initialize_performance_baseline do
     %{
       avg_response_time: 0.0,
       avg_throughput: 0.0,
@@ -430,15 +430,11 @@ defmodule Presto.Distributed.LoadBalancer do
   end
 
   defp get_available_nodes(state) do
-    case NodeRegistry.get_nodes_by_status(state.node_registry, :active) do
-      nodes when is_list(nodes) ->
-        Enum.map(nodes, fn node -> node.node_id end)
-        |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
-        |> Enum.filter(fn node_id -> node_healthy?(node_id, state) end)
+    nodes = NodeRegistry.get_nodes_by_status(state.node_registry, :active)
 
-      _ ->
-        []
-    end
+    Enum.map(nodes, fn node -> node.node_id end)
+    |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
+    |> Enum.filter(fn node_id -> node_healthy?(node_id, state) end)
   end
 
   defp node_healthy?(node_id, state) do

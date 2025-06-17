@@ -228,7 +228,7 @@ defmodule Presto.Examples.OvertimeRules do
       end)
 
       # Fire rules to process the data through the RETE network
-      _rule_results = Presto.fire_rules(engine, concurrent: true)
+      Presto.fire_rules(engine, concurrent: true)
 
       # Extract results from working memory
       all_facts = Presto.get_facts(engine)

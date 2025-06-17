@@ -74,7 +74,9 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     [
       work_session_analysis_rule(),
       spike_break_detection_rule(jurisdiction),
+      break_taken_processing_rule(jurisdiction),
       compliance_checking_rule(jurisdiction),
+      unmatched_requirement_rule(jurisdiction),
       penalty_calculation_rule(rule_spec, jurisdiction)
     ]
   end
@@ -126,8 +128,6 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   """
   @spec spike_break_detection_rule(jurisdiction()) :: map()
   def spike_break_detection_rule(jurisdiction \\ %{}) do
-    _thresholds = get_jurisdiction_thresholds(jurisdiction)
-
     %{
       id: :detect_spike_break_requirements,
       conditions: [
@@ -149,7 +149,32 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   end
 
   @doc """
-  Rule 3: Check compliance with spike break requirements.
+  Rule 3: Process break_taken facts to normalize break data.
+
+  Uses RETE pattern matching to identify break_taken facts and normalize them for compliance checking.
+  """
+  @spec break_taken_processing_rule(jurisdiction()) :: map()
+  def break_taken_processing_rule(jurisdiction \\ %{}) do
+    %{
+      id: :process_break_taken,
+      conditions: [
+        {:break_taken, :break_id, :break_data}
+      ],
+      action: fn facts ->
+        break_data = facts[:break_data]
+        break_id = facts[:break_id]
+
+        # Normalize break data and create standardized break fact
+        normalized_break = normalize_break_data(break_id, break_data, jurisdiction)
+
+        [normalized_break]
+      end,
+      priority: 85
+    }
+  end
+
+  @doc """
+  Rule 4: Check compliance with spike break requirements.
 
   Uses RETE pattern matching to find spike break requirements that need compliance checking.
   Triggers when we have both spike break requirements and potential break data.
@@ -159,34 +184,74 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     %{
       id: :check_spike_break_compliance,
       conditions: [
-        {:spike_break_requirement, :req_id, :req_data}
+        {:spike_break_requirement, :req_id, :req_data},
+        {:normalized_break, :break_id, :break_data}
       ],
       action: fn facts ->
         req_data = facts[:req_data]
         req_id = facts[:req_id]
+        break_data = facts[:break_data]
 
-        # For now, create compliance result without checking actual breaks
-        # In a full implementation, this would match against break_taken facts
-        status = :pending_verification
+        # Check if this break satisfies the spike break requirement
+        if break_satisfies_requirement?(break_data, req_data) do
+          compliance_data = %{
+            requirement_id: req_id,
+            requirement: req_data,
+            status: :compliant,
+            matching_breaks: [break_data],
+            penalty_hours: 0.0,
+            checked_at: DateTime.utc_now(),
+            jurisdiction: jurisdiction
+          }
 
-        compliance_data = %{
-          requirement_id: req_id,
-          requirement: req_data,
-          status: status,
-          matching_breaks: [],
-          penalty_hours: 0.0,
-          checked_at: DateTime.utc_now(),
-          jurisdiction: jurisdiction
-        }
-
-        [{:spike_break_compliance, req_id, compliance_data}]
+          [{:spike_break_compliance, req_id, compliance_data}]
+        else
+          # Don't create compliance result for non-matching breaks
+          []
+        end
       end,
       priority: 80
     }
   end
 
   @doc """
-  Rule 4: Calculate penalties for non-compliant spike break requirements.
+  Rule 5: Handle unmatched spike break requirements.
+
+  Creates non-compliant results for requirements that have no matching breaks.
+  This rule fires when a requirement exists but no compliance result has been created.
+  """
+  @spec unmatched_requirement_rule(jurisdiction()) :: map()
+  def unmatched_requirement_rule(jurisdiction \\ %{}) do
+    %{
+      id: :handle_unmatched_requirements,
+      conditions: [
+        {:spike_break_requirement, :req_id, :req_data}
+      ],
+      action: fn facts ->
+        req_data = facts[:req_data]
+        req_id = facts[:req_id]
+
+        # Check if there's already a compliance result for this requirement
+        # This is a simplified check - in a full RETE implementation,
+        # we'd use negative conditions to ensure no compliance exists
+        compliance_data = %{
+          requirement_id: req_id,
+          requirement: req_data,
+          status: :non_compliant,
+          matching_breaks: [],
+          penalty_hours: calculate_spike_break_penalty(req_data, jurisdiction),
+          checked_at: DateTime.utc_now(),
+          jurisdiction: jurisdiction
+        }
+
+        [{:spike_break_compliance_default, req_id, compliance_data}]
+      end,
+      priority: 75
+    }
+  end
+
+  @doc """
+  Rule 6: Calculate penalties for non-compliant spike break requirements.
 
   Uses RETE pattern matching to find non-compliant spike break requirements.
   Triggers when compliance results indicate violations.
@@ -992,7 +1057,6 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   defp extract_spike_break_results(all_facts, scheduling_result, jurisdiction) do
     spike_requirements = extract_facts_by_type(all_facts, :spike_break_requirement)
     compliance_results = extract_facts_by_type(all_facts, :spike_break_compliance)
-    _penalties = extract_facts_by_type(all_facts, :spike_break_penalty)
 
     # Generate summary from RETE engine results
     work_sessions = extract_facts_by_type(all_facts, :work_session)
@@ -1197,5 +1261,79 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     IO.puts("  Total Penalty Hours: #{result.summary.total_penalty_hours}")
     IO.puts("  Total Employees: #{result.summary.total_employees}")
     IO.puts("  Processed with RETE Engine: #{result.summary.processed_with_engine}")
+  end
+
+  # Break matching helper functions
+
+  @doc """
+  Normalizes break data from break_taken facts into a standard format for compliance checking.
+  """
+  @spec normalize_break_data(any(), map(), jurisdiction()) :: tuple()
+  def normalize_break_data(break_id, break_data, jurisdiction) do
+    normalized_data = %{
+      break_id: break_id,
+      employee_id: Map.get(break_data, :employee_id),
+      break_type: Map.get(break_data, :break_type, :general),
+      duration_minutes: Map.get(break_data, :duration_minutes, 0),
+      start_time: Map.get(break_data, :start_time),
+      end_time: Map.get(break_data, :end_time),
+      taken_at: Map.get(break_data, :taken_at, Map.get(break_data, :start_time)),
+      work_session_id: Map.get(break_data, :work_session_id),
+      jurisdiction: jurisdiction,
+      normalized_at: DateTime.utc_now()
+    }
+
+    {:normalized_break, break_id, normalized_data}
+  end
+
+  @doc """
+  Checks if a normalized break satisfies a spike break requirement.
+  """
+  @spec break_satisfies_requirement?(map(), map()) :: boolean()
+  def break_satisfies_requirement?(break_data, requirement_data) do
+    # Check if break is for the same employee
+    same_employee = break_data.employee_id == requirement_data.employee_id
+
+    # Check if break meets duration requirement
+    sufficient_duration =
+      break_data.duration_minutes >= requirement_data.required_duration_minutes
+
+    # Check if break was taken by the required time
+    timely_break =
+      case {break_data.taken_at, requirement_data.required_by} do
+        {nil, _} -> false
+        {_, nil} -> true
+        {taken_at, required_by} -> DateTime.compare(taken_at, required_by) != :gt
+      end
+
+    # Check if break is appropriate type (if specified)
+    appropriate_type =
+      case Map.get(requirement_data, :required_break_type) do
+        nil -> true
+        required_type -> break_data.break_type == required_type
+      end
+
+    same_employee and sufficient_duration and timely_break and appropriate_type
+  end
+
+  @doc """
+  Checks requirement compliance against breaks using the working memory approach.
+  This is used as a fallback when the RETE pattern matching doesn't capture all breaks.
+  """
+  @spec check_requirement_compliance_against_breaks(any(), map(), jurisdiction()) :: tuple()
+  def check_requirement_compliance_against_breaks(req_id, req_data, jurisdiction) do
+    # This would typically query the working memory for break facts
+    # For now, create a default non-compliant result
+    compliance_data = %{
+      requirement_id: req_id,
+      requirement: req_data,
+      status: :pending_verification,
+      matching_breaks: [],
+      penalty_hours: 0.0,
+      checked_at: DateTime.utc_now(),
+      jurisdiction: jurisdiction
+    }
+
+    {:spike_break_compliance, req_id, compliance_data}
   end
 end

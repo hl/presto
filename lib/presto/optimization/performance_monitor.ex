@@ -94,22 +94,22 @@ defmodule Presto.Optimization.PerformanceMonitor do
   end
 
   @spec get_current_metrics() :: optimization_metrics()
-  def get_current_metrics() do
+  def get_current_metrics do
     GenServer.call(__MODULE__, :get_current_metrics)
   end
 
   @spec get_performance_alerts() :: [performance_alert()]
-  def get_performance_alerts() do
+  def get_performance_alerts do
     GenServer.call(__MODULE__, :get_performance_alerts)
   end
 
   @spec get_optimization_recommendations() :: [String.t()]
-  def get_optimization_recommendations() do
+  def get_optimization_recommendations do
     GenServer.call(__MODULE__, :get_optimization_recommendations)
   end
 
   @spec reset_metrics() :: :ok
-  def reset_metrics() do
+  def reset_metrics do
     GenServer.call(__MODULE__, :reset_metrics)
   end
 
@@ -120,7 +120,7 @@ defmodule Presto.Optimization.PerformanceMonitor do
           recommendations: [String.t()],
           trends: map()
         }
-  def generate_performance_report() do
+  def generate_performance_report do
     GenServer.call(__MODULE__, :generate_performance_report)
   end
 

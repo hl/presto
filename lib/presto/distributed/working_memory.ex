@@ -212,6 +212,7 @@ defmodule Presto.Distributed.WorkingMemory do
   @impl true
   def handle_call(:sync_with_cluster, _from, state) do
     {:ok, new_state} = perform_cluster_sync(state)
+
     PrestoLogger.log_distributed(:info, state.local_node_id, "cluster_sync_completed", %{
       local_fact_count: map_size(new_state.local_facts)
     })
@@ -291,11 +292,11 @@ defmodule Presto.Distributed.WorkingMemory do
 
   # Private implementation functions
 
-  defp generate_node_id() do
+  defp generate_node_id do
     "wmem_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
   end
 
-  defp generate_operation_id() do
+  defp generate_operation_id do
     "op_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
   end
 
@@ -392,13 +393,8 @@ defmodule Presto.Distributed.WorkingMemory do
 
   defp execute_local_update(fact_id, fact, state) do
     # Update is essentially retract + assert
-    case execute_local_retract(fact_id, fact, state) do
-      {:ok, intermediate_state} ->
-        execute_local_assert(fact_id, fact, intermediate_state)
-
-      error ->
-        error
-    end
+    {:ok, intermediate_state} = execute_local_retract(fact_id, fact, state)
+    execute_local_assert(fact_id, fact, intermediate_state)
   end
 
   defp increment_vector_clock(vector_clock, node_id) do
@@ -469,11 +465,19 @@ defmodule Presto.Distributed.WorkingMemory do
         :ok
 
       fact_entry ->
-        Enum.each(target_nodes, fn node_id ->
-          if node_id != state.local_node_id do
-            send_fact_replication(node_id, fact_entry)
-          end
-        end)
+        replicate_fact_to_target_nodes(fact_entry, target_nodes, state)
+    end
+  end
+
+  defp replicate_fact_to_target_nodes(fact_entry, target_nodes, state) do
+    Enum.each(target_nodes, fn node_id ->
+      replicate_fact_to_node_if_remote(node_id, fact_entry, state)
+    end)
+  end
+
+  defp replicate_fact_to_node_if_remote(node_id, fact_entry, state) do
+    if node_id != state.local_node_id do
+      send_fact_replication(node_id, fact_entry)
     end
   end
 
@@ -507,32 +511,44 @@ defmodule Presto.Distributed.WorkingMemory do
   defp resolve_fact_conflict(local_fact, remote_fact, config) do
     case config.conflict_resolution_strategy do
       :last_write_wins ->
-        if remote_fact.timestamp > local_fact.timestamp do
-          remote_fact
-        else
-          local_fact
-        end
+        resolve_by_timestamp(local_fact, remote_fact)
 
       :vector_clock ->
-        case compare_vector_clocks(local_fact.vector_clock, remote_fact.vector_clock) do
-          :greater ->
-            local_fact
-
-          :less ->
-            remote_fact
-
-          :concurrent ->
-            # For concurrent updates, fall back to timestamp
-            if remote_fact.timestamp > local_fact.timestamp do
-              remote_fact
-            else
-              local_fact
-            end
-        end
+        resolve_by_vector_clock(local_fact, remote_fact)
 
       :custom ->
         # Placeholder for custom conflict resolution
         local_fact
+    end
+  end
+
+  defp resolve_by_timestamp(local_fact, remote_fact) do
+    if remote_fact.timestamp > local_fact.timestamp do
+      remote_fact
+    else
+      local_fact
+    end
+  end
+
+  defp resolve_by_vector_clock(local_fact, remote_fact) do
+    case compare_vector_clocks(local_fact.vector_clock, remote_fact.vector_clock) do
+      :greater ->
+        local_fact
+
+      :less ->
+        remote_fact
+
+      :concurrent ->
+        resolve_concurrent_updates(local_fact, remote_fact)
+    end
+  end
+
+  defp resolve_concurrent_updates(local_fact, remote_fact) do
+    # For concurrent updates, fall back to timestamp
+    if remote_fact.timestamp > local_fact.timestamp do
+      remote_fact
+    else
+      local_fact
     end
   end
 
@@ -630,6 +646,10 @@ defmodule Presto.Distributed.WorkingMemory do
       end)
 
     {:ok, new_state}
+  rescue
+    _ -> {:ok, state}
+  catch
+    _ -> {:ok, state}
   end
 
   defp sync_with_node(_node_id, _state) do

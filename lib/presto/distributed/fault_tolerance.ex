@@ -13,7 +13,7 @@ defmodule Presto.Distributed.FaultTolerance do
   use GenServer
   require Logger
 
-  alias Presto.Distributed.{ClusterManager, HealthMonitor, NodeRegistry}
+  alias Presto.Distributed.{ClusterManager, HealthMonitor, NodeRegistry, PartitionManager}
   alias Presto.Logger, as: PrestoLogger
 
   @type node_id :: String.t()
@@ -359,7 +359,7 @@ defmodule Presto.Distributed.FaultTolerance do
     updated_active_faults = Map.put(state.active_faults, fault_event.id, fault_event)
 
     # Assess if this might trigger cascading failures
-    _cascading_risk = assess_cascading_failure_risk(fault_event, state)
+    assess_cascading_failure_risk(fault_event, state)
 
     # Trigger automatic recovery if enabled and appropriate
     new_state = %{state | active_faults: updated_active_faults}
@@ -540,14 +540,10 @@ defmodule Presto.Distributed.FaultTolerance do
   end
 
   defp get_healthy_nodes(state) do
-    case NodeRegistry.get_nodes_by_status(state.node_registry, :active) do
-      nodes when is_list(nodes) ->
-        Enum.map(nodes, fn node -> node.node_id end)
-        |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
+    nodes = NodeRegistry.get_nodes_by_status(state.node_registry, :active)
 
-      _ ->
-        []
-    end
+    Enum.map(nodes, fn node -> node.node_id end)
+    |> Enum.reject(fn node_id -> node_id == state.local_node_id end)
   end
 
   defp select_failover_targets(_failed_nodes, state) do
@@ -571,9 +567,27 @@ defmodule Presto.Distributed.FaultTolerance do
     |> Enum.take(2)
   end
 
-  defp get_node_partitions(_node_id, _state) do
-    # Placeholder - would query partition manager for node's assigned partitions
-    []
+  defp get_node_partitions(node_id, state) do
+    # Query partition manager for node's assigned partitions
+    all_partitions =
+      PartitionManager.get_all_partitions(state.partition_manager)
+
+    # Find partitions where this node is either primary or replica
+    assigned_partitions =
+      Enum.filter(all_partitions, fn partition ->
+        node_id in partition.primary_nodes or node_id in partition.replica_nodes
+      end)
+
+    # Return partition IDs
+    Enum.map(assigned_partitions, & &1.id)
+  rescue
+    error ->
+      PrestoLogger.log_distributed(:error, state.local_node_id, "partition_query_failed", %{
+        node_id: node_id,
+        error: error
+      })
+
+      []
   end
 
   defp estimate_recovery_duration(actions) do
@@ -781,15 +795,42 @@ defmodule Presto.Distributed.FaultTolerance do
       detected_at: System.monotonic_time(:millisecond),
       severity: :high,
       root_cause: %{type: :node_unreachable, node: node_id},
-      impact_assessment: %{
-        # Would be calculated based on node's partitions
-        affected_partitions: [],
-        data_availability: 0.8,
-        service_degradation: 0.2,
-        estimated_recovery_time: 30_000,
-        cascading_risk: 0.1
-      },
+      impact_assessment: calculate_node_failure_impact(node_id),
       recovery_plan: %{}
+    }
+  end
+
+  defp calculate_node_failure_impact(node_id) do
+    # Create minimal state for partition querying
+    temp_state = %{
+      partition_manager: Presto.Distributed.PartitionManager,
+      local_node_id: node_id
+    }
+
+    # Get partitions affected by this node failure
+    affected_partitions = get_node_partitions(node_id, temp_state)
+    partition_count = length(affected_partitions)
+
+    # Calculate impact metrics based on partition count
+    # Assume each partition represents ~5% of total data
+    partition_impact_ratio = min(partition_count * 0.05, 1.0)
+
+    # Base impact assessment
+    base_data_availability = max(0.5, 1.0 - partition_impact_ratio)
+    base_service_degradation = min(0.5, partition_impact_ratio)
+
+    # Estimate recovery time based on partitions affected (more partitions = longer recovery)
+    base_recovery_time = 30_000 + partition_count * 5_000
+
+    # Calculate cascading risk based on partition connectivity
+    cascading_risk = min(0.3, partition_count * 0.02)
+
+    %{
+      affected_partitions: affected_partitions,
+      data_availability: base_data_availability,
+      service_degradation: base_service_degradation,
+      estimated_recovery_time: base_recovery_time,
+      cascading_risk: cascading_risk
     }
   end
 
@@ -921,58 +962,80 @@ defmodule Presto.Distributed.FaultTolerance do
     updated_breakers =
       state.circuit_breakers
       |> Enum.into(%{}, fn {service, breaker} ->
-        updated_breaker =
-          case breaker.state do
-            :open ->
-              if now >= breaker.next_attempt_at do
-                %{breaker | state: :half_open, success_count: 0}
-              else
-                breaker
-              end
-
-            :half_open ->
-              # Would check if service is responding properly
-              if breaker.success_count >= 3 do
-                %{breaker | state: :closed, failure_count: 0, success_count: 0}
-              else
-                breaker
-              end
-
-            :closed ->
-              breaker
-          end
-
+        updated_breaker = update_circuit_breaker_state(breaker, now)
         {service, updated_breaker}
       end)
 
     %{state | circuit_breakers: updated_breakers}
   end
 
+  defp update_circuit_breaker_state(breaker, now) do
+    case breaker.state do
+      :open ->
+        handle_open_circuit_breaker(breaker, now)
+
+      :half_open ->
+        handle_half_open_circuit_breaker(breaker)
+
+      :closed ->
+        breaker
+    end
+  end
+
+  defp handle_open_circuit_breaker(breaker, now) do
+    if now >= breaker.next_attempt_at do
+      %{breaker | state: :half_open, success_count: 0}
+    else
+      breaker
+    end
+  end
+
+  defp handle_half_open_circuit_breaker(breaker) do
+    # Would check if service is responding properly
+    if breaker.success_count >= 3 do
+      %{breaker | state: :closed, failure_count: 0, success_count: 0}
+    else
+      breaker
+    end
+  end
+
   defp check_leader_health(state) do
     case state.leader_node do
       nil ->
         # No leader, might need election
-        if state.election_state.status == :stable do
-          initiate_leader_election(state)
-        else
-          state
-        end
+        handle_missing_leader(state)
 
       leader_node ->
         # Check if leader is still healthy
-        case HealthMonitor.get_node_health(state.health_monitor, leader_node) do
-          nil ->
-            # Leader not found, trigger election
-            initiate_leader_election(state)
+        check_existing_leader_health(state, leader_node)
+    end
+  end
 
-          health_info ->
-            if health_info.status in [:failed, :suspect] do
-              # Leader unhealthy, trigger election
-              initiate_leader_election(state)
-            else
-              state
-            end
-        end
+  defp handle_missing_leader(state) do
+    if state.election_state.status == :stable do
+      initiate_leader_election(state)
+    else
+      state
+    end
+  end
+
+  defp check_existing_leader_health(state, leader_node) do
+    case HealthMonitor.get_node_health(state.health_monitor, leader_node) do
+      nil ->
+        # Leader not found, trigger election
+        initiate_leader_election(state)
+
+      health_info ->
+        evaluate_leader_health_status(state, health_info)
+    end
+  end
+
+  defp evaluate_leader_health_status(state, health_info) do
+    if health_info.status in [:failed, :suspect] do
+      # Leader unhealthy, trigger election
+      initiate_leader_election(state)
+    else
+      state
     end
   end
 

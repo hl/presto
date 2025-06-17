@@ -222,7 +222,11 @@ defmodule Presto.RuleEngine do
         },
         compiled_rules: %{},
         network_topology: %{},
-        shared_patterns: %{}
+        shared_patterns: %{},
+        # Fact lineage tracking for incremental processing
+        fact_lineage: %{},
+        fact_generation: 0,
+        result_lineage: %{}
       }
 
       PrestoLogger.log_engine_lifecycle(:info, engine_id, "initialized", %{
@@ -285,10 +289,25 @@ defmodule Presto.RuleEngine do
     WorkingMemory.assert_fact(state.working_memory, fact)
     AlphaNetwork.process_fact_assertion(state.alpha_network, fact)
 
+    # Track fact lineage - assign generation number and mark as input fact
+    fact_key = create_fact_key(fact)
+
+    updated_fact_lineage =
+      Map.put(state.fact_lineage, fact_key, %{
+        fact: fact,
+        generation: state.fact_generation,
+        source: :input,
+        derived_from: [],
+        derived_by_rule: nil,
+        timestamp: System.system_time(:microsecond)
+      })
+
     new_state = %{
       state
       | engine_statistics: Map.update!(state.engine_statistics, :total_facts, &(&1 + 1)),
-        facts_since_incremental: [fact | state.facts_since_incremental]
+        facts_since_incremental: [fact | state.facts_since_incremental],
+        fact_lineage: updated_fact_lineage,
+        fact_generation: state.fact_generation + 1
     }
 
     {:reply, :ok, new_state}
@@ -623,10 +642,6 @@ defmodule Presto.RuleEngine do
       :hybrid ->
         # Hybrid approach - some optimizations
         create_beta_nodes_for_rule(alpha_nodes, state)
-
-      _ ->
-        # Default to standard creation
-        create_beta_nodes_for_rule(alpha_nodes, state)
     end
   end
 
@@ -954,12 +969,28 @@ defmodule Presto.RuleEngine do
           # Assert fact into working memory
           WorkingMemory.assert_fact(acc_state.working_memory, fact)
 
+          # Track fact lineage for derived facts (no specific rule context in chaining)
+          fact_key = create_fact_key(fact)
+
+          updated_fact_lineage =
+            Map.put(acc_state.fact_lineage, fact_key, %{
+              fact: fact,
+              generation: acc_state.fact_generation,
+              source: :derived,
+              # Could be enhanced to track chaining sources
+              derived_from: [],
+              derived_by_rule: :chaining,
+              timestamp: System.system_time(:microsecond)
+            })
+
           # Update engine statistics
           %{
             acc_state
             | engine_statistics:
                 Map.update!(acc_state.engine_statistics, :total_facts, &(&1 + 1)),
-              facts_since_incremental: [fact | acc_state.facts_since_incremental]
+              facts_since_incremental: [fact | acc_state.facts_since_incremental],
+              fact_lineage: updated_fact_lineage,
+              fact_generation: acc_state.fact_generation + 1
           }
         end)
 
@@ -1155,15 +1186,23 @@ defmodule Presto.RuleEngine do
     %{state | rule_statistics: updated_rule_stats}
   end
 
-  defp filter_incremental_results(all_results, new_facts, _state) do
-    # For simple implementation, check if results involve any new facts
-    # This is a basic heuristic - a full implementation would track fact lineage
+  defp filter_incremental_results(all_results, new_facts, state) do
+    # Use fact lineage tracking to identify results that involve new facts
+    new_fact_keys = Enum.map(new_facts, &create_fact_key/1)
 
-    # Extract names from new facts that could be involved in results
-    new_fact_identifiers = extract_fact_identifiers(new_facts)
+    # Get all facts derived from new facts (transitively)
+    derived_facts = get_facts_derived_from_new_facts(new_fact_keys, state)
 
-    # Filter results that involve any of the new fact identifiers
-    Enum.filter(all_results, &result_involves_identifiers?(&1, new_fact_identifiers))
+    # Filter results to only include those that are derived facts or involve new facts
+    all_relevant_facts = new_facts ++ derived_facts
+    all_relevant_fact_keys = Enum.map(all_relevant_facts, &create_fact_key/1) |> MapSet.new()
+
+    Enum.filter(all_results, fn result ->
+      result_key = create_fact_key(result)
+
+      MapSet.member?(all_relevant_fact_keys, result_key) or
+        result_involves_new_facts?(result, new_facts)
+    end)
   end
 
   defp extract_fact_identifiers(facts) do
@@ -1271,5 +1310,52 @@ defmodule Presto.RuleEngine do
       [pattern | _] -> elem(pattern, 0)
       [] -> nil
     end
+  end
+
+  # Fact lineage tracking helper functions
+
+  defp create_fact_key(fact) do
+    :crypto.hash(:sha256, :erlang.term_to_binary(fact)) |> Base.encode16(case: :lower)
+  end
+
+  defp get_facts_derived_from_new_facts(new_fact_keys, state) do
+    # Find all facts that were derived from the new facts or their descendants
+    all_derived = find_transitive_derived_facts(new_fact_keys, state.fact_lineage, MapSet.new())
+
+    # Convert back to facts
+    all_derived
+    |> Enum.map(fn fact_key ->
+      case Map.get(state.fact_lineage, fact_key) do
+        %{fact: fact} -> fact
+        nil -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp find_transitive_derived_facts(fact_keys, fact_lineage, visited) do
+    new_keys = Enum.reject(fact_keys, &MapSet.member?(visited, &1))
+
+    if Enum.empty?(new_keys) do
+      visited
+    else
+      updated_visited = Enum.reduce(new_keys, visited, &MapSet.put(&2, &1))
+
+      derived_keys =
+        fact_lineage
+        |> Enum.filter(fn {_key, lineage} ->
+          lineage.source == :derived and
+            Enum.any?(lineage.derived_from, &(&1 in new_keys))
+        end)
+        |> Enum.map(fn {key, _lineage} -> key end)
+
+      find_transitive_derived_facts(derived_keys, fact_lineage, updated_visited)
+    end
+  end
+
+  defp result_involves_new_facts?(result, new_facts) do
+    # Fallback heuristic for results that aren't tracked in lineage
+    new_fact_identifiers = extract_fact_identifiers(new_facts)
+    result_involves_identifiers?(result, new_fact_identifiers)
   end
 end
