@@ -54,7 +54,7 @@ jobs:
         NEW_ENTRY="## [$VERSION] - $DATE\n\n### Changed\n- $CHANGELOG_ENTRY\n"
         
         # Insert after "## [Unreleased]" line
-        sed -i "/## \[Unreleased\]/a\\
+        sed -i "/## \\[Unreleased\\]/a\\
 \\
 $NEW_ENTRY" CHANGELOG.md
         
