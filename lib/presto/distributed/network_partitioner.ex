@@ -812,7 +812,8 @@ defmodule Presto.Distributed.NetworkPartitioner do
       Map.merge(migration_op, %{
         status: :preparing,
         started_at: System.monotonic_time(:millisecond),
-        checkpoints: []
+        checkpoints: [],
+        completed_at: nil
       })
 
     updated_migrations =
@@ -821,8 +822,10 @@ defmodule Presto.Distributed.NetworkPartitioner do
     intermediate_state = %{state | active_migrations: updated_migrations}
 
     # Execute real migration coordination with nodes
-    {:ok, updated_state} = coordinate_network_migration(migration_with_status, intermediate_state)
-    {:ok, updated_state}
+    case coordinate_network_migration(migration_with_status, intermediate_state) do
+      {:ok, updated_state} -> {:ok, updated_state}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp coordinate_network_migration(migration_op, state) do
@@ -1297,7 +1300,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
   defp cleanup_source_nodes(migration_op, state) do
     PrestoLogger.log_distributed(:info, state.local_node_id, "cleaning_up_source_nodes", %{
       segment_id: migration_op.segment_id,
-      source_nodes: migration_op.source_nodes
+      source_nodes: migration_op.from_nodes
     })
 
     # Update migration status
@@ -1310,7 +1313,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
     # Send cleanup requests to source nodes
     _cleanup_results =
-      Enum.map(migration_op.source_nodes, fn source_node ->
+      Enum.map(migration_op.from_nodes, fn source_node ->
         cleanup_request = %{
           type: :cleanup_migrated_segment,
           segment_id: migration_op.segment_id,
