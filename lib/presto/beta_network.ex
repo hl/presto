@@ -9,9 +9,9 @@ defmodule Presto.BetaNetwork do
   use GenServer
 
   alias Presto.AlphaNetwork
-  alias Presto.Optimization.AdvancedIndexing
-  alias Presto.Optimization.JoinOptimizer
-  alias Presto.Optimization.SharedMemoryManager
+  alias Presto.Optimisation.AdvancedIndexing
+  alias Presto.Optimisation.JoinOptimizer
+  alias Presto.Optimisation.SharedMemoryManager
 
   @type join_condition :: {:join, String.t(), String.t(), atom() | [atom()]}
   @type beta_node :: %{

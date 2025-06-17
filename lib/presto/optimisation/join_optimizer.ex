@@ -1,4 +1,4 @@
-defmodule Presto.Optimization.JoinOptimizer do
+defmodule Presto.Optimisation.JoinOptimizer do
   @moduledoc """
   Selectivity-based join ordering optimisation for RETE networks.
 

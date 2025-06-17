@@ -1,7 +1,7 @@
-defmodule Presto.Optimization.JoinOptimizerTest do
+defmodule Presto.Optimisation.JoinOptimizerTest do
   use ExUnit.Case, async: true
 
-  alias Presto.Optimization.JoinOptimizer
+  alias Presto.Optimisation.JoinOptimizer
 
   describe "selectivity analysis" do
     test "analyzes node selectivity correctly" do
@@ -68,7 +68,7 @@ defmodule Presto.Optimization.JoinOptimizerTest do
 
       plan = JoinOptimizer.optimize_join_order(nodes, config)
 
-      assert plan.optimization_applied == true
+      assert plan.optimisation_applied == true
       assert length(plan.ordered_nodes) == 2
       assert is_float(plan.estimated_total_cost)
       assert length(plan.selectivity_order) == 2
@@ -83,7 +83,7 @@ defmodule Presto.Optimization.JoinOptimizerTest do
 
       plan = JoinOptimizer.optimize_join_order(nodes, config)
 
-      assert plan.optimization_applied == false
+      assert plan.optimisation_applied == false
       assert plan.ordered_nodes == ["node_1"]
     end
 
@@ -100,7 +100,7 @@ defmodule Presto.Optimization.JoinOptimizerTest do
 
       plan = JoinOptimizer.optimize_join_order(nodes, config)
 
-      assert plan.optimization_applied == false
+      assert plan.optimisation_applied == false
     end
   end
 
@@ -111,16 +111,16 @@ defmodule Presto.Optimization.JoinOptimizerTest do
       # Only one match
       output_data = [%{id: 1}]
 
-      # Should not raise an error
-      assert :ok = JoinOptimizer.update_selectivity_statistics(node_id, input_data, output_data)
+      # Should not raise an error and returns true from ETS insert
+      assert true = JoinOptimizer.update_selectivity_statistics(node_id, input_data, output_data)
     end
   end
 
   describe "optimization statistics" do
     test "returns optimization statistics" do
-      stats = JoinOptimizer.get_optimization_statistics()
+      stats = JoinOptimizer.get_optimisation_statistics()
 
-      assert is_integer(stats.total_optimizations)
+      assert is_integer(stats.total_optimisations)
       assert is_float(stats.average_improvement)
       assert is_float(stats.best_case_improvement)
       assert is_float(stats.worst_case_improvement)

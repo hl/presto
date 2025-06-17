@@ -3,7 +3,7 @@ defmodule Presto.BetaNetworkTest do
 
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
-  alias Presto.Optimization.SharedMemoryManager
+  alias Presto.Optimisation.SharedMemoryManager
   alias Presto.WorkingMemory
 
   setup do

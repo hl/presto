@@ -1,7 +1,7 @@
-defmodule Presto.Optimization.PerformanceMonitorTest do
+defmodule Presto.Optimisation.PerformanceMonitorTest do
   use ExUnit.Case, async: false
 
-  alias Presto.Optimization.PerformanceMonitor
+  alias Presto.Optimisation.PerformanceMonitor
 
   setup do
     monitor = start_supervised!(PerformanceMonitor)

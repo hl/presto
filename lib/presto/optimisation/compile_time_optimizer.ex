@@ -1,4 +1,4 @@
-defmodule Presto.Optimization.CompileTimeOptimizer do
+defmodule Presto.Optimisation.CompileTimeOptimizer do
   @moduledoc """
   Compile-time rule compilation and network topology optimizations for Phase 2.
 

@@ -1,10 +1,10 @@
-defmodule Presto.OptimizationIntegrationTest do
+defmodule Presto.OptimisationIntegrationTest do
   use ExUnit.Case, async: false
 
   alias Presto.AlphaNetwork
   alias Presto.BetaNetwork
 
-  alias Presto.Optimization.{
+  alias Presto.Optimisation.{
     AdvancedIndexing,
     JoinOptimizer,
     PerformanceMonitor,
@@ -60,7 +60,7 @@ defmodule Presto.OptimizationIntegrationTest do
         JoinOptimizer.optimize_join_order(nodes, %{enable_join_reordering: true})
 
       assert is_map(optimization_plan)
-      assert is_boolean(optimization_plan.optimization_applied)
+      assert is_boolean(optimization_plan.optimisation_applied)
 
       # 3. Test advanced indexing
       join_keys = [:employee_id]
@@ -245,9 +245,9 @@ defmodule Presto.OptimizationIntegrationTest do
 
         if expected_optimization do
           # May or may not be applied depending on cost analysis
-          assert is_boolean(plan.optimization_applied)
+          assert is_boolean(plan.optimisation_applied)
         else
-          assert plan.optimization_applied == false
+          assert plan.optimisation_applied == false
         end
       end)
     end

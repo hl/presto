@@ -1,7 +1,7 @@
-defmodule Presto.Optimization.SharedMemoryManagerTest do
+defmodule Presto.Optimisation.SharedMemoryManagerTest do
   use ExUnit.Case, async: false
 
-  alias Presto.Optimization.SharedMemoryManager
+  alias Presto.Optimisation.SharedMemoryManager
 
   setup do
     manager = start_supervised!(SharedMemoryManager)

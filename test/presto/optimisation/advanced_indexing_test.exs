@@ -1,7 +1,7 @@
-defmodule Presto.Optimization.AdvancedIndexingTest do
+defmodule Presto.Optimisation.AdvancedIndexingTest do
   use ExUnit.Case, async: true
 
-  alias Presto.Optimization.AdvancedIndexing
+  alias Presto.Optimisation.AdvancedIndexing
 
   describe "multi-level index creation" do
     test "creates multi-level index with default config" do

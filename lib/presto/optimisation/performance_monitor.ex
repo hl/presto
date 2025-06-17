@@ -1,4 +1,4 @@
-defmodule Presto.Optimization.PerformanceMonitor do
+defmodule Presto.Optimisation.PerformanceMonitor do
   @moduledoc """
   Performance monitoring for RETE optimization features.
 

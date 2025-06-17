@@ -13,7 +13,7 @@ defmodule Presto.RuleEngine do
   alias Presto.BetaNetwork
   alias Presto.FastPathExecutor
   alias Presto.Logger, as: PrestoLogger
-  alias Presto.Optimization.CompileTimeOptimizer
+  alias Presto.Optimisation.CompileTimeOptimizer
   alias Presto.RuleAnalyzer
   alias Presto.WorkingMemory
 

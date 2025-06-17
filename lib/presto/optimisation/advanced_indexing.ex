@@ -1,4 +1,4 @@
-defmodule Presto.Optimization.AdvancedIndexing do
+defmodule Presto.Optimisation.AdvancedIndexing do
   @moduledoc """
   Advanced multi-level indexing for complex joins in RETE networks.
 

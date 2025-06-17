@@ -1,4 +1,4 @@
-defmodule Presto.Optimization.SharedMemoryManager do
+defmodule Presto.Optimisation.SharedMemoryManager do
   @moduledoc """
   Enhanced memory sharing across beta nodes for RETE optimization.
 

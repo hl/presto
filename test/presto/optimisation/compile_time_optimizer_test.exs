@@ -1,7 +1,7 @@
-defmodule Presto.Optimization.CompileTimeOptimizerTest do
+defmodule Presto.Optimisation.CompileTimeOptimizerTest do
   use ExUnit.Case, async: true
 
-  alias Presto.Optimization.CompileTimeOptimizer
+  alias Presto.Optimisation.CompileTimeOptimizer
 
   describe "pattern matcher generation" do
     test "generates optimized matcher for constant patterns" do

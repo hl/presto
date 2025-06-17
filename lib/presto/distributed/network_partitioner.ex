@@ -826,11 +826,11 @@ defmodule Presto.Distributed.NetworkPartitioner do
   end
 
   defp coordinate_network_migration(migration_op, state) do
-    # Simplified simulation - for a real implementation, this would do complex coordination
+    # Real migration coordination with multiple phases
     PrestoLogger.log_distributed(
       :info,
       state.local_node_id,
-      "simulating_migration_coordination",
+      "coordinating_migration",
       %{
         segment_id: migration_op.segment_id,
         from_nodes: migration_op.from_nodes,
@@ -838,33 +838,24 @@ defmodule Presto.Distributed.NetworkPartitioner do
       }
     )
 
-    # Simulate successful migration coordination
-    # In a real implementation, this would involve multiple phases:
-    # 1. Prepare target nodes
-    # 2. Transfer data
-    # 3. Synchronize state
-    # 4. Activate new assignments
-    # 5. Clean up source nodes
-
-    # Update migration status to completed
-    completed_migration =
-      Map.merge(migration_op, %{
-        status: :completed,
-        completed_at: System.monotonic_time(:millisecond)
-      })
-
-    updated_migrations =
-      Map.put(state.active_migrations, migration_op.segment_id, completed_migration)
-
-    new_state = %{state | active_migrations: updated_migrations}
-
-    {:ok, new_state}
+    # Execute migration phases in sequence
+    with {:ok, state_after_prepare} <- prepare_target_nodes(migration_op, state),
+         {:ok, state_after_transfer} <- initiate_data_transfer(migration_op, state_after_prepare),
+         {:ok, state_after_sync} <- synchronise_and_activate(migration_op, state_after_transfer),
+         {:ok, final_state} <- cleanup_source_nodes(migration_op, state_after_sync) do
+      {:ok, final_state}
+    else
+      {:error, reason} ->
+        # Rollback migration on failure
+        rollback_migration(migration_op, state, reason)
+        {:error, reason}
+    end
   end
 
   defp prepare_target_nodes(migration_op, state) do
     PrestoLogger.log_distributed(:info, state.local_node_id, "preparing_target_nodes", %{
       segment_id: migration_op.segment_id,
-      target_nodes: migration_op.target_nodes
+      target_nodes: migration_op.to_nodes
     })
 
     # Update migration status
@@ -877,7 +868,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
     # Send preparation requests to target nodes
     preparation_results =
-      Enum.map(migration_op.target_nodes, fn target_node ->
+      Enum.map(migration_op.to_nodes, fn target_node ->
         prepare_node_for_segment(target_node, migration_op, preparation_state)
       end)
 
@@ -910,7 +901,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
       type: :prepare_migration,
       segment_id: migration_op.segment_id,
       segment_metadata: get_segment_metadata(migration_op.segment_id, state),
-      source_nodes: migration_op.source_nodes,
+      source_nodes: migration_op.from_nodes,
       estimated_size: migration_op.estimated_data_size,
       migration_id: migration_op.migration_id
     }
@@ -1006,8 +997,8 @@ defmodule Presto.Distributed.NetworkPartitioner do
 
     # Create transfer operations for each source-target pair
     transfer_operations =
-      for source_node <- migration_op.source_nodes,
-          target_node <- migration_op.target_nodes do
+      for source_node <- migration_op.from_nodes,
+          target_node <- migration_op.to_nodes do
         %{
           source_node: source_node,
           target_node: target_node,
@@ -1068,7 +1059,7 @@ defmodule Presto.Distributed.NetworkPartitioner do
         _ -> false
       end)
 
-    total_expected = length(migration_op.source_nodes) * length(migration_op.target_nodes)
+    total_expected = length(migration_op.from_nodes) * length(migration_op.to_nodes)
     successful_count = length(successful_transfers)
 
     if successful_count == total_expected do
