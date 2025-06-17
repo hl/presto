@@ -40,7 +40,111 @@ lib/presto/
 
 ## Component Architecture
 
+### System Overview
+
+```mermaid
+graph TB
+    subgraph "Presto System Architecture"
+        Client["Client API"]
+        
+        subgraph "OTP Supervision Tree"
+            Supervisor["Presto.Application<br/>Supervisor"]
+            RuleEngine["RuleEngine<br/>GenServer<br/>(Consolidated)"]
+            BetaNetwork["BetaNetwork<br/>GenServer<br/>(Separate)"]
+            TaskSupervisor["Task.Supervisor<br/>Rule Execution"]
+        end
+        
+        subgraph "RuleEngine Consolidated Components"
+            WorkingMemory["Working Memory<br/>(Integrated)"]
+            AlphaNetwork["Alpha Network<br/>(Integrated)"]
+            RuleManagement["Rule Management<br/>(Integrated)"]
+        end
+        
+        subgraph "ETS Tables"
+            FactsTable["facts_table"]
+            ChangesTable["changes_table"]
+            AlphaMemories["alpha_memories"]
+            CompiledPatterns["compiled_patterns"]
+            BetaMemories["beta_memories_*"]
+        end
+    end
+    
+    Client --> RuleEngine
+    Supervisor --> RuleEngine
+    Supervisor --> BetaNetwork
+    Supervisor --> TaskSupervisor
+    
+    RuleEngine --> WorkingMemory
+    RuleEngine --> AlphaNetwork
+    RuleEngine --> RuleManagement
+    RuleEngine <--> BetaNetwork
+    
+    WorkingMemory --> FactsTable
+    WorkingMemory --> ChangesTable
+    AlphaNetwork --> AlphaMemories
+    AlphaNetwork --> CompiledPatterns
+    BetaNetwork --> BetaMemories
+    
+    classDef genserver fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef integrated fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef ets fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef supervisor fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    
+    class RuleEngine,BetaNetwork genserver
+    class WorkingMemory,AlphaNetwork,RuleManagement integrated
+    class FactsTable,ChangesTable,AlphaMemories,CompiledPatterns,BetaMemories ets
+    class Supervisor,TaskSupervisor supervisor
+```
+
 ### 1. Supervision Tree
+
+```mermaid
+graph TD
+    subgraph "OTP Supervision Hierarchy"
+        App[Presto.Application<br/>Root Supervisor<br/>:one_for_one]
+        
+        subgraph "Core Processes"
+            RuleEngine[Presto.RuleEngine<br/>GenServer<br/>Consolidated]
+            BetaNetwork[Presto.BetaNetwork<br/>GenServer<br/>Separate]
+            TaskSup[Task.Supervisor<br/>Presto.Execution.Supervisor]
+        end
+        
+        subgraph "Dynamic Children"
+            RuleTask1[Rule Execution<br/>Task 1]
+            RuleTask2[Rule Execution<br/>Task 2]
+            RuleTaskN[Rule Execution<br/>Task N]
+        end
+        
+        subgraph "Fault Tolerance"
+            Restart1[Restart Strategy<br/>:one_for_one]
+            Isolation[Process Isolation<br/>Independent failures]
+            Recovery[State Recovery<br/>Network rebuilding]
+        end
+    end
+    
+    App --> RuleEngine
+    App --> BetaNetwork  
+    App --> TaskSup
+    
+    TaskSup -.-> RuleTask1
+    TaskSup -.-> RuleTask2
+    TaskSup -.-> RuleTaskN
+    
+    App -.-> Restart1
+    RuleEngine -.-> Isolation
+    BetaNetwork -.-> Recovery
+    
+    classDef supervisor fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef genserver fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef task fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef fault fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class App,TaskSup supervisor
+    class RuleEngine,BetaNetwork genserver
+    class RuleTask1,RuleTask2,RuleTaskN task
+    class Restart1,Isolation,Recovery fault
+
+```
 
 ```elixir
 defmodule Presto.Application do
@@ -326,6 +430,38 @@ end
 
 ## Data Flow Architecture
 
+### Process Communication Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant RuleEngine as RuleEngine<br/>(Consolidated)
+    participant BetaNetwork as BetaNetwork<br/>(Separate)
+    participant TaskSupervisor as Task.Supervisor
+    participant ETS as ETS Tables
+    
+    Note over Client,ETS: Fact Assertion Flow
+    Client->>RuleEngine: assert_fact(fact)
+    RuleEngine->>ETS: Insert into facts_table
+    RuleEngine->>RuleEngine: Process alpha network (integrated)
+    RuleEngine->>ETS: Update alpha_memories
+    RuleEngine->>BetaNetwork: Notify activations (cast)
+    BetaNetwork->>ETS: Perform joins on beta_memories
+    BetaNetwork->>RuleEngine: Return rule activations
+    RuleEngine->>TaskSupervisor: Fire activated rules
+    TaskSupervisor-->>RuleEngine: Rule execution results
+    RuleEngine->>Client: Return execution results
+    
+    Note over Client,ETS: Rule Management Flow
+    Client->>RuleEngine: add_rule(rule)
+    RuleEngine->>RuleEngine: Analyze rule strategy
+    RuleEngine->>RuleEngine: Compile alpha patterns
+    RuleEngine->>ETS: Store compiled_patterns
+    RuleEngine->>BetaNetwork: Create beta nodes (if needed)
+    BetaNetwork->>ETS: Initialize beta_memories
+    RuleEngine->>Client: Rule added successfully
+```
+
 ### 1. Fact Assertion Flow (Consolidated Architecture)
 
 ```
@@ -350,8 +486,41 @@ Client API → RuleEngine (Integrated: Working Memory + Alpha Network) → BetaN
 
 ### 2. Rule Execution Flow
 
-```
-Rule Analysis → Strategy Selection → Execution Path → Result Collection
+```mermaid
+flowchart TD
+    Start(["Rule Execution Request"]) --> Analysis["Rule Analysis<br/>• Complexity calculation<br/>• Strategy determination"]
+    
+    Analysis --> Strategy{"Execution Strategy"}
+    
+    Strategy -->|"≤2 conditions<br/>Simple patterns"| FastPath["Fast-Path Execution<br/>• Direct pattern matching<br/>• Bypass RETE network<br/>• Immediate results"]
+    
+    Strategy -->|"Complex conditions<br/>Multi-pattern joins"| RETENetwork["RETE Network Execution<br/>• Alpha network processing<br/>• Beta network joins<br/>• Token propagation"]
+    
+    FastPath --> FastExecution["FastPathExecutor.execute<br/>• Direct fact matching<br/>• Pattern evaluation<br/>• Action execution"]
+    
+    RETENetwork --> AlphaProcessing["Alpha Network<br/>• Pattern matching<br/>• Alpha memory updates<br/>• Activation creation"]
+    
+    AlphaProcessing --> BetaProcessing["Beta Network<br/>• Join processing<br/>• Token creation<br/>• Variable binding"]
+    
+    BetaProcessing --> RuleActivation["Rule Activation<br/>• Complete matches<br/>• Priority ordering<br/>• Conflict resolution"]
+    
+    FastExecution --> ResultCollection["Result Collection<br/>• Aggregate outcomes<br/>• Error handling<br/>• Statistics update"]
+    
+    RuleActivation --> ParallelExecution["Parallel Rule Firing<br/>• Task.Supervisor<br/>• Concurrent execution<br/>• Isolation per rule"]
+    
+    ParallelExecution --> ResultCollection
+    
+    ResultCollection --> End(["Execution Complete<br/>Return results"])
+    
+    classDef fastPath fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef reteNetwork fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef processing fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef result fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class FastPath,FastExecution fastPath
+    class RETENetwork,AlphaProcessing,BetaProcessing,RuleActivation reteNetwork
+    class Analysis,Strategy,ParallelExecution processing
+    class ResultCollection,End result
 ```
 
 **Execution Strategies:**
@@ -360,13 +529,91 @@ Rule Analysis → Strategy Selection → Execution Path → Result Collection
 
 ### 3. Incremental Processing Flow
 
-```
-Track New Facts → Filter Affected Rules → Execute Only Necessary Rules → Return Delta Results
+```mermaid
+flowchart LR
+    subgraph "Incremental Processing Pipeline"
+        NewFacts["Track New Facts<br/>• Monitor changes_table<br/>• Record fact additions<br/>• Track since last execution"] 
+        
+        FilterRules["Filter Affected Rules<br/>• Analyze fact types<br/>• Match against rule patterns<br/>• Identify impacted rules only"]
+        
+        SelectiveExecution["Execute Necessary Rules<br/>• Process only affected rules<br/>• Use existing alpha memories<br/>• Incremental beta processing"]
+        
+        DeltaResults["Return Delta Results<br/>• New conclusions only<br/>• Avoid re-computation<br/>• Maintain result lineage"]
+    end
+    
+    FactAssertion(["New Fact Assertion"]) --> NewFacts
+    NewFacts --> FilterRules
+    FilterRules --> SelectiveExecution
+    SelectiveExecution --> DeltaResults
+    DeltaResults --> Results(["Incremental Results"])
+    
+    subgraph "Tracking State"
+        ChangeCounter["change_counter<br/>Last execution marker"]
+        FactsSince["facts_since_incremental<br/>New facts list"]
+        Lineage["fact_lineage<br/>Derivation tracking"]
+    end
+    
+    NewFacts -.-> ChangeCounter
+    NewFacts -.-> FactsSince
+    DeltaResults -.-> Lineage
+    
+    classDef tracking fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef processing fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef state fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    
+    class NewFacts,DeltaResults tracking
+    class FilterRules,SelectiveExecution processing
+    class ChangeCounter,FactsSince,Lineage state
 ```
 
 ## Memory Architecture
 
 ### ETS Table Organization (Consolidated Architecture)
+
+```mermaid
+graph TB
+    subgraph "RuleEngine GenServer (Consolidated)"
+        subgraph "Working Memory Tables"
+            FactsTable["facts_table<br/>{fact_id, fact}<br/>Working memory storage"]
+            ChangesTable["changes_table<br/>{change_id, {op, fact, ts}}<br/>Incremental processing"]
+        end
+        
+        subgraph "Alpha Network Tables"
+            AlphaMemories["alpha_memories<br/>{node_id, [bindings]}<br/>Alpha node memory"]
+            CompiledPatterns["compiled_patterns<br/>{pattern_id, matcher_fn}<br/>Pre-compiled matchers"]
+        end
+    end
+    
+    subgraph "BetaNetwork GenServer (Separate)"
+        subgraph "Beta Network Tables"
+            BetaMemoryNodes["beta_memory_<node_id><br/>{token_id, token}<br/>Beta node memories"]
+            BetaJoins["beta_joins<br/>{join_id, join_state}<br/>Join operation tracking"]
+        end
+    end
+    
+    subgraph "Access Patterns"
+        ReadHeavy["Read-Heavy Operations<br/>• Pattern matching<br/>• Variable binding checks<br/>• Fact queries"]
+        WriteOps["Write Operations<br/>• Fact assert/retract<br/>• Partial match creation<br/>• Rule activation tracking"]
+    end
+    
+    FactsTable -.-> ReadHeavy
+    AlphaMemories -.-> ReadHeavy
+    BetaMemoryNodes -.-> ReadHeavy
+    
+    FactsTable -.-> WriteOps
+    ChangesTable -.-> WriteOps
+    BetaJoins -.-> WriteOps
+    
+    classDef workingMemory fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef alphaNetwork fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef betaNetwork fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef operations fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class FactsTable,ChangesTable workingMemory
+    class AlphaMemories,CompiledPatterns alphaNetwork
+    class BetaMemoryNodes,BetaJoins betaNetwork
+    class ReadHeavy,WriteOps operations
+```
 
 ```elixir
 # RuleEngine Integrated Tables (consolidated from WorkingMemory + AlphaNetwork GenServers)
@@ -398,6 +645,73 @@ compiled_patterns               # {pattern_id, matcher_function} - Pre-compiled 
 - Rule activation tracking
 
 ## Concurrency Model
+
+### Process Communication Architecture
+
+```mermaid
+graph TB
+    subgraph "Concurrency & Communication Model"
+        Client["Client Processes"]
+        
+        subgraph "Core Engine Process"
+            RuleEngine["RuleEngine GenServer<br/>(Consolidated)"]
+            
+            subgraph "Integrated Components"
+                API["API Coordination"]
+                WM["Working Memory"]
+                AN["Alpha Network"]
+                RM["Rule Management"]
+                Stats["Statistics"]
+            end
+        end
+        
+        subgraph "Beta Processing"
+            BetaNetwork["BetaNetwork GenServer<br/>(Separate)"]
+            BetaComponents["Join Processing<br/>Token Management<br/>Beta Memories"]
+        end
+        
+        subgraph "Execution Layer"
+            TaskSupervisor["Task.Supervisor"]
+            RuleExecution1["Rule Execution<br/>Task 1"]
+            RuleExecution2["Rule Execution<br/>Task 2"]
+            RuleExecutionN["Rule Execution<br/>Task N"]
+        end
+        
+        subgraph "Synchronization Points"
+            CriticalSections["Critical Sections<br/>• Network updates<br/>• Fact lifecycle<br/>• Engine ↔ Beta comm"]
+            ConcurrentOps["Concurrent Operations<br/>• Alpha processing<br/>• ETS reads<br/>• Rule execution"]
+        end
+    end
+    
+    Client -->|GenServer.call| RuleEngine
+    RuleEngine --> API
+    API --> WM
+    API --> AN
+    API --> RM
+    API --> Stats
+    
+    RuleEngine <-->|GenServer.cast/call| BetaNetwork
+    BetaNetwork --> BetaComponents
+    
+    RuleEngine -->|Task.Supervisor.start_child| TaskSupervisor
+    TaskSupervisor --> RuleExecution1
+    TaskSupervisor --> RuleExecution2
+    TaskSupervisor --> RuleExecutionN
+    
+    RuleEngine -.-> CriticalSections
+    BetaNetwork -.-> ConcurrentOps
+    TaskSupervisor -.-> ConcurrentOps
+    
+    classDef consolidated fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef separate fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef execution fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef sync fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    
+    class RuleEngine,API,WM,AN,RM,Stats consolidated
+    class BetaNetwork,BetaComponents separate
+    class TaskSupervisor,RuleExecution1,RuleExecution2,RuleExecutionN execution
+    class CriticalSections,ConcurrentOps sync
+```
 
 ### Process Responsibilities (Consolidated Architecture)
 
@@ -435,6 +749,63 @@ compiled_patterns               # {pattern_id, matcher_function} - Pre-compiled 
 - **Parallel Rule Execution**: Concurrent rule firing via Task.Supervisor
 
 ## Error Handling Strategy
+
+### Error Handling & Recovery Architecture
+
+```mermaid
+graph TB
+    subgraph "Error Detection & Classification"
+        NetworkErrors[Network Errors<br/>• Invalid rule compilation<br/>• Pattern matching failures<br/>• Network inconsistency]
+        
+        ExecutionErrors[Execution Errors<br/>• Rule action failures<br/>• Timeout handling<br/>• Resource exhaustion]
+        
+        MemoryErrors[Memory Errors<br/>• ETS table corruption<br/>• Fact lineage inconsistency<br/>• Orphaned token cleanup]
+    end
+    
+    subgraph "Error Isolation Mechanisms"
+        ProcessIsolation[Process Isolation<br/>• Task.Supervisor<br/>• Individual rule failures<br/>• Concurrent execution safety]
+        
+        StateIsolation[State Isolation<br/>• ETS table separation<br/>• GenServer state protection<br/>• Transaction-like operations]
+        
+        NetworkIsolation[Network Isolation<br/>• Rule-level validation<br/>• Network consistency checks<br/>• Partial network recovery]
+    end
+    
+    subgraph "Recovery Strategies"
+        NetworkRecovery[Network Recovery<br/>• Rebuild from rule definitions<br/>• Validate consistency<br/>• Re-propagate facts]
+        
+        ExecutionRecovery[Execution Recovery<br/>• Continue other rules<br/>• Detailed error reporting<br/>• Rule-specific isolation]
+        
+        StateRecovery[State Recovery<br/>• ETS table reconstruction<br/>• Fact lineage validation<br/>• Memory cleanup]
+    end
+    
+    subgraph "Monitoring & Logging"
+        ErrorLogging[Structured Logging<br/>• Error context<br/>• Rule identification<br/>• Performance impact]
+        
+        Statistics[Error Statistics<br/>• Failure patterns<br/>• Recovery metrics<br/>• Performance monitoring]
+    end
+    
+    NetworkErrors --> ProcessIsolation
+    ExecutionErrors --> StateIsolation
+    MemoryErrors --> NetworkIsolation
+    
+    ProcessIsolation --> NetworkRecovery
+    StateIsolation --> ExecutionRecovery
+    NetworkIsolation --> StateRecovery
+    
+    NetworkRecovery --> ErrorLogging
+    ExecutionRecovery --> Statistics
+    StateRecovery --> ErrorLogging
+    
+    classDef errorType fill:#ffebee,stroke:#d32f2f,stroke-width:2px
+    classDef isolation fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef recovery fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef monitoring fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    
+    class NetworkErrors,ExecutionErrors,MemoryErrors errorType
+    class ProcessIsolation,StateIsolation,NetworkIsolation isolation
+    class NetworkRecovery,ExecutionRecovery,StateRecovery recovery
+    class ErrorLogging,Statistics monitoring
+```
 
 ### Error Isolation
 
@@ -483,6 +854,50 @@ Every fact in the system has lineage metadata:
 ```
 
 ### Optimization Configuration
+
+```mermaid
+graph LR
+    subgraph "Runtime Optimization Features"
+        subgraph "Execution Strategies"
+            FastPath[Fast-Path Execution<br/>• ≤2 conditions<br/>• Simple patterns<br/>• Bypass RETE network]
+            
+            RETEPath[RETE Network<br/>• Complex conditions<br/>• Multi-pattern joins<br/>• Full network processing]
+        end
+        
+        subgraph "Memory Optimizations"
+            AlphaSharing[Alpha Node Sharing<br/>• Shared patterns<br/>• Reduced memory<br/>• Better cache utilization]
+            
+            RuleBatching[Rule Batching<br/>• Grouped execution<br/>• Reduced overhead<br/>• Parallel processing]
+        end
+        
+        subgraph "Configuration Parameters"
+            Config[Optimization Config<br/>enable_fast_path: true<br/>enable_alpha_sharing: true<br/>enable_rule_batching: true<br/>fast_path_threshold: 2<br/>sharing_threshold: 2]
+        end
+        
+        subgraph "Performance Benefits"
+            PerformanceGains[Performance Gains<br/>• 50% reduction in GenServer calls<br/>• Direct function calls<br/>• Unified ETS management<br/>• Single critical section]
+        end
+    end
+    
+    Config --> FastPath
+    Config --> RETEPath
+    Config --> AlphaSharing
+    Config --> RuleBatching
+    
+    FastPath --> PerformanceGains
+    AlphaSharing --> PerformanceGains
+    RuleBatching --> PerformanceGains
+    
+    classDef strategy fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef optimization fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef config fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef benefits fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class FastPath,RETEPath strategy
+    class AlphaSharing,RuleBatching optimization
+    class Config config
+    class PerformanceGains benefits
+```
 
 Runtime configurable optimizations:
 

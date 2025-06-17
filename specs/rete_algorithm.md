@@ -18,6 +18,30 @@
 ### Alpha Network
 The alpha network performs pattern matching for individual conditions against single facts.
 
+```mermaid
+flowchart TD
+    WM[Working Memory<br/>Facts] --> Root[Root Node]
+    Root --> A1["Alpha Node 1<br/>age > 18"]
+    Root --> A2["Alpha Node 2<br/>status = :active"]
+    Root --> A3["Alpha Node 3<br/>dept = :sales"]
+    
+    A1 --> AM1["Alpha Memory 1<br/>Adults"]
+    A2 --> AM2["Alpha Memory 2<br/>Active Users"]
+    A3 --> AM3["Alpha Memory 3<br/>Sales Staff"]
+    
+    AM1 --> Beta[Beta Network]
+    AM2 --> Beta
+    AM3 --> Beta
+    
+    classDef memory fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef node fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef wm fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class AM1,AM2,AM3 memory
+    class A1,A2,A3,Root node
+    class WM wm
+```
+
 **Structure:**
 - **Alpha Nodes**: 1-input nodes evaluating literal conditions
 - **Alpha Memory**: Terminal storage for Working Memory Elements (WMEs) matching specific conditions  
@@ -39,6 +63,31 @@ Alpha Memory: Stores all person facts with age > 18
 
 ### Beta Network
 The beta network handles join operations between different fact types for multi-condition rules.
+
+```mermaid
+flowchart TD
+    AM1["Alpha Memory<br/>person facts"] --> J1["Join Node 1<br/>person.name = order.customer"]
+    AM2["Alpha Memory<br/>order facts"] --> J1
+    
+    J1 --> BM1["Beta Memory 1<br/>person-order matches"]
+    BM1 --> J2["Join Node 2<br/>order.amount > 100"]
+    AM3["Alpha Memory<br/>high-value orders"] --> J2
+    
+    J2 --> BM2["Beta Memory 2<br/>high-value customer orders"]
+    BM2 --> T1["Terminal Node<br/>Rule Activation"]
+    
+    T1 --> CS[Conflict Set]
+    
+    classDef alphamem fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef betamem fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef join fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef terminal fill:#ffebee,stroke:#c62828,stroke-width:2px
+    
+    class AM1,AM2,AM3 alphamem
+    class BM1,BM2 betamem
+    class J1,J2 join
+    class T1,CS terminal
+```
 
 **Structure:**
 - **Beta Nodes**: 2-input nodes with left and right inputs
@@ -90,6 +139,31 @@ Mechanism for handling multiple simultaneously activated rules.
 
 ## Algorithm Execution Flow
 
+```mermaid
+sequenceDiagram
+    participant WM as Working Memory
+    participant AN as Alpha Network
+    participant BN as Beta Network
+    participant CS as Conflict Set
+    participant RE as Rule Engine
+    
+    Note over WM,RE: RETE Execution Cycle
+    
+    WM->>AN: 1. Assert fact
+    AN->>AN: 2. Pattern matching
+    AN->>BN: 3. Propagate to joins
+    BN->>BN: 4. Variable binding
+    BN->>CS: 5. Rule activation
+    CS->>RE: 6. Conflict resolution
+    RE->>WM: 7. Execute actions
+    
+    Note over WM,RE: Incremental processing - only changes propagate
+    
+    WM->>AN: New fact
+    AN-->>BN: Only affected paths
+    BN-->>CS: Only new activations
+```
+
 ### Network Construction Phase (One-time)
 1. **Rule Compilation**: Transform rules into discrimination network
 2. **Alpha Node Creation**: Build nodes for individual conditions
@@ -133,6 +207,35 @@ Conflict Set → Resolution Strategy → Selected Rule → Action Execution
 - Execute rule's action part
 - Modify working memory if needed
 - Trigger new cycle if changes made
+
+```mermaid
+flowchart TD
+    subgraph "Join Operation Detail"
+        LI["Left Input<br/>{:person, 'John', 25}"] --> JN[Join Node]
+        RI["Right Input<br/>{:order, 'John', 150}"] --> JN
+        
+        JN --> VC{"Variable<br/>Consistency<br/>Check"}
+        VC -->|"person.name =<br/>order.customer"| VM["Variable<br/>Matching"]
+        VM --> TB["Token<br/>Building"]
+        TB --> OM["Output<br/>Memory"]
+        
+        VC -->|"No match"| DISC[Discard]
+    end
+    
+    subgraph "Token Structure"
+        OM --> TS["Token:<br/>{wmes: [person_fact, order_fact],<br/>bindings: %{name: 'John'}}"]
+    end
+    
+    classDef input fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef process fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef output fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef discard fill:#ffebee,stroke:#c62828,stroke-width:2px
+    
+    class LI,RI input
+    class JN,VC,VM,TB process
+    class OM,TS output
+    class DISC discard
+```
 
 ## Key Optimizations
 
@@ -217,6 +320,15 @@ For each cycle:
 **Example Performance:**
 - Naive: 10,000 rules × 1,000 facts = 10M evaluations per cycle
 - RETE: Initial network build + incremental updates ≈ 100-1,000 operations per change
+
+```mermaid
+xychart-beta
+    title "Performance Comparison: Naive vs RETE"
+    x-axis ["100 Facts" "1K Facts" "10K Facts" "100K Facts" "1M Facts"]
+    y-axis "Operations per Cycle (log scale)" 100 10000000
+    line [1000, 10000, 100000, 1000000, 10000000]
+    line [150, 200, 500, 1200, 2500]
+```
 
 ## Algorithm Variations
 
@@ -333,6 +445,31 @@ defmodule Presto.OptimizedJoin do
     Map.get(beta_index, join_key, [])
   end
 end
+```
+
+```mermaid
+flowchart LR
+    subgraph "Traditional O(n×m) Join"
+        BM1["Beta Memory<br/>[token1, token2, ..., tokenN]"] --> CJ["Cartesian<br/>Join"]
+        AF1["Alpha Fact"] --> CJ
+        CJ --> R1["Results<br/>O(N×M)"]
+    end
+    
+    subgraph "Indexed O(1) Join"
+        BM2["Beta Memory"] --> HI["Hash Index<br/>{key1: [tokens],<br/>key2: [tokens]}"] 
+        AF2["Alpha Fact"] --> EK["Extract Key"]
+        EK --> LU["Hash Lookup<br/>O(1)"]
+        HI --> LU
+        LU --> R2["Results<br/>O(1) average"]
+    end
+    
+    classDef slow fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef fast fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef process fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class BM1,CJ,R1 slow
+    class BM2,HI,LU,R2 fast
+    class EK process
 ```
 
 **Performance Impact**: Reduces join operations from O(n×m) to O(1) average case, providing 10-100x speedup for large memory tables.

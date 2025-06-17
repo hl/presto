@@ -4,6 +4,34 @@
 
 Elixir's design philosophy and standard library components create an exceptionally good fit for implementing the RETE algorithm:
 
+```mermaid
+graph TB
+    subgraph "Elixir Strengths"
+        PM[Pattern Matching]
+        ETS[ETS Tables]
+        PROC[Lightweight Processes]
+        IMM[Immutable Data]
+    end
+    
+    subgraph "RETE Requirements"
+        AN[Alpha Network]
+        WM[Working Memory]
+        CE[Concurrent Execution]
+        FI[Fact Integrity]
+    end
+    
+    PM -.->|Perfect Match| AN
+    ETS -.->|Optimal Storage| WM
+    PROC -.->|Natural Fit| CE
+    IMM -.->|Built-in Safety| FI
+    
+    classDef elixir fill:#663399,stroke:#333,stroke-width:2px,color:#fff
+    classDef rete fill:#009688,stroke:#333,stroke-width:2px,color:#fff
+    
+    class PM,ETS,PROC,IMM elixir
+    class AN,WM,CE,FI rete
+```
+
 ### Perfect Alignments
 
 #### 1. Pattern Matching → Alpha Network
@@ -243,6 +271,42 @@ end
 - Alpha memories: Concurrent reads during rule execution
 - Beta memories: Managed by separate GenServer for complex operations
 
+```mermaid
+flowchart TB
+    subgraph "ETS Table Strategy"
+        subgraph "Read-Optimized Tables"
+            FT[Facts Table<br/>:set, :public<br/>read_concurrency: true]
+            AM[Alpha Memories<br/>:set, :public<br/>read_concurrency: true]
+            CP[Compiled Patterns<br/>:set, :public<br/>read_concurrency: true]
+        end
+        
+        subgraph "Write-Coordinated Tables"
+            CT[Changes Table<br/>:ordered_set, :private]
+            BM[Beta Memories<br/>:set, :private<br/>per node]
+        end
+    end
+    
+    subgraph "Access Patterns"
+        CR[Concurrent Reads]
+        SW[Sequential Writes]
+        AA[Atomic Access]
+    end
+    
+    FT --> CR
+    AM --> CR
+    CP --> CR
+    CT --> SW
+    BM --> AA
+    
+    classDef readOpt fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    classDef writeCoord fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    classDef pattern fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    
+    class FT,AM,CP readOpt
+    class CT,BM writeCoord
+    class CR,SW,AA pattern
+```
+
 ```elixir
 # Read-optimized tables for concurrent access
 facts_table: :ets.new(:facts, [:set, :public, read_concurrency: true])
@@ -284,6 +348,53 @@ end
 ```
 
 ## Memory Management Strategy
+
+```mermaid
+flowchart LR
+    subgraph "Memory Lifecycle"
+        FA[Fact Assertion] --> WM[Working Memory]
+        WM --> AP[Alpha Processing]
+        AP --> BP[Beta Processing]
+        BP --> RE[Rule Execution]
+        RE --> FR[Fact Retraction]
+        
+        subgraph "Optimization Layers"
+            LL[Lineage Tracking]
+            IC[Incremental Changes]
+            GC[Garbage Collection]
+        end
+        
+        WM -.-> LL
+        AP -.-> IC
+        FR -.-> GC
+    end
+    
+    subgraph "ETS Storage"
+        subgraph "RuleEngine Tables"
+            FTB[(Facts Table)]
+            CTB[(Changes Table)]
+            AMT[(Alpha Memories)]
+            CPT[(Compiled Patterns)]
+        end
+        
+        subgraph "BetaNetwork Tables"
+            BMT[(Beta Memories)]
+        end
+    end
+    
+    WM --> FTB
+    AP --> AMT
+    BP --> BMT
+    FA --> CTB
+    
+    classDef lifecycle fill:#E91E63,stroke:#333,stroke-width:2px,color:#fff
+    classDef optimization fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    classDef storage fill:#607D8B,stroke:#333,stroke-width:2px,color:#fff
+    
+    class FA,WM,AP,BP,RE,FR lifecycle
+    class LL,IC,GC optimization
+    class FTB,CTB,AMT,CPT,BMT storage
+```
 
 ### ETS Table Organization (Simplified Architecture)
 
@@ -337,6 +448,70 @@ end
 
 ## Concurrency Model
 
+```mermaid
+flowchart TB
+    subgraph "Process Architecture"
+        subgraph "Main Supervision Tree"
+            APP[Presto.Application]
+            SUP[Supervisor]
+            
+            APP --> SUP
+        end
+        
+        subgraph "Core GenServers"
+            RE[RuleEngine<br/>Consolidated GenServer]
+            BN[BetaNetwork<br/>Separate GenServer]
+            TS[Task.Supervisor]
+            
+            SUP --> RE
+            SUP --> BN
+            SUP --> TS
+        end
+        
+        subgraph "Task Execution"
+            T1[Task 1<br/>Rule Execution]
+            T2[Task 2<br/>Rule Execution]
+            T3[Task N<br/>Rule Execution]
+            
+            TS --> T1
+            TS --> T2
+            TS --> T3
+        end
+    end
+    
+    subgraph "Communication Patterns"
+        subgraph "Direct Calls"
+            DC1[Working Memory ↔ Alpha Network]
+            DC2[Rule Analysis ↔ Strategy Selection]
+        end
+        
+        subgraph "GenServer Calls"
+            GC1[RuleEngine → BetaNetwork]
+            GC2[Client → RuleEngine]
+        end
+        
+        subgraph "Async Tasks"
+            AT1[Parallel Rule Execution]
+            AT2[Concurrent Pattern Matching]
+        end
+    end
+    
+    RE -.->|Direct Function Calls| DC1
+    RE -.->|Direct Function Calls| DC2
+    RE -->|GenServer.call| BN
+    RE -->|Task.async| T1
+    
+    classDef genserver fill:#FF5722,stroke:#333,stroke-width:2px,color:#fff
+    classDef supervisor fill:#3F51B5,stroke:#333,stroke-width:2px,color:#fff
+    classDef task fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    classDef communication fill:#FFC107,stroke:#333,stroke-width:2px,color:#000
+    
+    class RE,BN genserver
+    class APP,SUP,TS supervisor
+    class T1,T2,T3 task
+    class DC1,DC2,GC1,GC2,AT1,AT2 communication
+```
+
 ### Simplified Process Architecture
 
 **RuleEngine (Consolidated GenServer):**
@@ -359,6 +534,55 @@ end
 ### Performance Optimizations
 
 #### Elixir-Specific Optimizations (Implemented)
+
+```mermaid
+flowchart TB
+    subgraph "Elixir Optimization Strategy"
+        subgraph "Consolidated Operations"
+            CO[Working Memory + Alpha Network<br/>Single GenServer]
+            DEO[Direct ETS Operations<br/>No Message Passing]
+        end
+        
+        subgraph "Strategy-Based Execution"
+            RA[Rule Analysis]
+            FP[Fast Path<br/>≤2 conditions]
+            RETE[RETE Network<br/>Complex rules]
+        end
+        
+        subgraph "Concurrent Processing"
+            PE[Parallel Execution]
+            EI[Error Isolation]
+            CC[Controlled Concurrency]
+        end
+        
+        subgraph "Memory Management"
+            IL[Incremental Loading]
+            LT[Lineage Tracking]
+            OGC[Optimized GC]
+        end
+    end
+    
+    CO --> DEO
+    RA --> FP
+    RA --> RETE
+    FP --> PE
+    RETE --> PE
+    PE --> EI
+    PE --> CC
+    DEO --> IL
+    IL --> LT
+    LT --> OGC
+    
+    classDef consolidation fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    classDef strategy fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    classDef concurrency fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    classDef memory fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    
+    class CO,DEO consolidation
+    class RA,FP,RETE strategy
+    class PE,EI,CC concurrency
+    class IL,LT,OGC memory
+```
 
 **1. Consolidated Memory Operations:**
 ```elixir
@@ -504,6 +728,56 @@ end
 ```
 
 ### 4. Performance Monitoring
+
+```mermaid
+flowchart LR
+    subgraph "Performance Monitoring Architecture"
+        subgraph "Rule Statistics"
+            RS[Rule Statistics]
+            ET[Execution Times]
+            FC[Facts Processed]
+            SC[Strategy Choices]
+        end
+        
+        subgraph "Engine Statistics"
+            ES[Engine Statistics]
+            TF[Total Facts]
+            TR[Total Rules]
+            TRF[Total Rule Firings]
+            LET[Last Execution Time]
+        end
+        
+        subgraph "Optimization Metrics"
+            OM[Optimization Metrics]
+            FPE[Fast Path Executions]
+            RNE[RETE Network Executions]
+            ANS[Alpha Nodes Saved]
+        end
+        
+        subgraph "Real-time Analysis"
+            RTA[Real-time Analysis]
+            PA[Performance Alerts]
+            BH[Bottleneck Identification]
+            SO[Strategy Optimization]
+        end
+    end
+    
+    RS --> ES
+    ES --> OM
+    OM --> RTA
+    
+    ET -.-> PA
+    FC -.-> BH
+    SC -.-> SO
+    
+    classDef statistics fill:#4CAF50,stroke:#333,stroke-width:2px,color:#fff
+    classDef metrics fill:#2196F3,stroke:#333,stroke-width:2px,color:#fff
+    classDef analysis fill:#FF9800,stroke:#333,stroke-width:2px,color:#fff
+    
+    class RS,ET,FC,SC,ES,TF,TR,TRF,LET statistics
+    class OM,FPE,RNE,ANS metrics
+    class RTA,PA,BH,SO analysis
+```
 
 ```elixir
 # Detailed execution statistics

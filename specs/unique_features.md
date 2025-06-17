@@ -6,6 +6,25 @@ This document describes unique features implemented in Presto that extend beyond
 
 ## 1. Rule Analysis and Strategy Selection
 
+### Rule Analysis and Strategy Selection Workflow
+
+```mermaid
+flowchart TD
+    A[Rule Added to Engine] --> B[Analyze Rule Structure]
+    B --> C{Count Conditions}
+    C -->|≤ 2 conditions| D{Simple Conditions?}
+    C -->|> 2 conditions| E[Use RETE Network]
+    D -->|Yes| F[Fast-Path Strategy]
+    D -->|No| E
+    F --> G[Update Performance Metrics]
+    E --> G
+    G --> H[Rule Ready for Execution]
+    
+    style F fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style E fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style G fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
+
 ### Automatic Rule Complexity Analysis
 
 Presto automatically analyzes each rule to determine the optimal execution strategy and provides detailed complexity metrics.
@@ -70,6 +89,34 @@ end
 
 ## 2. Fast-Path Execution
 
+### Fast-Path vs RETE Network Execution Flow
+
+```mermaid
+flowchart LR
+    subgraph "Traditional RETE Network"
+        A1[Facts] --> B1[Alpha Nodes]
+        B1 --> C1[Beta Nodes]
+        C1 --> D1[Join Operations]
+        D1 --> E1[Conflict Set]
+        E1 --> F1[Execute Actions]
+    end
+    
+    subgraph "Fast-Path Execution"
+        A2[Facts] --> B2[Direct Pattern Match]
+        B2 --> C2[Apply Rule Action]
+        C2 --> D2[Return Results]
+    end
+    
+    G[Rule Analysis] --> H{Simple Rule?}
+    H -->|Yes| A2
+    H -->|No| A1
+    
+    style A2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style B2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style C2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style D2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
+
 ### Bypass RETE Network for Simple Rules
 
 Simple rules (≤2 conditions) can bypass the full RETE network for significant performance improvements.
@@ -129,6 +176,43 @@ config = Presto.RuleEngine.get_optimization_config(engine)
 - **Lower latency** through direct pattern matching
 
 ## 3. Fact Lineage Tracking
+
+### Fact Lineage Relationship Graph
+
+```mermaid
+graph TD
+    subgraph "Input Facts (Generation 1)"
+        P1["Person: John, 25"]
+        E1["Employment: John, TechCorp"]
+        T1["Timesheet: John, 45h"]
+    end
+    
+    subgraph "Derived Facts (Generation 2)"
+        A1["Adult: John"]
+        O1["Overtime: John, 5h"]
+    end
+    
+    subgraph "Derived Facts (Generation 3)"
+        B1["Bonus: John, $500"]
+        P2["Pay: John, $3500"]
+    end
+    
+    P1 -->|adult_rule| A1
+    T1 -->|overtime_rule| O1
+    E1 --> O1
+    A1 -->|bonus_rule| B1
+    O1 --> B1
+    O1 -->|pay_calculation| P2
+    E1 --> P2
+    
+    style P1 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style E1 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style T1 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style A1 fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style O1 fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style B1 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style P2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
 
 ### Complete Fact Derivation History
 
@@ -200,6 +284,47 @@ updated_fact_lineage = Map.put(state.fact_lineage, fact_key, %{
 - **Optimization**: Identify derivation patterns for optimization
 
 ## 4. Rule Registry and Discovery
+
+### Rule Registry Architecture
+
+```mermaid
+flowchart TB
+    subgraph "Application Modules"
+        M1[PayrollRules Module]
+        M2[ComplianceRules Module]
+        M3[BusinessRules Module]
+        M4[SecurityRules Module]
+    end
+    
+    subgraph "Rule Registry System"
+        RD[Rule Discovery]
+        RM[Rule Metadata]
+        RC[Rule Catalog]
+    end
+    
+    subgraph "Rule Engine"
+        RE[Engine Instance]
+        RX[Rule Executor]
+    end
+    
+    M1 --> RD
+    M2 --> RD
+    M3 --> RD
+    M4 --> RD
+    
+    RD --> RM
+    RM --> RC
+    RC --> RE
+    RE --> RX
+    
+    RC -.->|Domain: Payroll<br/>Version: 1.2.0<br/>Dependencies| M1
+    RC -.->|Domain: Compliance<br/>Version: 2.1.0<br/>Dependencies| M2
+    
+    style RD fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style RM fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style RC fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style RE fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
 
 ### Modular Rule Organization
 
@@ -307,6 +432,36 @@ end)
 
 ## 5. Advanced Error Handling
 
+### Error Handling and Isolation Workflow
+
+```mermaid
+flowchart TD
+    A[Start Rule Execution] --> B[Get Next Rule]
+    B --> C{Rule Available?}
+    C -->|No| H[Return Results & Errors]
+    C -->|Yes| D[Execute Rule]
+    D --> E{Execution Success?}
+    E -->|Yes| F[Collect Results]
+    E -->|No| G[Isolate Error]
+    F --> I[Update Statistics]
+    G --> J[Log Error Details]
+    I --> B
+    J --> K[Continue with Next Rule]
+    K --> B
+    
+    subgraph "Error Context"
+        G --> L[Rule ID]
+        G --> M[Error Type]
+        G --> N[Stack Trace]
+        G --> O[Fact Context]
+    end
+    
+    style G fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style J fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style K fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style F fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
+
 ### Detailed Rule Execution Error Reporting
 
 Presto provides comprehensive error handling with rule-specific error isolation and reporting.
@@ -365,6 +520,38 @@ end
 ```
 
 ## 6. Rule Chaining with Convergence Detection
+
+### Rule Chaining and Convergence Detection Flow
+
+```mermaid
+flowchart TD
+    A[Initial Facts] --> B[Execute Rules Cycle 1]
+    B --> C{New Facts Produced?}
+    C -->|Yes| D[Assert New Facts]
+    D --> E[Check Cycle Limit]
+    E -->|< Max Cycles| F[Execute Rules Cycle N+1]
+    E -->|≥ Max Cycles| G[Force Stop - Max Cycles]
+    F --> H{New Facts Produced?}
+    H -->|Yes| I[Continue Chaining]
+    H -->|No| J[Convergence Achieved]
+    C -->|No| J
+    I --> E
+    
+    subgraph "Convergence Detection"
+        K[Compare Facts]
+        L[No New Derivations]
+        M[Stable State]
+    end
+    
+    J --> K
+    K --> L
+    L --> M
+    
+    style J fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style M fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style G fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style I fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+```
 
 ### Automatic Rule Chaining
 
@@ -456,6 +643,59 @@ analysis = Presto.RuleEngine.analyze_rule_set(engine)
     product: 3
   }
 }
+```
+
+## Presto Unique Features Integration
+
+### Feature Interaction Overview
+
+```mermaid
+graph TB
+    subgraph "Core RETE Algorithm"
+        R[RETE Network]
+    end
+    
+    subgraph "Presto Unique Features"
+        A[Rule Analysis & Strategy]
+        F[Fast-Path Execution]
+        L[Fact Lineage Tracking]
+        RG[Rule Registry]
+        E[Advanced Error Handling]
+        C[Rule Chaining]
+        S[Enhanced Statistics]
+    end
+    
+    subgraph "Benefits"
+        P1[2-10x Performance]
+        P2[Modular Organization]
+        P3[Complete Auditability]
+        P4[Robust Error Recovery]
+        P5[Automatic Optimization]
+    end
+    
+    A --> F
+    A --> R
+    F --> P1
+    L --> P3
+    L --> C
+    RG --> P2
+    E --> P4
+    A --> S
+    F --> S
+    C --> S
+    S --> P5
+    
+    R -.->|Enhanced by| A
+    R -.->|Bypassed by| F
+    R -.->|Monitored by| S
+    
+    style A fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    style F fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style L fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style RG fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style E fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style C fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    style S fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 ```
 
 ## Usage Examples

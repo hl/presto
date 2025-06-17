@@ -9,6 +9,31 @@ This directory contains examples showing how to build domain-specific applicatio
 - **Presto Core**: Generic RETE algorithm implementation, rule management, and optimization
 - **Domain Examples**: Specific applications built on top of Presto (like payroll processing)
 
+```mermaid
+graph TB
+    subgraph "Application Layer"
+        A["PayrollSystem<br/>Fraud Detection<br/>Process Automation"]
+    end
+    
+    subgraph "Presto Core"
+        B["RETE Engine"]
+        C["Rule Management"]
+        D["Working Memory"]
+        E["Alpha/Beta Networks"]
+    end
+    
+    A --> B
+    A --> C
+    B --> D
+    B --> E
+    
+    style A fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style C fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style D fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style E fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
+
 ## Examples
 
 ### 1. Payroll Processing System
@@ -56,6 +81,35 @@ A complete payroll processing system that demonstrates enterprise-scale usage of
 mix run examples/payroll_demo.exs
 ```
 
+```mermaid
+sequenceDiagram
+    participant Demo as Demo Script
+    participant PS as PayrollSystem
+    participant PC as Presto Core
+    participant PA as PayrollAggregator
+    
+    Demo->>PS: start_link()
+    Demo->>PS: start_payroll_run("2025_01", 10_000)
+    
+    loop For each employee (10,000)
+        Demo->>PS: process_employee(id, time_entries)
+        PS->>PC: add_facts(employee_data)
+        PS->>PC: fire_all_rules()
+        PC-->>PS: rule_results
+        PS->>PA: accumulate_results()
+    end
+    
+    Demo->>PS: get_progress("2025_01")
+    PS-->>Demo: progress_report
+    
+    Demo->>PS: finalize_run("2025_01")
+    PS->>PA: generate_final_report()
+    PA-->>PS: aggregated_results
+    PS-->>Demo: final_report
+    
+    Note over Demo,PA: Processes 480M rule evaluations<br/>in ~10-20 seconds
+```
+
 ### 2. Basic Payroll Rules
 
 Simple payroll rule implementations showing how to define business logic using Presto.
@@ -72,14 +126,26 @@ Simple payroll rule implementations showing how to define business logic using P
 
 ### 1. Generic Core, Specific Applications
 
-```
-┌─────────────────────────────────────┐
-│           Your Application          │  ← Domain-specific logic
-│         (e.g. PayrollSystem)        │
-├─────────────────────────────────────┤
-│              Presto                 │  ← Generic RETE engine
-│        (Rules Engine Core)          │
-└─────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph "Domain Applications"
+        PS["PayrollSystem<br/>🏢 Business Logic<br/>📊 Aggregation<br/>📈 Reporting"]
+        FD["Fraud Detection<br/>🔍 Pattern Analysis<br/>⚠️ Alert Generation<br/>📋 Risk Assessment"]
+        BPA["Process Automation<br/>⚙️ Workflow Logic<br/>🔄 State Management<br/>📬 Notifications"]
+    end
+    
+    subgraph "Presto Core"
+        RE["RETE Engine<br/>🧠 Pattern Matching<br/>⚡ Rule Evaluation<br/>🔧 Optimization"]
+    end
+    
+    PS --> RE
+    FD --> RE
+    BPA --> RE
+    
+    style PS fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style FD fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style BPA fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style RE fill:#f8f9ff,stroke:#3f51b5,stroke-width:3px
 ```
 
 ### 2. Proper Separation of Concerns
@@ -107,6 +173,34 @@ The same Presto core can be used for different domains:
 - **Business Process Automation** (potential example)
 - **Configuration Management** (potential example)
 - **Real-time Event Processing** (potential example)
+
+```mermaid
+graph LR
+    subgraph "One Core Engine"
+        PC["Presto Core<br/>RETE Implementation"]
+    end
+    
+    subgraph "Multiple Applications"
+        PP["💰 Payroll<br/>Processing"]
+        FD["🔍 Fraud<br/>Detection"]
+        BPA["⚙️ Business Process<br/>Automation"]
+        CM["⚙️ Configuration<br/>Management"]
+        REP["⚡ Real-time Event<br/>Processing"]
+    end
+    
+    PC --> PP
+    PC --> FD
+    PC --> BPA
+    PC --> CM
+    PC --> REP
+    
+    style PC fill:#f8f9ff,stroke:#3f51b5,stroke-width:3px
+    style PP fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style FD fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style BPA fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style CM fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style REP fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
 
 ## Performance Characteristics
 

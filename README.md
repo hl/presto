@@ -89,16 +89,60 @@ IO.inspect(result.summary)
 
 **🎉 That's it!** You've just processed timesheets with configurable business rules.
 
+### Quick Start Workflow
+
+```mermaid
+flowchart TD
+    A[Install Presto] --> B[Configure Rules]
+    B --> C[Create Timesheet Data]
+    C --> D[Define Rule Specification]
+    D --> E[Process with RETE Engine]
+    E --> F[Get Results]
+    
+    B1["config :presto, :rule_registry"] --> B
+    C1["time_entry facts"] --> C
+    D1["rules_to_run + variables"] --> D
+    E1["Presto.Examples.PayrollRules.process_with_engine"] --> E
+    F1["overtime calculations + summaries"] --> F
+    
+    style A fill:#e1f5fe
+    style F fill:#c8e6c9
+    style E fill:#fff3e0
+```
+
 ## How It Works
 
 Presto uses the **RETE algorithm** to efficiently process rules:
 
-```
-Facts (Data) → Rules Engine → Results
-
-timesheet entries → payroll rules → calculated hours + overtime
-compliance data → audit rules → violations + penalties  
-pricing inputs → business rules → final prices + discounts
+```mermaid
+flowchart LR
+    A[Facts<br/>Your Data] --> B[Rules Engine<br/>RETE Algorithm]
+    B --> C[Results<br/>Processed Output]
+    
+    A1["📊 timesheet entries"] --> B1["⚙️ payroll rules"]
+    B1 --> C1["💰 calculated hours + overtime"]
+    
+    A2["📋 compliance data"] --> B2["🔍 audit rules"]
+    B2 --> C2["⚠️ violations + penalties"]
+    
+    A3["💼 pricing inputs"] --> B3["📈 business rules"]
+    B3 --> C3["💲 final prices + discounts"]
+    
+    style A fill:#e3f2fd
+    style B fill:#fff3e0
+    style C fill:#e8f5e8
+    
+    style A1 fill:#e3f2fd
+    style B1 fill:#fff3e0
+    style C1 fill:#e8f5e8
+    
+    style A2 fill:#e3f2fd
+    style B2 fill:#fff3e0
+    style C2 fill:#e8f5e8
+    
+    style A3 fill:#e3f2fd
+    style B3 fill:#fff3e0
+    style C3 fill:#e8f5e8
 ```
 
 ### Core Components
@@ -109,6 +153,37 @@ pricing inputs → business rules → final prices + discounts
 4. **Working Memory**: RETE engine that efficiently matches facts to rules
 
 ### RETE Engine Architecture
+
+```mermaid
+flowchart TD
+    Facts["📥 Input Facts<br/>(timesheet entries)"] --> Alpha["🔍 Alpha Network<br/>(Pattern Matching)"]
+    Alpha --> Beta["🔗 Beta Network<br/>(Join Operations)"]
+    Beta --> Agenda["📋 Rule Agenda<br/>(Priority Ordering)"]
+    Agenda --> Actions["⚡ Rule Actions<br/>(Concurrent Execution)"]
+    Actions --> Results["📤 Output Facts<br/>(overtime calculations)"]
+    
+    WM[("💾 Working Memory<br/>(ETS Storage)")]
+    
+    Facts --> WM
+    WM --> Alpha
+    Beta --> WM
+    Actions --> WM
+    WM --> Results
+    
+    Alpha --> AM1["α₁ time_entry patterns"]
+    Alpha --> AM2["α₂ employee patterns"]
+    
+    Beta --> BM1["β₁ joined time+employee"]
+    Beta --> BM2["β₂ aggregated hours"]
+    
+    style Facts fill:#e3f2fd
+    style Alpha fill:#f3e5f5
+    style Beta fill:#e8f5e8
+    style Agenda fill:#fff3e0
+    style Actions fill:#fce4ec
+    style Results fill:#e0f2f1
+    style WM fill:#f5f5f5
+```
 
 Presto's RETE engine provides:
 
@@ -263,6 +338,32 @@ end
 
 ### Step 5: Run and Test
 
+```mermaid
+flowchart TD
+    subgraph "Regular Scenario (40 hours)"
+        R1["📊 4 days × 10 hours = 40 hours"] --> R2["⚙️ RETE Engine Processing"]
+        R2 --> R3["✅ No overtime detected"]
+        R3 --> R4["📈 total_overtime_hours: 0.0"]
+    end
+    
+    subgraph "Overtime Scenario (50 hours)"
+        O1["📊 5 days × 10 hours = 50 hours"] --> O2["⚙️ RETE Engine Processing"]
+        O2 --> O3["⚠️ 10 hours over threshold"]
+        O3 --> O4["📈 total_overtime_hours: 10.0"]
+        O4 --> O5["💰 overtime_rate: 1.5x"]
+    end
+    
+    subgraph "Processing Pipeline"
+        P1["timesheet_entries"] --> P2["process_weekly_payroll()"]
+        P2 --> P3["RETE rule execution"]
+        P3 --> P4["formatted results"]
+    end
+    
+    style R3 fill:#c8e6c9
+    style O3 fill:#ffcdd2
+    style P3 fill:#fff3e0
+```
+
 ```elixir
 # No overtime scenario
 regular_timesheet = MyPayroll.Data.sample_timesheet()
@@ -364,6 +465,42 @@ IO.inspect(compliance_result.violations)
 ## Using the RETE Engine Directly
 
 For advanced use cases, you can interact with the RETE engine directly:
+
+### API Usage Sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Presto as Presto Engine
+    participant ETS as ETS Memory
+    participant Rules as Rule Execution
+    
+    App->>Presto: start_link(rules)
+    Presto->>ETS: Initialize working memory
+    ETS-->>Presto: Memory ready
+    Presto-->>App: {:ok, engine}
+    
+    loop For each fact
+        App->>Presto: assert_fact(engine, fact)
+        Presto->>ETS: Store fact
+        Presto->>Rules: Check rule conditions
+        alt Rule conditions met
+            Rules->>Rules: Execute rule action
+            Rules->>ETS: Assert new facts
+            Rules-->>Presto: Rule fired
+        end
+    end
+    
+    App->>Presto: get_facts(engine)
+    Presto->>ETS: Retrieve all facts
+    ETS-->>Presto: Facts list
+    Presto-->>App: All facts
+    
+    App->>Presto: stop(engine)
+    Presto->>ETS: Cleanup memory
+    ETS-->>Presto: Cleaned up
+    Presto-->>App: :ok
+```
 
 ```elixir
 defmodule MyApp.DirectEngineExample do
@@ -1008,19 +1145,51 @@ end
 
 ## Architecture Overview
 
-Presto implements the **RETE algorithm** with a simplified, integrated architecture optimized for Elixir:
+Presto implements the **RETE algorithm** with a simplified, integrated architecture optimised for Elixir:
 
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│    Facts    │───▶│ Alpha Network │───▶│ Beta Network│
-│ (Your Data) │    │ (Filtering)   │    │ (Joining)   │
-└─────────────┘    └──────────────┘    └─────────────┘
-                                              │
-                                              ▼
-                   ┌─────────────┐    ┌──────────────┐
-                   │   Results   │◀───│ Rule Actions │
-                   │(New Facts)  │    │ (Processing) │
-                   └─────────────┘    └──────────────┘
+```mermaid
+flowchart TB
+    subgraph "Input Layer"
+        Facts["📥 Facts<br/>(Your Data)"]
+    end
+    
+    subgraph "RETE Network"
+        Alpha["🔍 Alpha Network<br/>(Pattern Filtering)"]
+        Beta["🔗 Beta Network<br/>(Fact Joining)"]
+    end
+    
+    subgraph "Execution Layer"
+        Actions["⚡ Rule Actions<br/>(Business Processing)"]
+    end
+    
+    subgraph "Output Layer"
+        Results["📤 Results<br/>(New Facts)"]
+    end
+    
+    subgraph "Memory Management"
+        WM[("💾 Working Memory<br/>(ETS Tables)")]
+        AM[("🗃️ Alpha Memory<br/>(Pattern Cache)")]
+        BM[("🔗 Beta Memory<br/>(Join Cache)")]
+    end
+    
+    Facts --> Alpha
+    Alpha --> Beta
+    Beta --> Actions
+    Actions --> Results
+    
+    Facts -.-> WM
+    Alpha -.-> AM
+    Beta -.-> BM
+    Actions -.-> WM
+    
+    style Facts fill:#e3f2fd
+    style Alpha fill:#f3e5f5
+    style Beta fill:#e8f5e8
+    style Actions fill:#fff3e0
+    style Results fill:#e0f2f1
+    style WM fill:#f5f5f5
+    style AM fill:#f5f5f5
+    style BM fill:#f5f5f5
 ```
 
 ### Core Components

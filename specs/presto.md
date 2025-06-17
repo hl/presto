@@ -6,6 +6,36 @@ Presto is a rules engine library for Elixir implementing the RETE (Rapid, Effici
 
 ## Why RETE for Elixir?
 
+```mermaid
+graph TB
+    subgraph "RETE Algorithm"
+        R[RETE Core]
+        R --> |Pattern Matching| PM[Alpha Network]
+        R --> |Join Operations| JO[Beta Network]
+        R --> |Memory Management| MM[Working Memory]
+    end
+    
+    subgraph "Elixir Strengths"
+        E[Elixir Platform]
+        E --> |Native Support| NP[Pattern Matching]
+        E --> |High Performance| ETS[ETS Tables]
+        E --> |Concurrency| PROC[Process Model]
+        E --> |Safety| IMM[Immutability]
+    end
+    
+    PM -.->|Perfect Match| NP
+    MM -.->|Optimal Storage| ETS
+    JO -.->|Parallel Processing| PROC
+    R -.->|Data Safety| IMM
+    
+    classDef rete fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef elixir fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef connection fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class R,PM,JO,MM rete
+    class E,NP,ETS,PROC,IMM elixir
+```
+
 The RETE algorithm is particularly well-suited for Elixir due to several key alignments:
 
 ### Perfect Matches
@@ -33,6 +63,44 @@ The RETE algorithm is particularly well-suited for Elixir due to several key ali
 - **Hot Updates**: Rules can be modified without stopping the engine
 
 ## Algorithm Overview
+
+```mermaid
+flowchart TD
+    WM[Working Memory<br/>ETS Table] -->|Facts| AN[Alpha Network<br/>Pattern Matching]
+    AN -->|Filtered Facts| BN[Beta Network<br/>Join Operations]
+    BN -->|Partial Matches| CS[Conflict Set<br/>Rule Activations]
+    CS -->|Fire Rules| RE[Rule Execution<br/>Parallel Processes]
+    RE -->|New Facts| WM
+    
+    subgraph "Alpha Nodes"
+        AN --> A1[Person Filter]
+        AN --> A2[Order Filter]
+        AN --> A3[Age > 18 Filter]
+    end
+    
+    subgraph "Beta Nodes"
+        A1 --> B1[Person-Order Join]
+        A2 --> B1
+        A3 --> B2[Adult Check]
+        B1 --> B2
+    end
+    
+    subgraph "Rule Firing"
+        RE --> R1[Business Rules]
+        RE --> R2[Validation Rules]
+        RE --> R3[Workflow Rules]
+    end
+    
+    classDef memory fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    classDef alpha fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    classDef beta fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px
+    classDef execution fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    
+    class WM memory
+    class AN,A1,A2,A3 alpha
+    class BN,B1,B2 beta
+    class CS,RE,R1,R2,R3 execution
+```
 
 RETE constructs a discrimination network with two main components:
 
@@ -69,6 +137,32 @@ The library will be implemented as a standard OTP application with the following
 
 ## Target Use Cases
 
+```mermaid
+mindmap
+  root((Presto<br/>Use Cases))
+    Business Logic
+      Payroll Processing
+      Compliance Checking
+      Policy Enforcement
+      Pricing Rules
+    Event Processing
+      Stream Processing
+      Complex Event Processing
+      Real-time Analytics
+      Monitoring Systems
+    Decision Support
+      Recommendation Systems
+      Risk Assessment
+      Fraud Detection
+      Credit Scoring
+    Workflow Management
+      Process Automation
+      Task Orchestration
+      Approval Workflows
+      State Machines
+```
+
+**Primary Applications:**
 - Business rule processing
 - Event stream processing  
 - Complex event processing (CEP)

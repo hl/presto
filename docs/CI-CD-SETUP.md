@@ -32,6 +32,49 @@ Your `ex_presto` repository now has a comprehensive CI/CD setup for automated pu
 - **Process**: Validate → Test → Build → Publish → Release
 - **Output**: Package on Hex.pm + GitHub release + HexDocs
 
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#2563eb','primaryTextColor':'#ffffff','primaryBorderColor':'#1e40af','lineColor':'#374151','sectionBkgColor':'#f3f4f6','altSectionBkgColor':'#e5e7eb','gridColor':'#d1d5db','secondaryColor':'#10b981','tertiaryColor':'#f59e0b'}}}%%
+flowchart TD
+    A[Push Tag v1.0.0] --> B{Tag Format Valid?}
+    B -->|Yes| C[Trigger Publish Workflow]
+    B -->|No| D[❌ Tag Ignored]
+    
+    C --> E[Validate Environment]
+    E --> F[Run Test Suite]
+    F --> G{All Tests Pass?}
+    G -->|No| H[❌ Publishing Failed]
+    G -->|Yes| I[Check Code Format]
+    
+    I --> J{Format Valid?}
+    J -->|No| H
+    J -->|Yes| K[Run Credo Analysis]
+    
+    K --> L{Credo Passes?}
+    L -->|No| H
+    L -->|Yes| M[Build Package]
+    
+    M --> N{Build Success?}
+    N -->|No| H
+    N -->|Yes| O[Publish to Hex.pm]
+    
+    O --> P{Publish Success?}
+    P -->|No| H
+    P -->|Yes| Q[Generate HexDocs]
+    
+    Q --> R[Create GitHub Release]
+    R --> S[✅ Release Complete]
+    
+    classDef successNode fill:#10b981,stroke:#059669,stroke-width:2px,color:#ffffff
+    classDef failureNode fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
+    classDef processNode fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#ffffff
+    classDef decisionNode fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#000000
+    
+    class S successNode
+    class D,H failureNode
+    class A,C,E,F,I,K,M,O,Q,R processNode
+    class B,G,J,L,N,P decisionNode
+```
+
 ### 2. Release Preparation Workflow
 - **Trigger**: Manual GitHub Action
 - **Process**: Update version → Update changelog → Create PR
@@ -68,6 +111,37 @@ mix hex.user key generate --key-name github-actions --permission api:write
 
 ## 📋 Release Workflow
 
+### Git Flow Diagram
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#2563eb','primaryTextColor':'#ffffff','primaryBorderColor':'#1e40af','lineColor':'#374151','cScale0':'#10b981','cScale1':'#3b82f6','cScale2':'#f59e0b','cScale3':'#ef4444'}}}%%
+gitgraph
+    commit id: "Feature work"
+    commit id: "Bug fixes"
+    commit id: "Ready for release"
+    
+    branch release-prep
+    checkout release-prep
+    commit id: "Update version"
+    commit id: "Update CHANGELOG"
+    commit id: "Create release PR"
+    
+    checkout main
+    merge release-prep
+    commit id: "Release v1.0.0" tag: "v1.0.0"
+    
+    branch publishing
+    checkout publishing
+    commit id: "Trigger CI/CD"
+    commit id: "Run tests"
+    commit id: "Build package"
+    commit id: "Publish to Hex"
+    commit id: "Generate docs"
+    commit id: "GitHub release"
+    
+    checkout main
+    commit id: "Continue development"
+```
+
 ### Automated (Recommended)
 ```bash
 # 1. Prepare release (GitHub Actions)
@@ -86,6 +160,53 @@ git push origin main v0.2.0
 ```
 
 ## 🔍 Workflow Features
+
+### Deployment Timeline
+```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'primaryColor':'#2563eb','primaryTextColor':'#ffffff','primaryBorderColor':'#1e40af','lineColor':'#374151','sectionBkgColor':'#f3f4f6','altSectionBkgColor':'#e5e7eb','gridColor':'#d1d5db','secondaryColor':'#10b981','tertiaryColor':'#f59e0b'}}}%%
+timeline
+    title Deployment Process: From Code to Publication
+    
+    section Development
+        Code Changes     : Feature implementation
+                        : Bug fixes
+                        : Testing locally
+        
+        CI Validation   : Push to GitHub
+                        : Run test suite
+                        : Format checking
+                        : Credo analysis
+                        : Dialyzer checks
+    
+    section Release Preparation
+        Version Update  : Manual trigger release-prep workflow
+                       : Update mix.exs version
+                       : Update CHANGELOG.md
+                       : Create pull request
+        
+        Review & Merge : Code review
+                      : PR approval
+                      : Merge to main
+    
+    section Publishing
+        Tag Creation   : Create version tag
+                      : Push tag to GitHub
+                      : Trigger publish workflow
+        
+        Quality Gates  : Run full test suite
+                      : Validate package build
+                      : Security checks
+        
+        Publication    : Publish to Hex.pm
+                      : Generate HexDocs
+                      : Create GitHub release
+                      : Notify stakeholders
+    
+    section Post-Release
+        Monitoring     : Monitor package downloads
+                      : Check documentation
+                      : Community feedback
+```
 
 ### Publish Workflow (`publish.yml`)
 - **Triggers**: Version tags, manual dispatch

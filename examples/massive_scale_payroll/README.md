@@ -11,13 +11,60 @@ This example demonstrates how to use Presto as a generic rules engine to build a
 
 ## Architecture Overview
 
-```
-ScalablePayrollSystem
-├── PayrollCoordinator (orchestrates batching and distribution)
-├── ShiftSegmentProcessor (complex time-based segmentation)
-├── EmployeeWorker Pool (8-16 workers, each with Presto engine)
-├── OvertimeAggregator (cross-shift overtime processing)
-└── PerformanceMonitor (real-time metrics and bottlenecks)
+```mermaid
+graph TB
+    subgraph "Massive Scale Payroll System"
+        PC[PayrollCoordinator<br/>Orchestration & Batching]
+        SSP[ShiftSegmentProcessor<br/>Time-based Segmentation]
+        PM[PerformanceMonitor<br/>Real-time Metrics]
+        OA[OvertimeAggregator<br/>Cross-shift Processing]
+        
+        subgraph "Worker Pool (8-16 Workers)"
+            EW1[EmployeeWorker 1<br/>+ Presto Engine]
+            EW2[EmployeeWorker 2<br/>+ Presto Engine]
+            EW3[EmployeeWorker 3<br/>+ Presto Engine]
+            EWN[EmployeeWorker N<br/>+ Presto Engine]
+        end
+        
+        subgraph "Presto Rule Engines"
+            PE1[Presto Engine 1<br/>2,000 Rules]
+            PE2[Presto Engine 2<br/>2,000 Rules]
+            PE3[Presto Engine 3<br/>2,000 Rules]
+            PEN[Presto Engine N<br/>2,000 Rules]
+        end
+    end
+    
+    PC --> SSP
+    PC --> EW1
+    PC --> EW2
+    PC --> EW3
+    PC --> EWN
+    
+    EW1 --> PE1
+    EW2 --> PE2
+    EW3 --> PE3
+    EWN --> PEN
+    
+    EW1 --> OA
+    EW2 --> OA
+    EW3 --> OA
+    EWN --> OA
+    
+    PM -.-> PC
+    PM -.-> EW1
+    PM -.-> EW2
+    PM -.-> EW3
+    PM -.-> EWN
+    
+    classDef coordinator fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef worker fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef presto fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef monitor fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    
+    class PC coordinator
+    class EW1,EW2,EW3,EWN worker
+    class PE1,PE2,PE3,PEN presto
+    class PM,SSP,OA monitor
 ```
 
 ## Key Features
@@ -39,6 +86,66 @@ ScalablePayrollSystem
 - **Parallel Workers**: 8-16 concurrent workers with dedicated Presto engines
 - **Memory Management**: Controlled memory usage with streaming processing
 - **Performance Monitoring**: Real-time bottleneck detection and optimization
+
+```mermaid
+graph LR
+    subgraph "Data Flow Pipeline"
+        subgraph "Input Layer"
+            TS[Time Sheets<br/>10K employees<br/>2.15M shifts/month]
+        end
+        
+        subgraph "Processing Layer"
+            PC[PayrollCoordinator<br/>Batch Management]
+            
+            subgraph "Parallel Processing"
+                B1[Batch 1<br/>125 employees]
+                B2[Batch 2<br/>125 employees]
+                B3[Batch 3<br/>125 employees]
+                BN[Batch N<br/>125 employees]
+            end
+            
+            subgraph "Worker Pool"
+                W1[Worker 1 + Presto]
+                W2[Worker 2 + Presto]
+                W3[Worker 3 + Presto]
+                WN[Worker N + Presto]
+            end
+        end
+        
+        subgraph "Output Layer"
+            OA[OvertimeAggregator<br/>Cross-shift Analysis]
+            PR[Payroll Results<br/>Detailed Calculations]
+        end
+    end
+    
+    TS --> PC
+    PC --> B1
+    PC --> B2
+    PC --> B3
+    PC --> BN
+    
+    B1 --> W1
+    B2 --> W2
+    B3 --> W3
+    BN --> WN
+    
+    W1 --> OA
+    W2 --> OA
+    W3 --> OA
+    WN --> OA
+    
+    OA --> PR
+    
+    classDef input fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
+    classDef batch fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+    classDef worker fill:#fce4ec,stroke:#ad1457,stroke-width:2px
+    classDef output fill:#fff8e1,stroke:#ff8f00,stroke-width:2px
+    
+    class TS input
+    class PC,B1,B2,B3,BN batch
+    class W1,W2,W3,WN worker
+    class OA,PR output
+```
 
 ## Files
 
@@ -111,6 +218,58 @@ PRESTO ARCHITECTURE HIGHLIGHTS:
   ✓ Each worker has its own dedicated Presto engine instance
   ✓ 2,000 rules loaded and executed via Presto's RETE network
   ✓ Domain-specific logic in rules, not hardcoded in application
+```
+
+## Scaling Patterns
+
+```mermaid
+graph TB
+    subgraph "Horizontal Scaling Architecture"
+        subgraph "Small Scale (1K employees)"
+            S1[2-4 Workers]
+            S2[2-4 Presto Engines]
+            S3[Batch Size: 250]
+        end
+        
+        subgraph "Medium Scale (5K employees)"
+            M1[4-8 Workers]
+            M2[4-8 Presto Engines]
+            M3[Batch Size: 125]
+        end
+        
+        subgraph "Enterprise Scale (10K+ employees)"
+            E1[8-16 Workers]
+            E2[8-16 Presto Engines]
+            E3[Batch Size: 125]
+        end
+        
+        subgraph "Performance Characteristics"
+            P1[Linear Throughput Scaling]
+            P2[Constant Memory Usage]
+            P3[Independent Engine Performance]
+        end
+    end
+    
+    S1 --> M1
+    M1 --> E1
+    S2 --> M2
+    M2 --> E2
+    S3 --> M3
+    M3 --> E3
+    
+    E1 --> P1
+    E2 --> P2
+    E3 --> P3
+    
+    classDef small fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef medium fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef enterprise fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef performance fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    
+    class S1,S2,S3 small
+    class M1,M2,M3 medium
+    class E1,E2,E3 enterprise
+    class P1,P2,P3 performance
 ```
 
 ## Christmas Eve → Christmas Day Example
@@ -193,6 +352,70 @@ end
 - Memory usage controlled by batch processing
 - Independent Presto engines prevent cross-worker interference
 - Real-time bottleneck detection for optimization
+
+```mermaid
+flowchart TD
+    subgraph "Performance Monitoring System"
+        subgraph "Real-time Metrics Collection"
+            PM[PerformanceMonitor]
+            
+            subgraph "Worker Metrics"
+                WM1[Worker 1 Metrics<br/>Processing Rate<br/>Memory Usage<br/>Queue Depth]
+                WM2[Worker 2 Metrics<br/>Processing Rate<br/>Memory Usage<br/>Queue Depth]
+                WMN[Worker N Metrics<br/>Processing Rate<br/>Memory Usage<br/>Queue Depth]
+            end
+            
+            subgraph "Presto Engine Metrics"
+                PEM1[Engine 1 Stats<br/>Rules Executed<br/>Execution Time<br/>Memory Usage]
+                PEM2[Engine 2 Stats<br/>Rules Executed<br/>Execution Time<br/>Memory Usage]
+                PEMN[Engine N Stats<br/>Rules Executed<br/>Execution Time<br/>Memory Usage]
+            end
+            
+            subgraph "System Metrics"
+                SM[Overall Throughput<br/>Total Memory Usage<br/>Processing Time<br/>Bottleneck Detection]
+            end
+        end
+        
+        subgraph "Performance Analysis"
+            BA[Bottleneck Analysis]
+            OPT[Optimization Recommendations]
+            ALERT[Performance Alerts]
+        end
+        
+        subgraph "Adaptive Scaling"
+            AS[Auto-scaling Decisions]
+            BC[Batch Size Adjustment]
+            WA[Worker Allocation]
+        end
+    end
+    
+    WM1 --> PM
+    WM2 --> PM
+    WMN --> PM
+    
+    PEM1 --> PM
+    PEM2 --> PM
+    PEMN --> PM
+    
+    PM --> SM
+    SM --> BA
+    BA --> OPT
+    BA --> ALERT
+    
+    OPT --> AS
+    AS --> BC
+    AS --> WA
+    
+    classDef metrics fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef analysis fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef scaling fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef monitor fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    
+    class WM1,WM2,WMN,PEM1,PEM2,PEMN metrics
+    class BA,OPT,ALERT analysis
+    class AS,BC,WA scaling
+    class PM,SM monitor
+```
 
 ## Design Principles
 

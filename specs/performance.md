@@ -40,6 +40,28 @@ end
 
 ### 2. Dual-Strategy Rule Execution
 
+```mermaid
+flowchart TD
+    A[Rule Analysis] --> B{Condition Count}
+    B -->|≤2 conditions| C{Simple Conditions?}
+    B -->|>2 conditions| D[RETE Network Strategy]
+    C -->|Yes| E[Fast-Path Strategy]
+    C -->|No| D
+    
+    E --> F[Direct Pattern Matching]
+    F --> G[O(F) Time Complexity]
+    G --> H[2-10x Speedup]
+    
+    D --> I[Full RETE Network]
+    I --> J[O(F×P) Time Complexity]
+    J --> K[Optimized Joins]
+    
+    style E fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style D fill:#fff8e1,stroke:#e65100,stroke-width:2px
+    style H fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style K fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+```
+
 #### Fast-Path Optimization
 ```elixir
 defmodule Presto.FastPathExecutor do
@@ -71,6 +93,28 @@ end
 - **Simple rules**: Bypass full RETE network for 2-10x speedup
 - **Complex rules**: Use full RETE network with optimized joins
 - **Automatic selection**: No manual optimization required
+
+```mermaid
+graph LR
+    subgraph "Fast-Path Execution"
+        A1[Rule Input] --> B1[Direct Match]
+        B1 --> C1[Execute Action]
+        C1 --> D1[Results]
+    end
+    
+    subgraph "RETE Network Execution"
+        A2[Rule Input] --> B2[Alpha Nodes]
+        B2 --> C2[Beta Network]
+        C2 --> D2[Join Processing]
+        D2 --> E2[Execute Action]
+        E2 --> F2[Results]
+    end
+    
+    style A1 fill:#e8f5e8,stroke:#4caf50
+    style D1 fill:#e8f5e8,stroke:#4caf50
+    style A2 fill:#fff3e0,stroke:#ff9800
+    style F2 fill:#fff3e0,stroke:#ff9800
+```
 
 ### 3. Rule Analysis and Optimization Configuration
 
@@ -105,6 +149,32 @@ optimization_config: %{
 ```
 
 ### 4. Memory Access Optimizations
+
+```mermaid
+graph TB
+    subgraph "ETS Table Architecture"
+        A[facts_table<br/>read_concurrency: true] --> B[Concurrent Fact Access]
+        C[alpha_memories<br/>read_concurrency: true] --> D[Shared Alpha Nodes]
+        E[changes_table<br/>ordered_set, private] --> F[Sequential Change Tracking]
+        G[compiled_patterns<br/>read_concurrency: true] --> H[Pattern Reuse]
+    end
+    
+    subgraph "Memory Optimization Benefits"
+        B --> I[50% Reduction in<br/>Message Passing]
+        D --> J[20-50% Memory<br/>Savings via Sharing]
+        F --> K[Efficient Incremental<br/>Processing]
+        H --> L[Pattern Compilation<br/>Cache]
+    end
+    
+    style A fill:#e3f2fd,stroke:#1976d2
+    style C fill:#e3f2fd,stroke:#1976d2
+    style E fill:#f3e5f5,stroke:#7b1fa2
+    style G fill:#e3f2fd,stroke:#1976d2
+    style I fill:#c8e6c9,stroke:#2e7d32
+    style J fill:#c8e6c9,stroke:#2e7d32
+    style K fill:#c8e6c9,stroke:#2e7d32
+    style L fill:#c8e6c9,stroke:#2e7d32
+```
 
 #### ETS Table Configuration (Implemented)
 ```elixir
@@ -178,6 +248,31 @@ fact_lineage: %{
 ```
 
 ## Performance Monitoring (Implemented)
+
+```mermaid
+timeline
+    title Performance Optimization Timeline
+    section Initial Implementation
+        Basic RETE Network : Single GenServer architecture
+                           : Message passing for all operations
+                           : Separate working memory processes
+    section Consolidation Phase
+        Consolidated Architecture : Combined GenServer for WM + Alpha
+                                 : Direct function calls
+                                 : 50% reduction in message passing
+    section Dual Strategy Phase
+        Fast-Path Implementation : Automatic rule analysis
+                                 : Strategy selection algorithm
+                                 : 2-10x speedup for simple rules
+    section Memory Optimization
+        Alpha Node Sharing : Pattern deduplication
+                          : 20-50% memory reduction
+                          : Concurrent ETS access
+    section Monitoring Phase
+        Real-time Statistics : Per-rule execution metrics
+                            : Engine-wide performance tracking
+                            : Incremental processing support
+```
 
 ### 1. Real-time Statistics Collection
 
@@ -254,6 +349,42 @@ end
 
 ## Performance Characteristics (Measured)
 
+```mermaid
+graph TD
+    subgraph "Performance Bottlenecks & Solutions"
+        A[High Memory Usage] --> A1[Alpha Node Sharing]
+        A1 --> A2[20-50% Memory Reduction]
+        
+        B[Slow Rule Execution] --> B1[Dual Strategy Selection]
+        B1 --> B2[Fast-Path for Simple Rules]
+        B2 --> B3[2-10x Speedup]
+        
+        C[Inter-Process Overhead] --> C1[Consolidated Architecture]
+        C1 --> C2[Direct Function Calls]
+        C2 --> C3[50% Message Reduction]
+        
+        D[Redundant Processing] --> D1[Incremental Execution]
+        D1 --> D2[Fact Lineage Tracking]
+        D2 --> D3[Process Only New Facts]
+        
+        E[Concurrent Access Issues] --> E1[ETS Read Concurrency]
+        E1 --> E2[Parallel Fact Access]
+        E2 --> E3[Improved Throughput]
+    end
+    
+    style A fill:#ffebee,stroke:#c62828
+    style B fill:#ffebee,stroke:#c62828
+    style C fill:#ffebee,stroke:#c62828
+    style D fill:#ffebee,stroke:#c62828
+    style E fill:#ffebee,stroke:#c62828
+    
+    style A2 fill:#e8f5e8,stroke:#2e7d32
+    style B3 fill:#e8f5e8,stroke:#2e7d32
+    style C3 fill:#e8f5e8,stroke:#2e7d32
+    style D3 fill:#e8f5e8,stroke:#2e7d32
+    style E3 fill:#e8f5e8,stroke:#2e7d32
+```
+
 ### Time Complexity (Actual Implementation)
 
 **Fast-Path Rules (≤2 conditions):**
@@ -282,6 +413,33 @@ compiled_patterns:  # O(P) where P = unique patterns (shared across rules)
 - **Consolidated architecture**: Eliminates duplicate data structures
 - **Fact lineage tracking**: Minimal overhead (~10% increase) for significant incremental processing benefits
 
+```mermaid
+graph LR
+    subgraph "Memory Usage Patterns"
+        A["Facts Growth<br/>O(F)"] --> B["Linear with<br/>Fact Count"]
+        C["Alpha Memories<br/>O(A×M)"] --> D["Shared Across<br/>Rules"]
+        E["Beta Memories<br/>O(B×T)"] --> F["Network State<br/>Storage"]
+        G["Compiled Patterns<br/>O(P)"] --> H["Pattern Reuse<br/>Cache"]
+    end
+    
+    subgraph "Optimization Impact"
+        B --> I["ETS Read<br/>Concurrency"]
+        D --> J["20-50% Memory<br/>Reduction"]
+        F --> K["Efficient Join<br/>Processing"]
+        H --> L["Pattern Compilation<br/>Speedup"]
+    end
+    
+    style A fill:#fff3e0,stroke:#f57c00
+    style C fill:#e8f5e8,stroke:#4caf50
+    style E fill:#e3f2fd,stroke:#1976d2
+    style G fill:#f3e5f5,stroke:#9c27b0
+    
+    style I fill:#c8e6c9,stroke:#2e7d32
+    style J fill:#c8e6c9,stroke:#2e7d32
+    style K fill:#c8e6c9,stroke:#2e7d32
+    style L fill:#c8e6c9,stroke:#2e7d32
+```
+
 ## Current Limitations
 
 ### Features Not Implemented
@@ -307,6 +465,38 @@ compiled_patterns:  # O(P) where P = unique patterns (shared across rules)
 ### Performance Tuning Guidelines
 
 #### When to Use Fast-Path vs RETE
+
+```mermaid
+flowchart TD
+    A[Performance Requirements Analysis] --> B{Latency Priority?}
+    B -->|High| C{Rule Complexity?}
+    B -->|Normal| D{Throughput Priority?}
+    
+    C -->|≤2 conditions| E[Fast-Path Strategy]
+    C -->|>2 conditions| F[Evaluate Trade-offs]
+    
+    D -->|High| G{Concurrent Load?}
+    D -->|Normal| H[Standard RETE]
+    
+    G -->|High| I[Enable Rule Batching]
+    G -->|Low| J[Enable Alpha Sharing]
+    
+    F --> K{Join Complexity?}
+    K -->|Simple| L[Consider Fast-Path]
+    K -->|Complex| M[Use RETE Network]
+    
+    E --> N["Performance:<br/>2-10x speedup<br/>O(F) complexity"]
+    H --> O["Performance:<br/>Optimized joins<br/>O(F×P) complexity"]
+    I --> P["Performance:<br/>Batch processing<br/>Higher throughput"]
+    J --> Q["Performance:<br/>Memory efficient<br/>20-50% reduction"]
+    M --> R["Performance:<br/>Complex pattern matching<br/>Full RETE benefits"]
+    
+    style E fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style H fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style I fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style J fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style M fill:#ffebee,stroke:#c62828,stroke-width:2px
+```
 
 **Fast-Path Recommended:**
 - Rules with ≤2 simple conditions
