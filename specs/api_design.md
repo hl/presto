@@ -16,20 +16,15 @@ The Presto API follows Elixir conventions and the "Best Simple System for Now" (
 #### Starting an Engine
 
 ```elixir
-# Simple start with no rules
-{:ok, engine} = Presto.start_link([])
+# Simple start with no options
+{:ok, engine} = Presto.start_engine()
 
-# Start with initial rules
-rules = [rule1, rule2, rule3]
-{:ok, engine} = Presto.start_link(rules)
-
-# Start with options
-{:ok, engine} = Presto.start_link(rules, name: MyRulesEngine, 
-                                         max_rule_executions: 1000)
+# Start with options (currently no options supported)
+{:ok, engine} = Presto.start_engine([])
 
 # Start supervised
 children = [
-  {Presto, [rules, name: MyRulesEngine]}
+  {Presto.RuleEngine, []}
 ]
 Supervisor.start_link(children, strategy: :one_for_one)
 ```
@@ -38,18 +33,18 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 ```elixir
 # Stop engine
-:ok = Presto.stop(engine)
+:ok = Presto.stop_engine(engine)
 
-# Get engine info
+# Get engine statistics
 %{
-  fact_count: 1234,
-  rule_count: 56,
-  active_rules: 8,
-  network_nodes: 120
-} = Presto.info(engine)
-
-# Health check
-:ok = Presto.ping(engine)
+  total_facts: 1234,
+  total_rules: 56,
+  total_rule_firings: 789,
+  last_execution_time: 1500, # microseconds
+  fast_path_executions: 45,
+  rete_network_executions: 11,
+  alpha_nodes_saved_by_sharing: 12
+} = Presto.get_engine_statistics(engine)
 ```
 
 ### Rule Definition
@@ -58,69 +53,46 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 ```elixir
 # Basic rule definition
-rule = %Presto.Rule{
-  name: "adult_discount",
-  
-  # Conditions (alpha patterns)
+rule = %{
+  id: :adult_rule,                      # Required: unique atom identifier
+  conditions: [                         # Required: list of conditions
+    {:person, :name, :age},             # Pattern: bind variables
+    {:age, :>, 18}                      # Test: age must be > 18
+  ],
+  action: fn bindings ->                # Required: function taking bindings map
+    [{:adult, bindings[:name]}]         # Return list of new facts
+  end,
+  priority: 10                          # Optional: higher priority = earlier execution
+}
+
+# Action as anonymous function with explicit bindings
+rule_with_function = %{
+  id: :complex_action,
   conditions: [
-    {:person, :name, :age},           # Bind variables
-    {:order, :name, :total}           # Join on :name variable
+    {:person, :name, :age},
+    {:employment, :name, :company},
+    {:age, :>, 25}
   ],
-  
-  # Guards (additional constraints)
-  guards: [
-    {:>=, :age, 18},                  # Age must be >= 18
-    {:>, :total, 100}                 # Order total > 100
-  ],
-  
-  # Action to execute when rule fires
-  action: {:apply_discount, 0.1},
-  
-  # Optional metadata
-  priority: 10,
-  enabled: true
-}
-
-# Alternative action types
-rule_with_function = %Presto.Rule{
-  name: "complex_action",
-  conditions: [...],
   action: fn bindings -> 
-    # Custom function with bound variables
-    IO.puts("Processing order for #{bindings.name}")
+    name = bindings[:name]
+    company = bindings[:company]
+    [{:senior_employee, name, company}]
   end
-}
-
-# Action as MFA (Module, Function, Args)
-rule_with_mfa = %Presto.Rule{
-  name: "mfa_action", 
-  conditions: [...],
-  action: {MyModule, :process_order, [:name, :total]}
 }
 ```
 
 #### Rule Management
 
 ```elixir
-# Add rules to running engine
+# Add single rule to running engine
 :ok = Presto.add_rule(engine, rule)
-:ok = Presto.add_rules(engine, [rule1, rule2, rule3])
 
-# Remove rules
-:ok = Presto.remove_rule(engine, "adult_discount")
-:ok = Presto.remove_rules(engine, ["rule1", "rule2"])
+# Remove rule
+:ok = Presto.remove_rule(engine, :adult_rule)
 
-# Update existing rule
-updated_rule = %{rule | priority: 20}
-:ok = Presto.update_rule(engine, updated_rule)
-
-# Enable/disable rules
-:ok = Presto.enable_rule(engine, "adult_discount")
-:ok = Presto.disable_rule(engine, "adult_discount")
-
-# List rules
-rules = Presto.list_rules(engine)
-active_rules = Presto.list_active_rules(engine)
+# Get all rules
+rules = Presto.get_rules(engine)
+# Returns: %{adult_rule: %{id: :adult_rule, conditions: [...], ...}}
 ```
 
 ### Fact Management
@@ -131,229 +103,151 @@ active_rules = Presto.list_active_rules(engine)
 # Assert single fact
 :ok = Presto.assert_fact(engine, {:person, "John", 25})
 
-# Assert multiple facts  
-facts = [
-  {:person, "John", 25},
-  {:person, "Jane", 30},
-  {:order, "John", 150}
-]
-:ok = Presto.assert_facts(engine, facts)
-
-# Assert with callback notification
-:ok = Presto.assert_fact(engine, fact, notify: self())
-# Receive: {:fact_asserted, fact}
+# Facts are tuples representing structured information
+:ok = Presto.assert_fact(engine, {:employment, "John", "TechCorp"})
+:ok = Presto.assert_fact(engine, {:order, "ORDER-123", 150})
 ```
 
 #### Retracting Facts
 
 ```elixir
-# Retract specific fact
+# Retract specific fact (exact match required)
 :ok = Presto.retract_fact(engine, {:person, "John", 25})
-
-# Retract by pattern (retracts all matching)
-:ok = Presto.retract_facts(engine, {:person, "John", :_})
-
-# Retract all facts
-:ok = Presto.retract_all_facts(engine)
 ```
 
 #### Querying Facts
 
 ```elixir
-# Get all facts
+# Get all facts currently in working memory
 facts = Presto.get_facts(engine)
+# Returns: [{:person, "John", 25}, {:employment, "John", "TechCorp"}, ...]
 
-# Get facts by pattern
-persons = Presto.get_facts(engine, {:person, :_, :_})
-johns_orders = Presto.get_facts(engine, {:order, "John", :_})
-
-# Count facts
-total_count = Presto.count_facts(engine)
-person_count = Presto.count_facts(engine, {:person, :_, :_})
-
-# Check if fact exists
-true = Presto.fact_exists?(engine, {:person, "John", 25})
+# Clear all facts
+:ok = Presto.clear_facts(engine)
 ```
 
-### Rule Execution Control
+### Rule Execution
 
-#### Execution Modes
+#### Basic Execution
 
 ```elixir
-# Manual execution (rules don't fire automatically)
-{:ok, engine} = Presto.start_link(rules, execution_mode: :manual)
-:ok = Presto.assert_fact(engine, fact)
-{fired_rules, new_facts} = Presto.run_cycle(engine)
+# Execute all applicable rules
+results = Presto.fire_rules(engine)
+# Returns: [{:adult, "John"}, {:senior_employee, "John", "TechCorp"}]
 
-# Automatic execution (default - rules fire on fact changes)
-{:ok, engine} = Presto.start_link(rules, execution_mode: :automatic)
-
-# Single-step execution
-:ok = Presto.assert_fact(engine, fact)
-{fired_rule, new_facts} = Presto.step(engine)
+# Execute with options
+results = Presto.fire_rules(engine, concurrent: true)        # Parallel execution
+results = Presto.fire_rules(engine, auto_chain: true)       # Automatic rule chaining
 ```
 
-#### Execution Limits
+### Performance Monitoring
+
+#### Rule Statistics
 
 ```elixir
-# Set maximum rule executions per cycle
-:ok = Presto.set_max_executions(engine, 100)
-
-# Set execution timeout
-:ok = Presto.set_execution_timeout(engine, 5000) # 5 seconds
-
-# Run with custom limits
-{fired_rules, new_facts} = Presto.run_cycle(engine, 
-                                           max_executions: 50,
-                                           timeout: 2000)
-```
-
-### Event Handling & Monitoring
-
-#### Event Subscription
-
-```elixir
-# Subscribe to all events
-:ok = Presto.subscribe(engine, self())
-
-# Subscribe to specific event types
-:ok = Presto.subscribe(engine, self(), [:rule_fired, :fact_asserted])
-
-# Unsubscribe
-:ok = Presto.unsubscribe(engine, self())
-```
-
-#### Event Types
-
-```elixir
-# Received messages:
-{:rule_fired, %{rule: "adult_discount", bindings: %{name: "John", age: 25}}}
-{:fact_asserted, {:person, "John", 25}}
-{:fact_retracted, {:person, "John", 25}} 
-{:rule_added, "new_rule"}
-{:rule_removed, "old_rule"}
-{:execution_limit_reached, %{cycle: 1, executions: 100}}
-{:execution_timeout, %{cycle: 1, timeout: 5000}}
-```
-
-#### Performance Monitoring
-
-```elixir
-# Get execution statistics
+# Get execution statistics for each rule
 %{
-  total_cycles: 42,
-  total_rule_executions: 1250,
-  average_cycle_time: 15.7, # milliseconds
-  memory_usage: %{
-    working_memory: 2048,    # KB
-    alpha_memories: 1024,    # KB  
-    beta_memories: 4096      # KB
+  adult_rule: %{
+    executions: 45,
+    total_time: 1500,      # microseconds
+    average_time: 33,      # microseconds
+    facts_processed: 120,
+    strategy_used: :fast_path,
+    complexity: :simple
   },
-  rule_statistics: %{
-    "adult_discount" => %{executions: 45, avg_time: 2.1},
-    "vip_upgrade" => %{executions: 12, avg_time: 5.8}
+  senior_rule: %{
+    executions: 12,
+    total_time: 890,
+    average_time: 74,
+    facts_processed: 36,
+    strategy_used: :rete_network,
+    complexity: :moderate
   }
-} = Presto.get_statistics(engine)
+} = Presto.get_rule_statistics(engine)
+```
 
-# Reset statistics
-:ok = Presto.reset_statistics(engine)
+#### Engine Statistics
+
+```elixir
+# Get overall engine performance metrics
+%{
+  total_facts: 1234,
+  total_rules: 56,
+  total_rule_firings: 789,
+  last_execution_time: 1500,
+  fast_path_executions: 45,         # Rules executed via fast-path optimization
+  rete_network_executions: 11,      # Rules executed via full RETE network
+  alpha_nodes_saved_by_sharing: 12  # Optimization metric
+} = Presto.get_engine_statistics(engine)
 ```
 
 ## Advanced Features
 
-### Complex Pattern Matching
-
-```elixir
-# Nested patterns with guards
-rule = %Presto.Rule{
-  name: "complex_matching",
-  conditions: [
-    {:person, :name, %{age: :age, department: :dept}},
-    {:order, :name, %{total: :total, items: :items}}
-  ],
-  guards: [
-    {:>=, :age, 21},
-    {:==, :dept, "Sales"},
-    {:>, :total, 500},
-    {:>, {:length, :items}, 3}
-  ],
-  action: {:premium_processing, []}
-}
-
-# Variable binding with transformations
-rule = %Presto.Rule{
-  name: "computed_values",
-  conditions: [
-    {:order, :id, :total},
-    {:tax_rate, :region, :rate}
-  ],
-  guards: [
-    {:>, :total, 100}
-  ],
-  # Computed bindings available in action
-  bindings: %{
-    total_with_tax: {:*, :total, {:+, 1, :rate}}
-  },
-  action: fn bindings -> 
-    IO.puts("Total with tax: #{bindings.total_with_tax}")
-  end
-}
-```
-
 ### Batch Operations
 
+Batch operations provide efficient bulk processing of multiple facts and rules:
+
 ```elixir
-# Batch fact operations for performance
+# Start a batch operation
 batch = Presto.start_batch(engine)
-|> Presto.batch_assert({:person, "John", 25})
-|> Presto.batch_assert({:person, "Jane", 30})
-|> Presto.batch_retract({:order, "old_order", :_})
 
-{:ok, results} = Presto.execute_batch(batch)
+# Add multiple operations to the batch
+batch = batch
+  |> Presto.batch_assert_fact({:person, "Alice", 30})
+  |> Presto.batch_assert_fact({:person, "Bob", 25})
+  |> Presto.batch_retract_fact({:old_person, "Charlie", 65})
+  |> Presto.batch_add_rule(new_rule)
+
+# Execute all batched operations at once
+results = Presto.execute_batch(batch)
 ```
 
-### Rule Templates
+### Incremental Processing
+
+For performance-critical applications processing continuous fact streams:
 
 ```elixir
-# Define reusable rule templates
-defmodule MyRuleTemplates do
-  def discount_rule(age_limit, discount_percent) do
-    %Presto.Rule{
-      name: "discount_#{age_limit}_#{discount_percent}",
-      conditions: [
-        {:person, :name, :age},
-        {:order, :name, :total}
-      ],
-      guards: [
-        {:>=, :age, age_limit}
-      ],
-      action: {:apply_discount, discount_percent}
-    }
-  end
-end
-
-# Use templates
-senior_discount = MyRuleTemplates.discount_rule(65, 0.15)
-adult_discount = MyRuleTemplates.discount_rule(18, 0.05)
+# Fire only rules affected by facts added since last incremental execution
+incremental_results = Presto.RuleEngine.fire_rules_incremental(engine)
 ```
 
-### Debugging & Introspection
+### Error Handling in Rule Execution
 
 ```elixir
-# Debug rule execution
-:ok = Presto.enable_debug(engine)
-:ok = Presto.disable_debug(engine)
+# Execute rules with detailed error reporting
+{:ok, results, errors} = Presto.RuleEngine.fire_rules_with_errors(engine)
 
-# Trace specific rule
-:ok = Presto.trace_rule(engine, "adult_discount", self())
-# Receive detailed trace messages
+# errors format: [{:error, rule_id, exception}, ...]
+```
 
-# Get network structure
-network = Presto.get_network_structure(engine)
+### Rule Analysis and Optimization
 
-# Explain why rule fired or didn't fire
-explanation = Presto.explain_rule(engine, "adult_discount", 
-                                 current_facts: Presto.get_facts(engine))
+```elixir
+# Analyze individual rule complexity and strategy
+analysis = Presto.RuleEngine.analyze_rule(engine, :adult_rule)
+# Returns: %{strategy: :fast_path, complexity: :simple, ...}
+
+# Analyze entire rule set
+rule_set_analysis = Presto.RuleEngine.analyze_rule_set(engine)
+
+# Configure optimization settings
+:ok = Presto.RuleEngine.configure_optimization(engine, [
+  enable_fast_path: true,
+  enable_alpha_sharing: true,
+  enable_rule_batching: true,
+  fast_path_threshold: 2
+])
+
+# Get current optimization configuration
+config = Presto.RuleEngine.get_optimization_config(engine)
+```
+
+### Execution Order Tracking
+
+```elixir
+# Get the order in which rules were executed in the last cycle
+execution_order = Presto.RuleEngine.get_last_execution_order(engine)
+# Returns: [:high_priority_rule, :medium_priority_rule, :low_priority_rule]
 ```
 
 ## Error Handling
@@ -362,67 +256,93 @@ explanation = Presto.explain_rule(engine, "adult_discount",
 
 ```elixir
 # Rule definition errors
-{:error, {:invalid_rule, reason}} = Presto.add_rule(engine, invalid_rule)
-
-# Fact assertion errors  
-{:error, {:invalid_fact, reason}} = Presto.assert_fact(engine, invalid_fact)
+{:error, :rule_must_be_map} = Presto.add_rule(engine, "invalid")
+{:error, :missing_required_fields} = Presto.add_rule(engine, %{})
+{:error, :id_must_be_atom} = Presto.add_rule(engine, %{id: "string_id", conditions: [], action: fn _ -> [] end})
+{:error, :conditions_must_be_list} = Presto.add_rule(engine, %{id: :test, conditions: :invalid, action: fn _ -> [] end})
+{:error, :action_must_be_function} = Presto.add_rule(engine, %{id: :test, conditions: [], action: "invalid"})
 
 # Engine state errors
-{:error, :engine_not_running} = Presto.assert_fact(dead_engine, fact)
-
-# Resource limits
-{:error, {:execution_limit_exceeded, details}} = Presto.run_cycle(engine)
-
-# Timeout errors
-{:error, {:timeout, partial_results}} = Presto.run_cycle(engine, timeout: 100)
+** (EXIT) Process not alive - engine process has stopped
 ```
 
 ### Error Recovery
 
 ```elixir
 # Graceful error handling
-case Presto.assert_fact(engine, fact) do
+case Presto.add_rule(engine, rule) do
   :ok -> 
-    :ok
-  {:error, {:invalid_fact, reason}} ->
-    Logger.warning("Invalid fact: #{inspect(reason)}")
+    Logger.info("Rule added successfully")
+  {:error, reason} ->
+    Logger.warning("Failed to add rule: #{inspect(reason)}")
     :error
-  {:error, :engine_not_running} ->
-    # Restart engine or fail gracefully
-    restart_engine()
+end
+
+# Rule execution with error isolation
+{:ok, results, errors} = Presto.RuleEngine.fire_rules_with_errors(engine)
+unless Enum.empty?(errors) do
+  Logger.error("Rule execution errors: #{inspect(errors)}")
 end
 ```
 
-## Configuration Options
+## Rule Engine Configuration
 
 ### Engine Configuration
 
+Currently, the engine has minimal configuration options. Optimization settings can be configured at runtime:
+
 ```elixir
-config = %{
-  # Execution settings
-  execution_mode: :automatic,        # :automatic | :manual
-  max_rule_executions: 1000,         # per cycle
-  execution_timeout: 30_000,         # milliseconds
-  
-  # Memory settings  
-  initial_memory_size: 10_000,       # estimated fact count
-  memory_cleanup_interval: 60_000,   # milliseconds
-  
-  # Concurrency settings
-  max_concurrent_rules: 10,          # parallel rule executions
-  rule_execution_timeout: 5_000,     # per rule timeout
-  
-  # Monitoring settings
-  enable_statistics: true,
-  statistics_interval: 10_000,       # collection interval
-  
-  # Debug settings
-  debug_mode: false,
-  trace_execution: false,
-  log_level: :info
+# Default optimization configuration
+default_config = %{
+  enable_fast_path: false,           # Fast-path execution for simple rules
+  enable_alpha_sharing: true,        # Share alpha nodes between rules
+  enable_rule_batching: true,        # Batch rule execution for efficiency
+  fast_path_threshold: 2,            # Max conditions for fast-path eligibility
+  sharing_threshold: 2               # Min rules sharing pattern for alpha node sharing
 }
 
-{:ok, engine} = Presto.start_link(rules, config)
+# Update optimization settings
+Presto.RuleEngine.configure_optimization(engine, [
+  enable_fast_path: true,
+  fast_path_threshold: 3
+])
 ```
 
-This API design provides a comprehensive yet approachable interface for building rules engines in Elixir, balancing simplicity for basic use cases with power for advanced scenarios.
+## Implementation Notes
+
+### Rule Execution Strategy
+
+The engine automatically chooses between two execution strategies:
+
+1. **Fast-Path Execution**: For simple rules (≤ 2 conditions), bypasses full RETE network
+2. **RETE Network Execution**: For complex rules, uses full alpha/beta network processing
+
+### Fact Lineage Tracking
+
+The engine tracks fact derivation for incremental processing:
+
+- Input facts: Facts directly asserted by users
+- Derived facts: Facts produced by rule execution
+- Generation numbers: Track fact creation order
+- Lineage relationships: Track which facts derived from which
+
+### Performance Characteristics
+
+- **Fact Assertion**: O(1) for most cases, O(R) where R = rules matching fact type
+- **Rule Execution**: O(F) for fast-path rules, O(F×P) for RETE rules where F=facts, P=patterns
+- **Memory Usage**: Linear with fact count, shared alpha nodes reduce rule network size
+
+This API provides a solid foundation for building rules engines in Elixir, balancing simplicity for basic use cases with performance optimizations for production scenarios.
+
+## Future Considerations
+
+The following features are planned for future versions but not currently implemented:
+
+- **Pattern-based fact queries**: Query facts by partial patterns
+- **Rule enable/disable**: Temporarily enable or disable specific rules
+- **Event subscription**: Subscribe to rule firing and fact assertion events
+- **Network introspection**: Examine internal RETE network structure for debugging
+- **Health checks**: Engine health monitoring and diagnostics
+- **Hot rule updates**: Modify rule definitions without engine restart
+- **Complex pattern matching**: Nested patterns and advanced guards
+- **Rule templates**: Reusable rule generation patterns

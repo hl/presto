@@ -37,7 +37,9 @@
       "WebFetch(domain:en.wikipedia.org)",
       "Bash(git checkout:*)",
       "Bash(ls:*)",
-      "Bash(mix deps.get:*)"
+      "Bash(mix deps.get:*)",
+      "Bash(true)",
+      "mcp__filesystem__get_file_info"
     ],
     "deny": []
   }

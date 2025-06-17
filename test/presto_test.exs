@@ -30,7 +30,8 @@ defmodule PrestoTest do
       results = Presto.fire_rules(engine)
 
       # Only John should be marked as adult (age > 18)
-      assert [{:adult, "John"}] = results
+      assert length(results) == 1
+      assert {:adult, "John"} in results
 
       # Clean up
       Presto.stop_engine(engine)

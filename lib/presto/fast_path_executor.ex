@@ -11,8 +11,8 @@ defmodule Presto.FastPathExecutor do
   significant performance improvements for common rule patterns.
   """
 
+  alias Presto.RuleEngine
   alias Presto.Utils
-  alias Presto.WorkingMemory
 
   @type execution_result :: {:ok, [tuple()]} | {:error, term()}
   @type compiled_rule :: %{
@@ -30,12 +30,12 @@ defmodule Presto.FastPathExecutor do
   the rule pattern, then applies test conditions and executes the action.
   """
   @spec execute_fast_path(map(), GenServer.server()) :: execution_result()
-  def execute_fast_path(rule, working_memory) do
+  def execute_fast_path(rule, rule_engine) do
     # Compile the rule for fast execution
     compiled_rule = compile_rule_for_fast_path(rule)
 
-    # Get all facts from working memory
-    all_facts = WorkingMemory.get_facts(working_memory)
+    # Get all facts from rule engine (consolidated working memory)
+    all_facts = RuleEngine.get_facts(rule_engine)
 
     # Filter facts by type for efficiency
     relevant_facts = filter_facts_by_type(all_facts, compiled_rule.fact_type)
@@ -95,7 +95,7 @@ defmodule Presto.FastPathExecutor do
   Executes multiple fast-path rules as a batch for better performance.
   """
   @spec execute_batch_fast_path([map()], GenServer.server()) :: execution_result()
-  def execute_batch_fast_path(rules, working_memory) do
+  def execute_batch_fast_path(rules, rule_engine) do
     # Compile all rules
     compiled_rules = Enum.map(rules, &compile_rule_for_fast_path/1)
 
@@ -103,7 +103,7 @@ defmodule Presto.FastPathExecutor do
     fact_type = hd(compiled_rules).fact_type
 
     # Get relevant facts once
-    all_facts = WorkingMemory.get_facts(working_memory)
+    all_facts = RuleEngine.get_facts(rule_engine)
     relevant_facts = filter_facts_by_type(all_facts, fact_type)
 
     # Execute all rules against the same fact set

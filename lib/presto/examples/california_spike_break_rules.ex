@@ -32,9 +32,6 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
 
   @behaviour Presto.RuleBehaviour
 
-  alias Presto.Requirements.TimeBasedRequirement
-  alias Presto.RequirementScheduler
-
   @type work_session :: {:work_session, any(), map()}
   @type spike_requirement :: {:spike_requirement, any(), map()}
   @type compliance_result :: {:compliance_result, any(), map()}
@@ -44,10 +41,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
           spike_requirements: [spike_requirement()],
           compliance_results: [compliance_result()],
           summary: map(),
-          jurisdiction: jurisdiction(),
-          scheduled_requirements: [TimeBasedRequirement.t()],
-          scheduling_conflicts_resolved: integer(),
-          scheduling_warnings: [String.t()]
+          jurisdiction: jurisdiction()
         }
 
   @doc """
@@ -322,13 +316,11 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
       # Fire rules to process the data through the RETE network
       rule_results = Presto.fire_rules(engine, concurrent: true)
 
-      # Process scheduling manually since RETE rules focus on requirement detection
+      # Process spike break requirements detected by RETE rules
       spike_requirements = extract_facts_by_type(rule_results, :spike_break_requirement)
-      time_based_requirements = convert_to_time_based_requirements(spike_requirements)
-      scheduling_result = RequirementScheduler.resolve_conflicts(time_based_requirements)
 
       all_results = rule_results
-      extract_spike_break_results(all_results, scheduling_result, jurisdiction)
+      extract_spike_break_results(all_results, spike_requirements, jurisdiction)
     after
       # Clean up the engine
       Presto.stop_engine(engine)
@@ -350,17 +342,11 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     # Step 1: Detect spike break requirements
     spike_requirements = detect_spike_break_requirements(work_sessions, jurisdiction)
 
-    # Step 2: Convert to TimeBasedRequirement structs for scheduling
-    time_based_requirements = convert_to_time_based_requirements(spike_requirements)
-
-    # Step 3: Apply priority-based scheduling to resolve conflicts
-    scheduling_result = RequirementScheduler.resolve_conflicts(time_based_requirements)
-
-    # Step 4: Check compliance if breaks data is available
+    # Step 2: Check compliance if breaks data is available
     compliance_results =
       check_spike_break_compliance(spike_requirements, work_sessions, jurisdiction)
 
-    # Step 5: Generate summary and penalties
+    # Step 3: Generate summary and penalties
     summary =
       generate_spike_break_summary(
         spike_requirements,
@@ -373,48 +359,8 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
       spike_requirements: spike_requirements,
       compliance_results: compliance_results,
       summary: summary,
-      jurisdiction: jurisdiction,
-      scheduled_requirements: scheduling_result.scheduled_requirements,
-      scheduling_conflicts_resolved: scheduling_result.conflicts_resolved,
-      scheduling_warnings: scheduling_result.warnings
+      jurisdiction: jurisdiction
     }
-  end
-
-  @doc """
-  Converts spike break requirements to TimeBasedRequirement structs for scheduling.
-
-  Maps the priority levels based on break type:
-  - Consecutive work breaks: 90 (regulatory compliance)
-  - Extended day breaks: 70 (industry standards)
-  - Tech crunch breaks: 70 (industry standards)
-  - Entertainment peak breaks: 70 (industry standards)
-  - Agricultural breaks: 100 (safety requirements)
-  """
-  @spec convert_to_time_based_requirements([spike_requirement()]) :: [TimeBasedRequirement.t()]
-  def convert_to_time_based_requirements(spike_requirements) do
-    spike_requirements
-    |> Enum.map(fn {:spike_break_requirement, _id, data} ->
-      TimeBasedRequirement.new(
-        type: data.type,
-        timing: data.required_by,
-        duration_minutes: data.required_duration_minutes,
-        priority: get_break_priority(data.type),
-        description: data.reason,
-        employee_id: data.employee_id,
-        flexibility: get_break_flexibility(data.type),
-        metadata: %{
-          work_session_id: data.work_session_id,
-          jurisdiction: data.jurisdiction,
-          original_requirement_id:
-            generate_requirement_id(data.type, %{
-              employee_id: data.employee_id,
-              # Approximate
-              start_datetime: DateTime.add(data.required_by, -3600, :second)
-            })
-        },
-        created_by_rule: :california_spike_break_rules
-      )
-    end)
   end
 
   @doc """
@@ -1054,7 +1000,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
     end)
   end
 
-  defp extract_spike_break_results(all_facts, scheduling_result, jurisdiction) do
+  defp extract_spike_break_results(all_facts, _spike_requirements, jurisdiction) do
     spike_requirements = extract_facts_by_type(all_facts, :spike_break_requirement)
     compliance_results = extract_facts_by_type(all_facts, :spike_break_compliance)
 
@@ -1068,10 +1014,7 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
       spike_requirements: spike_requirements,
       compliance_results: compliance_results,
       summary: summary,
-      jurisdiction: jurisdiction,
-      scheduled_requirements: scheduling_result.scheduled_requirements,
-      scheduling_conflicts_resolved: scheduling_result.conflicts_resolved,
-      scheduling_warnings: scheduling_result.warnings
+      jurisdiction: jurisdiction
     }
   end
 
@@ -1252,15 +1195,16 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRules do
   defp print_engine_results(result) do
     IO.puts("  Spike Break Requirements: #{length(result.spike_requirements)}")
     IO.puts("  Compliance Results: #{length(result.compliance_results)}")
-    IO.puts("  Scheduled Requirements: #{length(result.scheduled_requirements)}")
-    IO.puts("  Conflicts Resolved: #{result.scheduling_conflicts_resolved}")
     IO.puts("\nSummary:")
     IO.puts("  Total Requirements: #{result.summary.total_spike_break_requirements}")
     IO.puts("  Compliance Violations: #{result.summary.compliance_violations}")
     IO.puts("  Compliance Rate: #{result.summary.compliance_rate_percent}%")
     IO.puts("  Total Penalty Hours: #{result.summary.total_penalty_hours}")
     IO.puts("  Total Employees: #{result.summary.total_employees}")
-    IO.puts("  Processed with RETE Engine: #{result.summary.processed_with_engine}")
+
+    IO.puts(
+      "  Processed with RETE Engine: #{Map.get(result.summary, :processed_with_engine, false)}"
+    )
   end
 
   # Break matching helper functions

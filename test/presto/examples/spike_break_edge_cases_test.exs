@@ -351,35 +351,16 @@ defmodule Presto.Examples.SpikeBreakEdgeCasesTest do
         assert length(consecutive_work_reqs) >= 1
         assert length(tech_crunch_reqs) >= 1
 
-        # Test the new priority-based scheduling system
-        assert Map.has_key?(result, :scheduled_requirements)
-        assert Map.has_key?(result, :scheduling_conflicts_resolved)
-        assert Map.has_key?(result, :scheduling_warnings)
+        # Verify that all requirements have proper structure
+        all_reqs = consecutive_work_reqs ++ tech_crunch_reqs
 
-        # Verify scheduling system resolved any timing conflicts
-        assert is_list(result.scheduled_requirements)
-        assert is_integer(result.scheduling_conflicts_resolved)
-        assert is_list(result.scheduling_warnings)
-
-        # If there were conflicts, they should have been resolved
-        if result.scheduling_conflicts_resolved > 0 do
-          # Some requirements should have been consolidated, rescheduled, or prioritized
-          # The scheduled requirements should be fewer than or equal to the original requirements
-          scheduled_count = length(result.scheduled_requirements)
-          original_count = length(consecutive_work_reqs) + length(tech_crunch_reqs)
-          assert scheduled_count <= original_count
-
-          # Verify that the scheduling system worked by checking that conflicts were resolved
-          assert result.scheduling_conflicts_resolved >= 1
-
-          # All scheduled requirements should have valid priorities and timing
-          Enum.each(result.scheduled_requirements, fn req ->
-            assert is_integer(req.priority)
-            assert req.priority > 0
-            assert is_binary(req.description)
-            assert req.employee_id == "priority_test"
-          end)
-        end
+        Enum.each(all_reqs, fn {:spike_break_requirement, _id, data} ->
+          assert data.employee_id == "priority_test"
+          assert is_atom(data.type)
+          assert is_integer(data.required_duration_minutes)
+          assert data.required_duration_minutes > 0
+          assert %DateTime{} = data.required_by
+        end)
       end
     end
 

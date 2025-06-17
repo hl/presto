@@ -12,7 +12,6 @@ defmodule Presto.Utils do
   Literal atoms include:
   - Atoms starting with uppercase (likely modules/types)
   - Common literal values: true, false, nil, :ok, :error
-  - Fact types: :person, :employment, :company, :number
 
   This function is used in pattern matching to distinguish between variables
   and literal values in RETE patterns.
@@ -22,7 +21,7 @@ defmodule Presto.Utils do
       iex> Presto.Utils.is_literal_atom?(:Person)
       true
       iex> Presto.Utils.is_literal_atom?(:person)
-      true
+      false
       iex> Presto.Utils.is_literal_atom?(:variable_name)
       false
       iex> Presto.Utils.is_literal_atom?(:ok)

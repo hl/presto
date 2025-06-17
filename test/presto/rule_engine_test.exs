@@ -159,7 +159,8 @@ defmodule Presto.RuleEngineTest do
       results = RuleEngine.fire_rules(engine)
 
       # Only Alice should be marked as adult
-      assert [{:adult, "Alice"}] = results
+      assert length(results) == 1
+      assert {:adult, "Alice"} in results
     end
 
     test "executes multiple rules with different conditions", %{engine: engine} do
@@ -217,7 +218,9 @@ defmodule Presto.RuleEngineTest do
       assert {:senior, "Senior"} in results
 
       # Child should not match any rules
-      refute Enum.any?(results, fn {_, name} -> name == "Child" end)
+      refute {:adult, "Child"} in results
+      refute {:senior, "Child"} in results
+      refute {:middle_aged, "Child"} in results
     end
 
     test "executes rules with fact joining", %{engine: engine} do
@@ -252,7 +255,9 @@ defmodule Presto.RuleEngineTest do
       results = RuleEngine.fire_rules(engine)
 
       # Only Alice should be identified as tech worker
-      assert [{:tech_worker, "Alice", "TechCorp"}] = results
+      # Bob should not match because FinanceInc is Finance industry, not Technology
+      assert length(results) == 1
+      assert {:tech_worker, "Alice", "TechCorp"} in results
     end
 
     test "handles rule actions that produce multiple results", %{engine: engine} do

@@ -2,204 +2,40 @@
 
 ## Overview
 
-Presto implements the RETE algorithm using Elixir's OTP principles with a supervision tree, GenServers for coordination, and ETS tables for high-performance memory management. The architecture balances RETE's memory-intensive approach with Elixir's process-oriented design.
+Presto implements the RETE algorithm using Elixir's OTP principles with a **simplified, consolidated architecture**. The system uses a **single RuleEngine GenServer** that integrates working memory and alpha network functionality for optimal performance, coordinating with a separate BetaNetwork GenServer for complex joins.
 
-## Hybrid Rule Creation Architecture
+This **consolidated architecture** eliminates inter-process communication overhead while maintaining the full power of the RETE algorithm, following the "Best Simple System for Now" (BSSN) principle.
 
-Presto implements a **hybrid approach** to rule creation, supporting both compile-time optimization and runtime flexibility. This design balances performance with adaptability for different use cases.
+## Core Design Principles
 
-### Rule Types and Creation Times
-
-#### 1. RETE Processing Rules (Engine Rules)
-These are the actual pattern-matching rules in the RETE network:
-
-**Compile-time Creation:**
-```elixir
-# Rules defined as functions - logic compiled at build time
-def time_calculation_rule() do
-  %Presto.Rule{
-    name: "time_calculation",
-    conditions: [{:timesheet_entry, :employee_id, :hours, :date}],
-    action: fn bindings -> calculate_time_totals(bindings) end
-  }
-end
-```
-
-**Runtime Creation:**
-```elixir
-# Rule instances created when engine starts
-rules = [time_calculation_rule(), pay_aggregation_rule()]
-Enum.each(rules, &Presto.add_rule(engine, &1))
-
-# Dynamic rule creation based on specifications
-def create_rules(rule_spec) do
-  rule_spec.rule_execution_order
-  |> Enum.map(&create_rule_by_type/1)
-end
-```
-
-#### 2. Business Policy Rules (Data Rules)
-These are configuration data loaded as facts:
-
-```elixir
-# Always created at runtime - pure data
-overtimepolicy_rules = [
-  {:overtime_rule, "overtime_bp", %{threshold: 15, filter_pay_code: "basic_pay"}},
-  {:overtime_rule, "overtime_sp", %{threshold: 10, filter_pay_code: "special_pay"}}
-]
-
-Enum.each(overtime_rules, fn rule ->
-  Presto.assert_fact(engine, rule)
-end)
-```
-
-### Hybrid Architecture Benefits
-
-#### Performance Optimization
-- **Compile-time**: Rule logic optimized during compilation
-- **Network Structure**: Pre-computed optimal network topology
-- **Pattern Matching**: Generated efficient matching functions
-- **Memory Layout**: Optimized data structures
-
-#### Runtime Flexibility
-- **Dynamic Configuration**: Business policies changeable without code updates
-- **Rule Parameterization**: Same processing logic, different parameters
-- **Hot Updates**: Modify behavior without engine restart
-- **A/B Testing**: Switch between rule configurations dynamically
-
-#### Resource Management
-- **Memory Efficiency**: Compile-time rules use less memory
-- **Network Sharing**: Compile-time rules can share network nodes
-- **Incremental Updates**: Runtime rules only affect specific network portions
-- **Cleanup Optimization**: Different GC strategies for each rule type
-
-### Configuration Strategies
-
-#### Static Rule Sets (Compile-time Optimized)
-```elixir
-# Best for: High-performance, stable rule sets
-config = %{
-  rule_creation: :compile_time,
-  optimization_level: :maximum,
-  network_sharing: :aggressive,
-  memory_preallocation: true
-}
-
-{:ok, engine} = Presto.start_link(static_rules, config)
-```
-
-#### Dynamic Rule Sets (Runtime Flexible)
-```elixir
-# Best for: Configurable business logic, frequent changes
-config = %{
-  rule_creation: :runtime,
-  policy_reload: :automatic,
-  rule_versioning: true,
-  hot_updates: :enabled
-}
-
-{:ok, engine} = Presto.start_link([], config)
-Presto.load_policy_rules(engine, policy_file)
-```
-
-#### Hybrid Configuration (Balanced)
-```elixir
-# Best for: Core logic stable, policies flexible
-config = %{
-  rule_creation: :hybrid,
-  core_rules: :compile_time,     # Processing logic
-  policy_rules: :runtime,        # Business policies  
-  optimization: :balanced
-}
-
-core_rules = [time_calc_rule(), pay_agg_rule()]
-{:ok, engine} = Presto.start_link(core_rules, config)
-Presto.load_runtime_policies(engine, policy_rules)
-```
-
-### Performance Characteristics
-
-| Aspect | Compile-time | Runtime | Hybrid |
-|--------|-------------|---------|--------|
-| **Startup Time** | Fast | Slow | Medium |
-| **Rule Addition** | Rebuild required | Instant | Mixed |
-| **Memory Usage** | Optimal | Higher | Balanced |
-| **Execution Speed** | Fastest | Fast | Fast |
-| **Flexibility** | Limited | Maximum | High |
-| **Hot Updates** | No | Yes | Partial |
-
-### Use Case Guidelines
-
-#### Choose Compile-time When:
-- **High Performance**: Sub-millisecond response requirements
-- **Stable Rules**: Logic changes infrequently
-- **Large Scale**: Thousands of rules, millions of facts
-- **Resource Constraints**: Memory/CPU optimization critical
-
-#### Choose Runtime When:
-- **Dynamic Business Logic**: Rules change frequently
-- **Multi-tenant**: Different rule sets per tenant
-- **Configuration-driven**: Non-developers modify rules
-- **A/B Testing**: Rapid rule variation testing
-
-#### Choose Hybrid When:
-- **Core + Policy**: Stable processing, flexible policies
-- **Layered Architecture**: Different change frequencies
-- **Performance + Flexibility**: Need both characteristics
-- **Incremental Migration**: Gradually moving between approaches
-
-### Memory Management Implications
-
-#### Compile-time Rules
-- **Network Structure**: Immutable, shared across processes
-- **Pattern Matchers**: Pre-compiled, minimal runtime allocation
-- **Memory Layout**: Optimized for cache efficiency
-- **Garbage Collection**: Minimal GC pressure
-
-#### Runtime Rules
-- **Dynamic Allocation**: Rules created in working memory
-- **Network Updates**: Incremental network modifications
-- **Token Management**: Dynamic partial match creation/destruction
-- **Cleanup Strategy**: Active garbage collection required
+1. **Best Simple System for Now (BSSN)**: Start with the simplest implementation that meets current needs
+2. **Leverage Elixir Strengths**: Use pattern matching, ETS, processes, and supervision trees effectively  
+3. **Performance through Architecture**: Minimize copying, maximize concurrency, optimize for common cases
+4. **Fault Tolerance**: Design for failure recovery at every level
 
 ## Module Structure
 
-### Core Library Modules
+### Core Library Modules (Actual Implementation)
 
 ```
 lib/presto/
 ├── presto.ex                    # Main API module
-├── engine.ex                    # Core engine GenServer  
-├── rule.ex                      # Rule definition struct
-├── network/
-│   ├── network.ex              # Network structure management
-│   ├── alpha_network.ex        # Alpha network implementation
-│   ├── beta_network.ex         # Beta network implementation
-│   ├── alpha_node.ex           # Individual alpha node
-│   ├── beta_node.ex            # Individual beta node
-│   └── compiler.ex             # Rule-to-network compiler
-├── memory/
-│   ├── working_memory.ex       # Working memory ETS wrapper
-│   ├── alpha_memory.ex         # Alpha node memory
-│   ├── beta_memory.ex          # Beta node memory
-│   └── memory_manager.ex       # Memory lifecycle management
-├── execution/
-│   ├── executor.ex             # Rule execution coordinator
-│   ├── rule_firer.ex           # Individual rule firing
-│   ├── conflict_resolver.ex    # Conflict resolution strategies
-│   └── scheduler.ex            # Execution scheduling
-├── pattern/
-│   ├── pattern.ex              # Pattern matching utilities
-│   ├── matcher.ex              # Pattern compilation
-│   └── guard_evaluator.ex     # Guard condition evaluation
-├── monitoring/
-│   ├── statistics.ex           # Performance statistics
-│   ├── tracer.ex               # Execution tracing
-│   └── debugger.ex             # Debug utilities
-└── utils/
-    ├── token.ex                # Token structure and utilities
-    ├── binding.ex              # Variable binding management
-    └── id_generator.ex         # Unique ID generation
+├── rule_engine.ex               # Core consolidated engine GenServer (working memory + alpha network + coordination)
+├── beta_network.ex              # Beta network implementation (separate GenServer for complex joins)
+├── rule_behaviour.ex            # Rule callback specification behaviour
+├── rule_registry.ex             # Rule registration and discovery system
+├── rule_analyzer.ex             # Rule complexity analysis and strategy selection
+├── fast_path_executor.ex        # Fast-path execution for simple rules
+├── logger.ex                    # Structured logging for engine operations
+├── config.ex                    # Configuration management
+├── utils.ex                     # Common utilities
+├── exceptions.ex                # Custom exception definitions
+└── examples/                    # Rule examples
+    ├── california_spike_break_rules.ex
+    ├── compliance_rules.ex
+    ├── overtime_rules.ex
+    ├── payroll_rules.ex
+    └── tronc_rules.ex
 ```
 
 ## Component Architecture
@@ -207,323 +43,346 @@ lib/presto/
 ### 1. Supervision Tree
 
 ```elixir
-defmodule Presto.Supervisor do
-  use Supervisor
+defmodule Presto.Application do
+  use Application
   
-  def start_link(opts) do
-    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-  
-  def init(opts) do
+  def start(_type, _args) do
     children = [
-      # Core engine process (handles all coordination and memory management)
-      {Presto.Engine, opts},
+      # Core consolidated engine process (handles coordination, working memory, and alpha network)
+      {Presto.RuleEngine, []},
+      
+      # Beta network for complex joins (separate GenServer)
+      {Presto.BetaNetwork, []},
       
       # Rule execution supervision (for parallel rule firing)
       {Task.Supervisor, name: Presto.Execution.Supervisor}
     ]
     
-    Supervisor.init(children, strategy: :one_for_one)
+    Supervisor.start_link(children, strategy: :one_for_one)
   end
 end
 ```
 
-### 2. Core Engine (GenServer)
+### 2. Core RuleEngine (Consolidated GenServer)
+
+The RuleEngine is a **consolidated GenServer** that integrates working memory and alpha network functionality for optimal performance while maintaining clean separation with the beta network.
 
 ```elixir
-defmodule Presto.Engine do
+defmodule Presto.RuleEngine do
   use GenServer
   
   @type state :: %{
-    network: Presto.Network.t(),
-    rules: [Presto.Rule.t()],
-    execution_mode: :automatic | :manual,
-    config: map(),
-    subscribers: [pid()],
-    # Memory management integrated into engine state
-    memory_tables: %{table_name() => ets_table()},
-    statistics: %{},
-    cleanup_timer: reference()
+    # Engine identification
+    engine_id: String.t(),
+    
+    # Network structure with integrated alpha components
+    rules: %{atom() => Presto.Rule.t()},
+    rule_networks: %{atom() => map()},      # Maps rule_id to network node IDs
+    rule_analyses: %{atom() => map()},      # Maps rule_id to rule analysis
+    fast_path_rules: %{atom() => [atom()]}, # Fast-path eligible rules by fact type
+    
+    # Integrated working memory ETS tables (consolidated from WorkingMemory)
+    facts_table: :ets.table(),           # {fact_id, fact}
+    changes_table: :ets.table(),         # {change_id, {operation, fact}}
+    
+    # Integrated alpha network ETS tables (consolidated from AlphaNetwork)  
+    alpha_memories: :ets.table(),        # {node_id, [bindings]}
+    compiled_patterns: :ets.table(),     # {pattern_id, matcher_function}
+    alpha_nodes: map(),                   # Alpha node definitions
+    fact_type_index: map(),               # Maps fact types to alpha nodes
+    
+    # Beta network reference (separate GenServer for complex joins)
+    beta_network: pid(),
+    
+    # Execution tracking
+    last_execution_order: [atom()],
+    
+    # Statistics and monitoring
+    rule_statistics: %{atom() => map()},
+    engine_statistics: map(),
+    
+    # Optimization configuration
+    optimization_config: map(),
+    
+    # Incremental processing support
+    tracking_changes: boolean(),
+    change_counter: integer(),
+    last_incremental_execution: integer(),
+    facts_since_incremental: [tuple()],
+    
+    # Fact lineage tracking
+    fact_lineage: map(),
+    fact_generation: integer(),
+    result_lineage: map()
+  }
+  
+  # Client API - Core Engine Operations
+  def start_link(opts \\ [])
+  def add_rule(engine, rule)
+  def remove_rule(engine, rule_id)
+  def get_rules(engine)
+  
+  # Client API - Working Memory (consolidated from WorkingMemory GenServer)
+  def assert_fact(engine, fact)
+  def retract_fact(engine, fact)
+  def get_facts(engine)
+  def clear_facts(engine)
+  
+  # Client API - Rule Execution
+  def fire_rules(engine, opts \\ [])
+  def fire_rules_incremental(engine)
+  def fire_rules_with_errors(engine)
+  
+  # Client API - Analysis and Optimization
+  def analyze_rule(engine, rule_id)
+  def analyze_rule_set(engine)
+  def configure_optimization(engine, opts)
+  def get_optimization_config(engine)
+  
+  # Statistics and Management
+  def get_engine_statistics(engine)
+  def get_rule_statistics(engine)
+  def get_last_execution_order(engine)
+  
+  # Server callbacks
+  def init(opts)
+  def handle_call({:add_rule, rule}, _from, state)
+  def handle_call({:assert_fact, fact}, _from, state)
+  def handle_call({:fire_rules, opts}, _from, state)
+  
+  # Private consolidated functions (no inter-process communication)
+  defp do_assert_fact(state, fact)                    # Working memory + alpha network
+  defp do_retract_fact(state, fact)                   # Working memory + alpha network  
+  defp alpha_process_fact_assertion(state, fact)      # Direct alpha network processing
+  defp alpha_process_fact_retraction(state, fact)     # Direct alpha network processing
+  defp alpha_add_to_memory(state, node_id, bindings)  # Direct ETS operations
+  defp alpha_remove_from_memory(state, node_id, bindings) # Direct ETS operations
+end
+```
+
+### 3. Beta Network (Separate GenServer)
+
+The beta network remains a **separate GenServer** to handle complex multi-condition joins efficiently while communicating with the consolidated RuleEngine.
+
+```elixir
+defmodule Presto.BetaNetwork do
+  use GenServer
+  
+  @moduledoc """
+  Manages beta network - multi-condition joins (separate GenServer for performance)
+  Communicates with consolidated RuleEngine for alpha memory access
+  """
+  
+  @type state :: %{
+    # Beta nodes and their memory tables
+    beta_nodes: %{node_id() => Presto.BetaNode.t()},
+    beta_memories: %{node_id() => :ets.table()},
+    
+    # Reference to consolidated RuleEngine for alpha memory access
+    rule_engine: pid(),
+    alpha_memories_table: :ets.table(),
+    
+    # Network structure
+    network_topology: %{node_id() => [node_id()]},
+    terminal_nodes: %{rule_id() => node_id()},
+    
+    # Statistics
+    join_statistics: map()
   }
   
   # Client API
-  def start_link(rules, opts \\ [])
-  def add_rule(engine, rule)
-  def assert_fact(engine, fact)
-  def run_cycle(engine, opts \\ [])
-  
-  # Memory management API (now part of engine)
-  def get_memory_statistics(engine)
-  def cleanup_memory(engine)
+  def start_link(opts)
+  def create_beta_node(server, left_input, right_input, join_conditions)
+  def perform_joins(server, node_id, token_type, facts_or_tokens)
+  def get_beta_memory(server, node_id)
+  def process_alpha_changes(server)
   
   # Server callbacks
-  def init({rules, opts})
-  def handle_call({:add_rule, rule}, _from, state)
-  def handle_cast({:assert_fact, fact}, state)
-  def handle_info({:rule_fired, result}, state)
-  def handle_info(:cleanup_cycle, state)
-end
-```
-
-### 3. Network Management
-
-#### Network Structure
-```elixir
-defmodule Presto.Network do
-  @type t :: %__MODULE__{
-    alpha_nodes: %{pattern_id() => Presto.AlphaNode.t()},
-    beta_nodes: %{node_id() => Presto.BetaNode.t()},
-    root_node: node_id(),
-    terminal_nodes: %{rule_name() => node_id()},
-    node_connections: %{node_id() => [node_id()]},
-    memory_tables: %{node_id() => ets_table_name()}
-  }
+  def init(opts)
+  def handle_call({:create_beta_node, params}, _from, state)
+  def handle_call({:perform_joins, node_id, token_type, data}, _from, state)
+  def handle_call({:get_beta_memory, node_id}, _from, state)
   
-  defstruct [
-    :alpha_nodes,
-    :beta_nodes, 
-    :root_node,
-    :terminal_nodes,
-    :node_connections,
-    :memory_tables
-  ]
-end
-```
-
-#### Alpha Network
-```elixir
-defmodule Presto.AlphaNetwork do
-  @moduledoc """
-  Manages alpha network - single-condition pattern matching
-  """
-  
-  def create_alpha_node(pattern, conditions)
-  def evaluate_fact(alpha_node, fact) 
-  def propagate_to_beta(alpha_node, fact)
-  
-  defp compile_pattern_matcher(pattern)
-  defp create_alpha_memory(node_id)
-end
-
-defmodule Presto.AlphaNode do
-  @type t :: %__MODULE__{
-    id: node_id(),
-    pattern: pattern(),
-    conditions: [condition()],
-    matcher_fun: function(),
-    memory_table: ets_table_name(),
-    beta_connections: [node_id()]
-  }
-end
-```
-
-#### Beta Network  
-```elixir
-defmodule Presto.BetaNetwork do
-  @moduledoc """
-  Manages beta network - multi-condition joins
-  """
-  
-  def create_beta_node(left_input, right_input, join_conditions)
-  def handle_left_activation(beta_node, token)
-  def handle_right_activation(beta_node, fact)
-  def perform_join(left_token, right_fact, join_conditions)
-  
+  # Private functions for join processing
   defp create_beta_memory(node_id)
   defp check_variable_consistency(bindings1, bindings2)
-end
-
-defmodule Presto.BetaNode do
-  @type t :: %__MODULE__{
-    id: node_id(),
-    left_input: node_id(),
-    right_input: node_id(), 
-    join_conditions: [join_condition()],
-    memory_table: ets_table_name(),
-    output_connections: [node_id()]
-  }
+  defp process_cartesian_join(left_tokens, right_facts, join_key)
 end
 ```
 
-### 4. Memory Management
+### 4. Rule Analysis and Optimization
 
-#### Working Memory
 ```elixir
-defmodule Presto.WorkingMemory do
+defmodule Presto.RuleAnalyzer do
   @moduledoc """
-  Central fact storage using ETS
+  Analyzes rules to determine optimal execution strategy
   """
   
-  def start_link(opts)
-  def assert_fact(fact)
-  def retract_fact(fact) 
-  def get_facts(pattern \\ :_)
-  def fact_exists?(fact)
-  
-  # Internal ETS operations
-  defp create_fact_table()
-  defp generate_fact_id(fact)
-  defp notify_alpha_network(fact, :assert | :retract)
-end
-```
-
-#### Memory Management (Integrated)
-```elixir
-defmodule Presto.Engine do
-  # Memory management functions integrated into engine
-  
-  defp create_alpha_memory(node_id, opts)
-  defp create_beta_memory(node_id, opts)
-  defp cleanup_orphaned_tokens(state)
-  defp collect_statistics(state)
-  
-  # Periodic cleanup via handle_info
-  def handle_info(:cleanup_cycle, state) do
-    cleaned_state = cleanup_orphaned_tokens(state)
-    schedule_cleanup()
-    {:noreply, cleaned_state}
+  def analyze_rule(rule) do
+    %{
+      strategy: determine_execution_strategy(rule),
+      complexity: calculate_complexity(rule),
+      fact_types: extract_fact_types(rule),
+      variable_count: count_variables(rule),
+      condition_count: length(rule.conditions)
+    }
   end
   
-  defp schedule_cleanup() do
-    Process.send_after(self(), :cleanup_cycle, @cleanup_interval)
+  def analyze_rule_set(rules) do
+    %{
+      total_rules: length(rules),
+      fast_path_eligible: count_fast_path_rules(rules),
+      complexity_distribution: analyze_complexity_distribution(rules),
+      fact_type_coverage: analyze_fact_type_coverage(rules)
+    }
+  end
+  
+  defp determine_execution_strategy(rule) do
+    condition_count = length(rule.conditions)
+    
+    cond do
+      condition_count <= 2 and simple_conditions?(rule.conditions) -> :fast_path
+      true -> :rete_network
+    end
+  end
+end
+
+defmodule Presto.FastPathExecutor do
+  @moduledoc """
+  Optimized execution for simple rules bypassing full RETE network
+  """
+  
+  def execute_fast_path(rule, working_memory) do
+    # Direct pattern matching against working memory for simple rules
+    facts = get_facts_from_memory(working_memory)
+    matching_bindings = find_matches_direct(rule.conditions, facts)
+    
+    results = Enum.flat_map(matching_bindings, fn bindings ->
+      try do
+        rule.action.(bindings)
+      rescue
+        _ -> []
+      end
+    end)
+    
+    {:ok, results}
+  end
+  
+  def execute_batch_fast_path(rules, working_memory) do
+    # Batch execution for multiple fast-path rules operating on same fact type
+    facts = get_facts_from_memory(working_memory)
+    
+    results = Enum.flat_map(rules, fn rule ->
+      matching_bindings = find_matches_direct(rule.conditions, facts)
+      
+      Enum.flat_map(matching_bindings, fn bindings ->
+        try do
+          rule.action.(bindings)
+        rescue
+          _ -> []
+        end
+      end)
+    end)
+    
+    {:ok, results}
   end
 end
 ```
 
-### 5. Rule Execution
+### 5. Rule Registry System
 
-#### Execution Coordinator
 ```elixir
-defmodule Presto.Execution.Executor do
+defmodule Presto.RuleRegistry do
   @moduledoc """
-  Coordinates rule execution and conflict resolution
+  Registration and discovery system for modular rules
   """
   
-  def execute_rules(activated_rules, mode \\ :parallel)
-  def resolve_conflicts(rule_activations)
-  def fire_rule(rule, variable_bindings)
+  def discover_rules(module_pattern \\ "Elixir.*.Rules") do
+    # Discover rule modules following naming conventions
+    :code.all_loaded()
+    |> Enum.filter(&matches_pattern?(&1, module_pattern))
+    |> Enum.flat_map(&extract_rules_from_module/1)
+  end
   
-  defp apply_conflict_resolution_strategy(activations, strategy)
-  defp execute_rule_action(action, bindings)
+  def register_rule_module(module) do
+    if implements_rule_behaviour?(module) do
+      rules = module.rules()
+      {:ok, rules}
+    else
+      {:error, :invalid_rule_module}
+    end
+  end
 end
-```
 
-#### Rule Firer
-```elixir
-defmodule Presto.Execution.RuleFirer do
+defmodule Presto.RuleBehaviour do
   @moduledoc """
-  Handles individual rule execution
+  Behaviour for rule modules to implement
   """
   
-  def fire_rule_async(rule, bindings, engine_pid)
-  def fire_rule_sync(rule, bindings)
-  
-  defp execute_action({module, function, args}, bindings)
-  defp execute_action(function, bindings) when is_function(function)
-  defp execute_action(atom_action, bindings) when is_atom(atom_action)
-end
-```
-
-### 6. Pattern Processing
-
-#### Pattern Compiler
-```elixir
-defmodule Presto.Pattern.Compiler do
-  @moduledoc """
-  Compiles rule patterns into efficient matching functions
-  """
-  
-  def compile_rule(rule) 
-  def compile_alpha_pattern(pattern, guards)
-  def compile_beta_join(left_pattern, right_pattern, join_vars)
-  
-  defp generate_matcher_function(pattern)
-  defp optimize_guard_evaluation(guards)
-end
-```
-
-#### Pattern Matcher
-```elixir
-defmodule Presto.Pattern.Matcher do
-  @moduledoc """
-  Runtime pattern matching utilities
-  """
-  
-  def match_pattern(fact, pattern)
-  def evaluate_guards(fact, guards, bindings)
-  def extract_variables(fact, pattern)
-  
-  defp apply_guard_condition(condition, bindings)
+  @callback rules() :: [map()]
+  @callback rule_metadata() :: map()
 end
 ```
 
 ## Data Flow Architecture
 
-### 1. Fact Assertion Flow
+### 1. Fact Assertion Flow (Consolidated Architecture)
 
 ```
-Fact → Working Memory → Alpha Network → Alpha Memories → Beta Network → Rule Activations
+Client API → RuleEngine (Integrated: Working Memory + Alpha Network) → BetaNetwork (Separate) → Rule Activations
 ```
 
 **Detailed Steps:**
 1. **API Call**: `Presto.assert_fact(engine, fact)`
-2. **Engine Process**: Receives fact, validates, forwards to working memory
-3. **Working Memory**: Stores fact in ETS, generates fact ID, notifies alpha network
-4. **Alpha Network**: Evaluates fact against all alpha nodes
-5. **Alpha Memories**: Store matching facts, trigger beta network propagation
-6. **Beta Network**: Perform joins, create/update partial matches
-7. **Rule Activation**: Complete matches create rule activations
-8. **Execution**: Fire activated rules based on conflict resolution
+2. **RuleEngine GenServer**: Single process receives and validates fact
+3. **Integrated Working Memory**: Direct ETS insert into facts_table (no inter-process communication)
+4. **Integrated Alpha Network**: Direct function calls to evaluate fact against alpha nodes
+5. **Alpha Memory Updates**: Direct ETS operations on alpha_memories table
+6. **Beta Network Notification**: Single GenServer.cast to BetaNetwork with activations
+7. **Beta Network Processing**: Separate GenServer performs joins and creates partial matches
+8. **Rule Activations**: Complete matches sent back to RuleEngine for execution
+9. **Rule Execution**: Fire activated rules based on priority and strategy
 
-### 2. Rule Addition Flow
+**Performance Benefits:**
+- **Eliminated 2 GenServer calls** (WorkingMemory → AlphaNetwork communication)
+- **Direct ETS operations** instead of message passing for fact storage and alpha processing
+- **Single network update cycle** instead of coordinated multi-process updates
 
-```
-Rule Definition → Compilation → Network Update → Memory Creation → Connection Establishment
-```
-
-**Detailed Steps:**
-1. **API Call**: `Presto.add_rule(engine, rule)`
-2. **Rule Compilation**: Transform rule into network nodes
-3. **Network Update**: Add alpha/beta nodes to network structure
-4. **Memory Creation**: Create ETS tables for new nodes
-5. **Connection Setup**: Establish data flow between nodes
-6. **Backpropagation**: Process existing facts through new rule
-
-### 3. Execution Cycle
+### 2. Rule Execution Flow
 
 ```
-Rule Activations → Conflict Resolution → Rule Selection → Action Execution → Fact Updates
+Rule Analysis → Strategy Selection → Execution Path → Result Collection
 ```
 
-**For Automatic Mode:**
-- Triggered by fact assertions/retractions
-- Continuous execution until no more rules activate
+**Execution Strategies:**
+1. **Fast-Path**: Simple rules (≤2 conditions) bypass RETE network entirely
+2. **RETE Network**: Complex rules use full alpha/beta network processing
 
-**For Manual Mode:**
-- Triggered by explicit `run_cycle/1` calls
-- Single cycle execution with result reporting
+### 3. Incremental Processing Flow
+
+```
+Track New Facts → Filter Affected Rules → Execute Only Necessary Rules → Return Delta Results
+```
 
 ## Memory Architecture
 
-### ETS Table Organization
+### ETS Table Organization (Consolidated Architecture)
 
 ```elixir
-# Working Memory
-:presto_working_memory          # {fact_id, fact}
+# RuleEngine Integrated Tables (consolidated from WorkingMemory + AlphaNetwork GenServers)
+facts_table                     # {fact_id, fact} - Working memory facts storage
+changes_table                   # {change_id, {operation, fact, timestamp}} - Incremental processing  
+alpha_memories                  # {node_id, [bindings]} - Alpha node memory storage
+compiled_patterns               # {pattern_id, matcher_function} - Pre-compiled pattern matchers
 
-# Alpha Memories (one per alpha node)
-:presto_alpha_memory_1          # {fact_id, fact}
-:presto_alpha_memory_2          # {fact_id, fact}
+# BetaNetwork Tables (separate GenServer)
+:presto_beta_memory_<node_id>   # {token_id, token} - Beta node memories
+:presto_beta_joins              # {join_id, join_state} - Join operation tracking
 
-# Beta Memories (one per beta node)  
-:presto_beta_memory_1           # {token_id, token}
-:presto_beta_memory_2           # {token_id, token}
-
-# Network Configuration
-:presto_network_config          # {key, value}
-
-# Statistics and Monitoring
-:presto_statistics              # {metric_name, value}
+# Performance Benefits:
+# - All core RETE operations (fact storage + alpha processing) in single process
+# - No inter-table coordination required for working memory ↔ alpha network
+# - Direct ETS operations without GenServer message overhead
 ```
 
 ### Memory Access Patterns
@@ -531,48 +390,49 @@ Rule Activations → Conflict Resolution → Rule Selection → Action Execution
 **Read-Heavy Operations:**
 - Pattern matching (alpha network)
 - Variable binding checks (beta network)
-- Fact queries
+- Fact queries and statistics
 
 **Write Operations:**
 - Fact assertions/retractions  
 - Partial match creation/deletion
 - Rule activation tracking
 
-**Optimization Strategy:**
-- ETS read concurrency for high-frequency reads
-- Coordinated writes through GenServer for consistency
-- Batch operations for bulk updates
-
 ## Concurrency Model
 
-### Process Responsibilities
+### Process Responsibilities (Consolidated Architecture)
 
-**Main Engine Process (GenServer):**
-- API coordination
-- Network state management  
-- Fact lifecycle coordination
-- Rule management
-- ETS table lifecycle management
-- Memory cleanup and optimization
-- Statistics collection
+**RuleEngine Process (Consolidated GenServer):**
+- **API Coordination**: Main entry point for all client operations
+- **Integrated Working Memory**: Fact storage, retrieval, and lifecycle
+- **Integrated Alpha Network**: Pattern matching and alpha node processing
+- **Rule Management**: Rule compilation, addition, removal, and validation
+- **Rule Analysis**: Strategy determination and optimization configuration
+- **ETS Table Management**: Unified management of all RuleEngine tables
+- **Performance Monitoring**: Statistics collection and analysis
+- **Beta Network Communication**: Coordinated messaging with separate BetaNetwork GenServer
+
+**BetaNetwork Process (Separate GenServer):**
+- **Multi-condition Joins**: Complex join processing between multiple patterns
+- **Beta Node Management**: Beta node memory lifecycle and optimization
+- **Token Processing**: Partial match creation, propagation, and cleanup
 
 **Rule Execution Processes (Task.Supervisor):**
-- Parallel rule firing
-- Action execution isolation
-- Error handling and recovery
+- **Parallel Rule Firing**: Concurrent execution of activated rules
+- **Action Isolation**: Safe execution of rule actions with error containment
+- **Result Aggregation**: Collection and coordination of rule execution results
 
 ### Synchronization Points
 
 **Critical Sections:**
-- Network structure updates (rule addition/removal)
-- Fact assertion/retraction (serialized through GenServer)
-- Conflict resolution and rule selection
-- Memory cleanup operations
+- **Network Structure Updates**: Rule addition/removal serialized through RuleEngine GenServer
+- **Fact Lifecycle Operations**: Fact assertion/retraction coordinated by single RuleEngine process
+- **RuleEngine ↔ BetaNetwork Communication**: Alpha activations and beta results
 
 **Concurrent Operations:**
-- Pattern matching in alpha network (ETS read concurrency)
-- Parallel rule execution (Task.Supervisor)
-- ETS read operations from multiple processes
+- **Integrated Alpha Processing**: Direct function calls within RuleEngine (no message passing)
+- **ETS Read Operations**: Concurrent reads from all RuleEngine-managed tables
+- **Beta Network Processing**: Independent join processing in separate GenServer
+- **Parallel Rule Execution**: Concurrent rule firing via Task.Supervisor
 
 ## Error Handling Strategy
 
@@ -584,14 +444,14 @@ Rule Activations → Conflict Resolution → Rule Selection → Action Execution
 - Network inconsistency detection
 
 **Execution Errors:**
-- Rule action failures
-- Timeout handling
-- Resource exhaustion
+- Rule action failures with isolation per rule
+- Timeout handling for individual rules
+- Resource exhaustion protection
 
 **Memory Errors:**
 - ETS table corruption detection
-- Memory cleanup failures
-- Orphaned token detection
+- Fact lineage consistency validation
+- Orphaned token cleanup
 
 ### Recovery Mechanisms
 
@@ -601,414 +461,73 @@ Rule Activations → Conflict Resolution → Rule Selection → Action Execution
 - Re-propagate facts through rebuilt network
 
 **Execution Recovery:**
-- Isolate failed rules
+- Isolate failed rules via Task supervision
 - Continue processing other rules
-- Log and report failures
+- Detailed error reporting with rule context
 
-**Memory Recovery:**
-- Detect and repair ETS inconsistencies
-- Rebuild memories from authoritative sources
-- Garbage collect orphaned data
+## Key Features
 
-This architecture provides a robust, scalable foundation for implementing RETE in Elixir while leveraging the platform's strengths in concurrency, fault tolerance, and process isolation.
+### Fact Lineage Tracking
 
-## Optimization Layers
-
-### Integration with Existing Architecture
-
-The optimization layers integrate seamlessly with the existing architecture without disrupting core functionality. Each optimization layer operates independently and can be enabled/disabled based on performance requirements.
+Every fact in the system has lineage metadata:
 
 ```elixir
-defmodule Presto.OptimizationLayer do
-  @type optimization_config :: %{
-    indexing: %{
-      enabled: boolean(),
-      strategy: :hash | :btree | :hybrid,
-      rebuild_threshold: pos_integer()
-    },
-    compilation: %{
-      enabled: boolean(),
-      pattern_cache_size: pos_integer(),
-      guard_optimization: boolean()
-    },
-    memory: %{
-      enabled: boolean(),
-      cache_optimization: boolean(),
-      prefetch_strategy: :none | :sequential | :predictive
-    },
-    execution: %{
-      enabled: boolean(),
-      parallel_rules: boolean(),
-      batch_processing: boolean()
-    }
-  }
-  
-  def apply_optimizations(engine_state, config) do
-    engine_state
-    |> apply_indexing_layer(config.indexing)
-    |> apply_compilation_layer(config.compilation)
-    |> apply_memory_layer(config.memory)
-    |> apply_execution_layer(config.execution)
-  end
-end
+%{
+  fact: {:person, "John", 25},
+  generation: 42,
+  source: :input,  # :input | :derived
+  derived_from: [],
+  derived_by_rule: nil,
+  timestamp: 1640995200000000
+}
 ```
 
-### Optimization Integration Points
+### Optimization Configuration
 
-#### Engine Level Integration
+Runtime configurable optimizations:
+
 ```elixir
-defmodule Presto.Engine do
-  use GenServer
-  
-  # Enhanced state with optimization layers
-  @type state :: %{
-    # ... existing state fields ...
-    optimization_config: Presto.OptimizationLayer.optimization_config(),
-    optimization_state: %{
-      indexing: Presto.Optimization.Indexing.state(),
-      compilation: Presto.Optimization.Compilation.state(),
-      memory: Presto.Optimization.Memory.state(),
-      execution: Presto.Optimization.Execution.state()
-    },
-    performance_metrics: Presto.Monitoring.PerformanceMetrics.t()
-  }
-  
-  # Optimization-aware initialization
-  def init({rules, opts}) do
-    optimization_config = Keyword.get(opts, :optimizations, default_optimizations())
-    
-    base_state = initialize_base_state(rules, opts)
-    optimized_state = Presto.OptimizationLayer.apply_optimizations(
-      base_state, 
-      optimization_config
-    )
-    
-    {:ok, optimized_state}
-  end
-  
-  # Optimization-aware fact assertion
-  def handle_cast({:assert_fact, fact}, state) do
-    with {:ok, updated_memory} <- update_working_memory(fact, state),
-         {:ok, optimized_propagation} <- optimize_fact_propagation(fact, state),
-         {:ok, execution_state} <- trigger_optimized_execution(state) do
-      {:noreply, %{state | 
-        memory_tables: updated_memory,
-        optimization_state: execution_state
-      }}
-    else
-      error -> handle_optimization_error(error, state)
-    end
-  end
-end
+%{
+  enable_fast_path: true,           # Fast-path execution for simple rules
+  enable_alpha_sharing: true,       # Share alpha nodes between rules  
+  enable_rule_batching: true,       # Batch rule execution for efficiency
+  fast_path_threshold: 2,           # Max conditions for fast-path eligibility
+  sharing_threshold: 2              # Min rules sharing pattern for alpha node sharing
+}
 ```
 
-#### Network Layer Integration
+### Rule Chaining and Convergence
+
+Automatic rule chaining with convergence detection:
+
 ```elixir
-defmodule Presto.Network do
-  # Enhanced network structure with optimization metadata
-  @type t :: %__MODULE__{
-    # ... existing fields ...
-    optimization_metadata: %{
-      index_structures: %{node_id() => index_structure()},
-      compiled_patterns: %{pattern_id() => compiled_matcher()},
-      access_statistics: %{node_id() => access_stats()},
-      optimization_hints: %{node_id() => [optimization_hint()]}
-    }
-  }
-  
-  def optimize_network_structure(network, optimization_config) do
-    network
-    |> build_optimization_indexes(optimization_config.indexing)
-    |> compile_patterns(optimization_config.compilation)
-    |> optimize_memory_layout(optimization_config.memory)
-    |> configure_execution_strategy(optimization_config.execution)
-  end
-end
+# Execute rules with automatic chaining until no more facts produced
+results = Presto.fire_rules(engine, auto_chain: true)
 ```
 
-### Performance Monitoring Integration
+## Architectural Benefits
 
-#### Real-time Performance Tracking
-```elixir
-defmodule Presto.Monitoring.OptimizationMonitor do
-  use GenServer
-  
-  @type monitoring_state :: %{
-    metrics_collector: pid(),
-    performance_thresholds: performance_thresholds(),
-    optimization_decisions: [optimization_decision()],
-    adaptive_config: adaptive_optimization_config()
-  }
-  
-  def start_link(engine_pid, opts \\ []) do
-    GenServer.start_link(__MODULE__, {engine_pid, opts}, name: __MODULE__)
-  end
-  
-  # Monitor performance and suggest optimizations
-  def handle_info(:collect_metrics, state) do
-    current_metrics = collect_performance_metrics(state.engine_pid)
-    optimization_suggestions = analyze_performance(current_metrics, state)
-    
-    if should_apply_optimizations?(optimization_suggestions) do
-      apply_adaptive_optimizations(state.engine_pid, optimization_suggestions)
-    end
-    
-    schedule_next_collection()
-    {:noreply, update_monitoring_state(state, current_metrics)}
-  end
-  
-  defp analyze_performance(metrics, state) do
-    [
-      analyze_join_performance(metrics.join_times),
-      analyze_memory_usage(metrics.memory_stats),
-      analyze_pattern_efficiency(metrics.pattern_matches),
-      analyze_execution_patterns(metrics.rule_executions)
-    ]
-    |> Enum.filter(&optimization_beneficial?/1)
-  end
-end
-```
+### Performance Improvements from Consolidation
 
-#### Performance Dashboard Integration
-```elixir
-defmodule Presto.Monitoring.OptimizationDashboard do
-  def generate_optimization_report(engine_pid) do
-    %{
-      current_optimizations: get_active_optimizations(engine_pid),
-      performance_impact: calculate_optimization_impact(engine_pid),
-      recommendations: generate_optimization_recommendations(engine_pid),
-      resource_utilization: get_resource_utilization(engine_pid),
-      bottleneck_analysis: identify_performance_bottlenecks(engine_pid)
-    }
-  end
-  
-  def visualize_optimization_layers(engine_pid) do
-    %{
-      network_structure: generate_network_visualization(engine_pid),
-      optimization_overlay: generate_optimization_overlay(engine_pid),
-      performance_heatmap: generate_performance_heatmap(engine_pid),
-      execution_flow: generate_execution_flow_diagram(engine_pid)
-    }
-  end
-end
-```
+- **50% reduction** in core RETE GenServer message passing
+- **Direct function calls** replace GenServer.call/cast for working memory ↔ alpha network
+- **Unified ETS management** eliminates cross-process table coordination
+- **Single critical section** for fact processing instead of distributed coordination
 
-### Optimization Configuration Options
+### Simplicity Benefits
 
-#### Declarative Configuration
-```elixir
-defmodule Presto.OptimizationConfig do
-  @default_config %{
-    # Indexing optimizations
-    indexing: %{
-      enabled: true,
-      join_indexing: %{
-        strategy: :hash,
-        rebuild_threshold: 1000,
-        memory_limit: 50 * 1024 * 1024  # 50MB
-      },
-      type_discrimination: %{
-        enabled: true,
-        cache_size: 10000
-      }
-    },
-    
-    # Pattern compilation optimizations
-    compilation: %{
-      enabled: true,
-      pattern_compilation: %{
-        compile_at_startup: true,
-        cache_compiled_patterns: true,
-        optimization_level: :aggressive
-      },
-      guard_optimization: %{
-        enabled: true,
-        reorder_guards: true,
-        eliminate_redundant: true
-      }
-    },
-    
-    # Memory optimizations
-    memory: %{
-      enabled: true,
-      cache_optimization: %{
-        enabled: true,
-        cache_line_alignment: true,
-        prefetch_strategy: :sequential
-      },
-      gc_optimization: %{
-        enabled: true,
-        cleanup_interval: 60_000,
-        memory_pressure_threshold: 0.8
-      }
-    },
-    
-    # Execution optimizations
-    execution: %{
-      enabled: true,
-      parallel_execution: %{
-        enabled: true,
-        max_concurrent_rules: 10,
-        rule_timeout: 5_000
-      },
-      batch_processing: %{
-        enabled: true,
-        batch_size: 100,
-        batch_timeout: 10
-      }
-    },
-    
-    # Adaptive optimization
-    adaptive: %{
-      enabled: true,
-      learning_rate: 0.1,
-      adaptation_interval: 30_000,
-      performance_window: 300_000
-    }
-  }
-  
-  def optimize_for_workload(workload_characteristics) do
-    case workload_characteristics do
-      %{type: :high_throughput, fact_rate: rate} when rate > 10_000 ->
-        optimize_for_high_throughput(@default_config)
-      %{type: :low_latency, max_latency: latency} when latency < 10 ->
-        optimize_for_low_latency(@default_config)
-      %{type: :memory_constrained, max_memory: memory} ->
-        optimize_for_memory_efficiency(@default_config, memory)
-      _ ->
-        @default_config
-    end
-  end
-end
-```
+- **Reduced complexity** from 4 core GenServers to 2
+- **Clearer data flow** with consolidated processing
+- **Easier debugging** with unified state management
+- **Simplified testing** with fewer moving parts
 
-#### Runtime Configuration Updates
-```elixir
-defmodule Presto.OptimizationConfig.Runtime do
-  def update_optimization_config(engine_pid, config_updates) do
-    GenServer.call(engine_pid, {:update_optimization_config, config_updates})
-  end
-  
-  def enable_optimization(engine_pid, optimization_type) do
-    update_optimization_config(engine_pid, %{
-      optimization_type => %{enabled: true}
-    })
-  end
-  
-  def disable_optimization(engine_pid, optimization_type) do
-    update_optimization_config(engine_pid, %{
-      optimization_type => %{enabled: false}
-    })
-  end
-  
-  def get_optimization_status(engine_pid) do
-    GenServer.call(engine_pid, :get_optimization_status)
-  end
-end
-```
+### Maintained Capabilities
 
-### Backward Compatibility Guarantees
+- **Full RETE algorithm** implementation preserved
+- **All core functionality** works identically
+- **Beta network separation** maintained for complex join optimization
+- **Fault tolerance** and supervision tree structure preserved
 
-#### API Compatibility Layer
-```elixir
-defmodule Presto.Compatibility do
-  @moduledoc """
-  Ensures backward compatibility when optimizations are enabled/disabled.
-  All existing API calls continue to work identically regardless of
-  optimization configuration.
-  """
-  
-  # Transparent optimization - existing API unchanged
-  def assert_fact(engine, fact) do
-    # Optimization layer automatically applied based on engine configuration
-    Presto.Engine.assert_fact(engine, fact)
-  end
-  
-  def add_rule(engine, rule) do
-    # Rule compilation optimizations applied transparently
-    Presto.Engine.add_rule(engine, rule)
-  end
-  
-  # Behavior preservation guarantees
-  def run_cycle(engine, opts \\ []) do
-    # Optimizations may change execution order within conflict set
-    # but guarantee same logical results
-    Presto.Engine.run_cycle(engine, opts)
-  end
-  
-  # Version compatibility
-  def migrate_engine_state(old_state, target_version) do
-    case target_version do
-      "1.0" -> migrate_to_v1(old_state)
-      "1.1" -> migrate_to_v1_1(old_state)  # Adds optimization layers
-      "1.2" -> migrate_to_v1_2(old_state)  # Enhanced optimizations
-    end
-  end
-end
-```
+---
 
-#### Graceful Degradation
-```elixir
-defmodule Presto.Optimization.GracefulDegradation do
-  def handle_optimization_failure(optimization_type, error, engine_state) do
-    Logger.warning("Optimization #{optimization_type} failed: #{inspect(error)}")
-    Logger.info("Falling back to non-optimized execution")
-    
-    # Disable failed optimization and continue with base functionality
-    updated_config = disable_optimization(engine_state.optimization_config, optimization_type)
-    
-    %{engine_state | 
-      optimization_config: updated_config,
-      optimization_state: reset_optimization_state(engine_state.optimization_state, optimization_type)
-    }
-  end
-  
-  def verify_optimization_correctness(optimized_result, reference_result) do
-    case compare_results(optimized_result, reference_result) do
-      :identical -> :ok
-      {:different, differences} -> 
-        Logger.error("Optimization correctness violation: #{inspect(differences)}")
-        {:error, :optimization_correctness_violation}
-    end
-  end
-end
-```
-
-### Integration Testing Framework
-
-#### Optimization Testing
-```elixir
-defmodule Presto.Test.OptimizationIntegration do
-  use ExUnit.Case
-  
-  describe "optimization integration" do
-    test "optimizations preserve correctness" do
-      rules = generate_test_rules()
-      facts = generate_test_facts()
-      
-      # Test with optimizations disabled
-      {:ok, baseline_engine} = Presto.start_link(rules, optimizations: %{enabled: false})
-      baseline_result = run_test_scenario(baseline_engine, facts)
-      
-      # Test with optimizations enabled
-      {:ok, optimized_engine} = Presto.start_link(rules, optimizations: default_optimizations())
-      optimized_result = run_test_scenario(optimized_engine, facts)
-      
-      # Results should be logically equivalent
-      assert results_equivalent?(baseline_result, optimized_result)
-    end
-    
-    test "optimization layers can be independently enabled/disabled" do
-      optimization_combinations = generate_optimization_combinations()
-      
-      Enum.each(optimization_combinations, fn config ->
-        {:ok, engine} = Presto.start_link([], optimizations: config)
-        assert engine_healthy?(engine)
-        assert optimization_config_applied?(engine, config)
-      end)
-    end
-  end
-end
-```
-
-These optimization layers provide comprehensive performance enhancements while maintaining full backward compatibility and architectural integrity.
+This architecture provides a robust, performant foundation for implementing RETE in Elixir while following the BSSN principle of building the simplest system that meets current needs effectively.
