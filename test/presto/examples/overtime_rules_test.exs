@@ -268,10 +268,12 @@ defmodule Presto.Examples.OvertimeRulesTest do
 
   describe "RuleBehaviour implementation" do
     test "implements create_rules/1 callback" do
-      assert function_exported?(OvertimeRules, :create_rules, 1)
-
+      # Test that we can actually call the function instead of just checking if exported
       rules = OvertimeRules.create_rules(%{})
       assert is_list(rules)
+
+      # Also verify the function is exported for completeness
+      assert function_exported?(OvertimeRules, :create_rules, 1)
     end
 
     test "implements valid_rule_spec?/1 callback if present" do

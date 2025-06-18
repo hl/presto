@@ -5,7 +5,7 @@ defmodule PrestoTest do
   describe "RETE algorithm demonstration" do
     test "basic fact assertion and rule matching" do
       # Start the rule engine
-      {:ok, engine} = Presto.start_engine()
+      engine = start_supervised!(Presto.RuleEngine)
 
       # Define a simple rule: if person age > 18, then adult
       rule = %{
@@ -32,13 +32,10 @@ defmodule PrestoTest do
       # Only John should be marked as adult (age > 18)
       assert length(results) == 1
       assert {:adult, "John"} in results
-
-      # Clean up
-      Presto.stop_engine(engine)
     end
 
     test "multiple rules with different conditions" do
-      {:ok, engine} = Presto.start_engine()
+      engine = start_supervised!(Presto.RuleEngine)
 
       # Rule 1: Person with age > 18 is adult
       adult_rule = %{
@@ -76,12 +73,10 @@ defmodule PrestoTest do
       assert {:adult, "Bob"} in results
       assert {:high_income, "Alice"} in results
       refute {:high_income, "Bob"} in results
-
-      Presto.stop_engine(engine)
     end
 
     test "fact retraction updates rule results" do
-      {:ok, engine} = Presto.start_engine()
+      engine = start_supervised!(Presto.RuleEngine)
 
       rule = %{
         id: :test_rule,
@@ -103,12 +98,10 @@ defmodule PrestoTest do
       Presto.retract_fact(engine, {:person, "Tom", 25})
       results2 = Presto.fire_rules(engine)
       assert [] = results2
-
-      Presto.stop_engine(engine)
     end
 
     test "concurrent rule evaluation" do
-      {:ok, engine} = Presto.start_engine()
+      engine = start_supervised!(Presto.RuleEngine)
 
       # Add multiple rules that can fire concurrently
       for i <- 1..10 do
@@ -135,8 +128,6 @@ defmodule PrestoTest do
       assert Enum.all?(results, fn {tag, value, _rule_id} ->
                tag == :large_number and value == 100
              end)
-
-      Presto.stop_engine(engine)
     end
   end
 
@@ -145,7 +136,7 @@ defmodule PrestoTest do
       # This test verifies that the RETE algorithm can correctly process
       # increasing numbers of facts without functional degradation
 
-      {:ok, engine} = Presto.start_engine()
+      engine = start_supervised!(Presto.RuleEngine)
 
       # Add complex rule with multiple conditions
       complex_rule = %{
@@ -193,8 +184,6 @@ defmodule PrestoTest do
       assert count_10 > 0
       assert count_50 >= count_10
       assert count_100 >= count_50
-
-      Presto.stop_engine(engine)
     end
   end
 end

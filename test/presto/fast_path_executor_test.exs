@@ -7,7 +7,7 @@ defmodule Presto.FastPathExecutorTest do
   describe "execute_fast_path/2" do
     test "executes simple rule with single fact pattern" do
       # Start rule engine
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       # Add facts to rule engine
       RuleEngine.assert_fact(engine, {:person, "john", %{age: 25}})
@@ -34,7 +34,7 @@ defmodule Presto.FastPathExecutorTest do
     end
 
     test "returns empty results when no facts match the pattern" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       # Add facts that don't match the pattern
       RuleEngine.assert_fact(engine, {:employee, "emp1", %{salary: 50_000}})
@@ -53,7 +53,7 @@ defmodule Presto.FastPathExecutorTest do
     end
 
     test "handles different fact structures" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:score, "test1", 85})
       RuleEngine.assert_fact(engine, {:score, "test2", 92})
@@ -78,7 +78,7 @@ defmodule Presto.FastPathExecutorTest do
     end
 
     test "handles simple pattern matching without test conditions" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:animal, "cat", "fluffy"})
       RuleEngine.assert_fact(engine, {:animal, "dog", "loyal"})
@@ -101,7 +101,7 @@ defmodule Presto.FastPathExecutorTest do
     end
 
     test "handles action that raises an error gracefully" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:test, "data"})
 
@@ -124,7 +124,7 @@ defmodule Presto.FastPathExecutorTest do
 
   describe "execute_batch_fast_path/2" do
     test "executes multiple rules against same fact set efficiently" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:score, "math", 85})
       RuleEngine.assert_fact(engine, {:score, "science", 92})
@@ -162,7 +162,7 @@ defmodule Presto.FastPathExecutorTest do
 
   describe "pattern matching edge cases" do
     test "handles facts with different tuple sizes" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:short, "data"})
       RuleEngine.assert_fact(engine, {:long, "data", "extra", "more"})
@@ -184,7 +184,7 @@ defmodule Presto.FastPathExecutorTest do
     end
 
     test "handles wildcard patterns" do
-      {:ok, engine} = RuleEngine.start_link()
+      engine = start_supervised!(RuleEngine)
 
       RuleEngine.assert_fact(engine, {:data, "test1", "value1"})
       RuleEngine.assert_fact(engine, {:data, "test2", "value2"})

@@ -3,6 +3,12 @@ defmodule Presto.RuleRegistryTest do
 
   alias Presto.RuleRegistry
 
+  setup do
+    # Clear any dynamic rules that might have been set by previous tests
+    Process.delete(:presto_dynamic_rules)
+    :ok
+  end
+
   describe "configuration-driven rule registry" do
     test "reads rules from application configuration" do
       # This will use the default configuration from config/config.exs

@@ -4,7 +4,7 @@ defmodule Presto.RuleEngineTest do
   alias Presto.RuleEngine
 
   setup do
-    {:ok, engine} = RuleEngine.start_link([])
+    engine = start_supervised!(RuleEngine)
     %{engine: engine}
   end
 
