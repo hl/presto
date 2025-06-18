@@ -64,7 +64,7 @@ end
 ```
 
 **Benefits:**
-- Compile-time optimization of pattern matching
+- Compile-time optimisation of pattern matching
 - Natural expression of rule conditions
 - Efficient guard clause evaluation
 - Zero-cost abstractions for simple patterns
@@ -132,7 +132,7 @@ fact = {:person, "John", 25}
 
 **1. Pattern Matching**
 - **Usage**: Alpha network condition evaluation, variable binding
-- **Performance**: Compile-time optimization via pattern compilation
+- **Performance**: Compile-time optimisation via pattern compilation
 - **Implementation**: Direct tuple pattern matching with guard evaluation
 
 **2. ETS (`:ets` module)**
@@ -180,7 +180,7 @@ defmodule Presto.RuleEngine do
   end
   
   # Beta network communication (separate GenServer for complex joins)
-  defp execute_rules_optimized(state, concurrent) do
+  defp execute_rules_optimised(state, concurrent) do
     BetaNetwork.process_alpha_changes(state.beta_network)
     
     # Strategy-based execution
@@ -232,13 +232,13 @@ end
 **Decision**: Implement dual execution strategies (fast-path + RETE)
 **Rationale**:
 - Simple rules (≤2 conditions) can bypass full RETE network
-- Performance optimization for common use cases
+- Performance optimisation for common use cases
 - Strategic performance improvement without sacrificing functionality
 
 **Implementation**:
 ```elixir
 # Rule analysis determines execution strategy
-def analyze_rule(rule) do
+def analyse_rule(rule) do
   condition_count = length(rule.conditions)
   
   strategy = if condition_count <= 2 and simple_conditions?(rule.conditions) do
@@ -308,7 +308,7 @@ flowchart TB
 ```
 
 ```elixir
-# Read-optimized tables for concurrent access
+# Read-optimised tables for concurrent access
 facts_table: :ets.new(:facts, [:set, :public, read_concurrency: true])
 alpha_memories: :ets.new(:alpha_memories, [:set, :public, read_concurrency: true])
 
@@ -320,14 +320,14 @@ changes_table: :ets.new(:changes, [:ordered_set, :private])
 
 **Decision**: Implement rule analysis and modular rule discovery
 **Rationale**:
-- Enable optimization decisions based on rule complexity
-- Support modular rule organization and discovery
+- Enable optimisation decisions based on rule complexity
+- Support modular rule organisation and discovery
 - Provide performance insights and strategy selection
 
 ```elixir
 # Rule analysis for strategy selection
 defmodule Presto.RuleAnalyzer do
-  def analyze_rule(rule) do
+  def analyse_rule(rule) do
     %{
       strategy: determine_execution_strategy(rule),
       complexity: calculate_complexity(rule),
@@ -337,7 +337,7 @@ defmodule Presto.RuleAnalyzer do
   end
 end
 
-# Rule registry for modular organization
+# Rule registry for modular organisation
 defmodule Presto.RuleRegistry do
   def discover_rules(module_pattern \\ "Elixir.*.Rules") do
     :code.all_loaded()
@@ -388,11 +388,11 @@ flowchart LR
     FA --> CTB
     
     classDef lifecycle fill:#E91E63,stroke:#333,stroke-width:2px,color:#fff
-    classDef optimization fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
+    classDef optimisation fill:#9C27B0,stroke:#333,stroke-width:2px,color:#fff
     classDef storage fill:#607D8B,stroke:#333,stroke-width:2px,color:#fff
     
     class FA,WM,AP,BP,RE,FR lifecycle
-    class LL,IC,GC optimization
+    class LL,IC,GC optimisation
     class FTB,CTB,AMT,CPT,BMT storage
 ```
 
@@ -598,7 +598,7 @@ end
 **2. Strategy-Based Execution:**
 ```elixir
 # Fast-path for simple rules, RETE for complex rules
-defp execute_rules_optimized(state, concurrent) do
+defp execute_rules_optimised(state, concurrent) do
   {fast_path_rules, rete_rules} = separate_rules_by_strategy(state)
   
   fast_path_results = execute_fast_path_rules(fast_path_rules, state)
@@ -610,8 +610,8 @@ end
 
 **3. Rule Analysis and Optimization:**
 ```elixir
-# Runtime configurable optimizations
-optimization_config: %{
+# Runtime configurable optimisations
+optimisation_config: %{
   enable_fast_path: true,
   enable_alpha_sharing: true,
   enable_rule_batching: true,
@@ -713,7 +713,7 @@ fact_lineage: %{
 ### 3. Rule Registry and Discovery
 
 ```elixir
-# Modular rule organization
+# Modular rule organisation
 defmodule MyApp.PayrollRules do
   @behaviour Presto.RuleBehaviour
   

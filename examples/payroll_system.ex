@@ -264,7 +264,7 @@ defmodule Examples.PayrollSystem do
       # Fire rules to process the data
       rule_results = Presto.fire_rules(engine, concurrent: true)
       
-      # Extract and organize results
+      # Extract and organise results
       {processed_entries, overtime_entries} = extract_employee_results(rule_results)
       
       # Generate summary

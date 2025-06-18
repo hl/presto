@@ -1,6 +1,6 @@
 defmodule Presto.RuleBehaviour do
   @moduledoc """
-  Defines the behavior that rule modules must implement.
+  Defines the behaviour that rule modules must implement.
 
   Rule modules provide the business logic for processing facts and generating
   new facts based on rule specifications. They act as the bridge between

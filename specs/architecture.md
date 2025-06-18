@@ -10,7 +10,7 @@ This **consolidated architecture** eliminates inter-process communication overhe
 
 1. **Best Simple System for Now (BSSN)**: Start with the simplest implementation that meets current needs
 2. **Leverage Elixir Strengths**: Use pattern matching, ETS, processes, and supervision trees effectively  
-3. **Performance through Architecture**: Minimize copying, maximize concurrency, optimize for common cases
+3. **Performance through Architecture**: Minimise copying, maximise concurrency, optimise for common cases
 4. **Fault Tolerance**: Design for failure recovery at every level
 
 ## Module Structure
@@ -24,7 +24,7 @@ lib/presto/
 ├── beta_network.ex              # Beta network implementation (separate GenServer for complex joins)
 ├── rule_behaviour.ex            # Rule callback specification behaviour
 ├── rule_registry.ex             # Rule registration and discovery system
-├── rule_analyzer.ex             # Rule complexity analysis and strategy selection
+├── rule_analyser.ex             # Rule complexity analysis and strategy selection
 ├── fast_path_executor.ex        # Fast-path execution for simple rules
 ├── logger.ex                    # Structured logging for engine operations
 ├── config.ex                    # Configuration management
@@ -206,7 +206,7 @@ defmodule Presto.RuleEngine do
     engine_statistics: map(),
     
     # Optimization configuration
-    optimization_config: map(),
+    optimisation_config: map(),
     
     # Incremental processing support
     tracking_changes: boolean(),
@@ -238,10 +238,10 @@ defmodule Presto.RuleEngine do
   def fire_rules_with_errors(engine)
   
   # Client API - Analysis and Optimization
-  def analyze_rule(engine, rule_id)
-  def analyze_rule_set(engine)
-  def configure_optimization(engine, opts)
-  def get_optimization_config(engine)
+  def analyse_rule(engine, rule_id)
+  def analyse_rule_set(engine)
+  def configure_optimisation(engine, opts)
+  def get_optimisation_config(engine)
   
   # Statistics and Management
   def get_engine_statistics(engine)
@@ -322,7 +322,7 @@ defmodule Presto.RuleAnalyzer do
   Analyzes rules to determine optimal execution strategy
   """
   
-  def analyze_rule(rule) do
+  def analyse_rule(rule) do
     %{
       strategy: determine_execution_strategy(rule),
       complexity: calculate_complexity(rule),
@@ -332,12 +332,12 @@ defmodule Presto.RuleAnalyzer do
     }
   end
   
-  def analyze_rule_set(rules) do
+  def analyse_rule_set(rules) do
     %{
       total_rules: length(rules),
       fast_path_eligible: count_fast_path_rules(rules),
-      complexity_distribution: analyze_complexity_distribution(rules),
-      fact_type_coverage: analyze_fact_type_coverage(rules)
+      complexity_distribution: analyse_complexity_distribution(rules),
+      fact_type_coverage: analyse_fact_type_coverage(rules)
     }
   end
   
@@ -720,14 +720,14 @@ graph TB
 - **Integrated Working Memory**: Fact storage, retrieval, and lifecycle
 - **Integrated Alpha Network**: Pattern matching and alpha node processing
 - **Rule Management**: Rule compilation, addition, removal, and validation
-- **Rule Analysis**: Strategy determination and optimization configuration
+- **Rule Analysis**: Strategy determination and optimisation configuration
 - **ETS Table Management**: Unified management of all RuleEngine tables
 - **Performance Monitoring**: Statistics collection and analysis
 - **Beta Network Communication**: Coordinated messaging with separate BetaNetwork GenServer
 
 **BetaNetwork Process (Separate GenServer):**
 - **Multi-condition Joins**: Complex join processing between multiple patterns
-- **Beta Node Management**: Beta node memory lifecycle and optimization
+- **Beta Node Management**: Beta node memory lifecycle and optimisation
 - **Token Processing**: Partial match creation, propagation, and cleanup
 
 **Rule Execution Processes (Task.Supervisor):**
@@ -889,17 +889,17 @@ graph LR
     RuleBatching --> PerformanceGains
     
     classDef strategy fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
-    classDef optimization fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef optimisation fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef config fill:#fff3e0,stroke:#f57c00,stroke-width:2px
     classDef benefits fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     
     class FastPath,RETEPath strategy
-    class AlphaSharing,RuleBatching optimization
+    class AlphaSharing,RuleBatching optimisation
     class Config config
     class PerformanceGains benefits
 ```
 
-Runtime configurable optimizations:
+Runtime configurable optimisations:
 
 ```elixir
 %{
@@ -940,7 +940,7 @@ results = Presto.fire_rules(engine, auto_chain: true)
 
 - **Full RETE algorithm** implementation preserved
 - **All core functionality** works identically
-- **Beta network separation** maintained for complex join optimization
+- **Beta network separation** maintained for complex join optimisation
 - **Fault tolerance** and supervision tree structure preserved
 
 ---

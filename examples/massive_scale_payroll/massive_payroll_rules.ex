@@ -1,6 +1,6 @@
 defmodule Examples.MassiveScalePayroll.MassivePayrollRules do
   @moduledoc """
-  Complete set of 2,000 payroll rules organized by category and priority.
+  Complete set of 2,000 payroll rules organised by category and priority.
 
   These rules are designed to work with Presto as a generic rules engine,
   demonstrating how domain-specific business logic can be implemented
@@ -30,7 +30,7 @@ defmodule Examples.MassiveScalePayroll.MassivePayrollRules do
   @doc """
   Creates all 2,000 payroll rules for the Presto RETE engine.
 
-  Returns a list of rule definitions organized by category:
+  Returns a list of rule definitions organised by category:
   - Segmentation Rules (200): Break shifts into time-based segments
   - Base Calculation Rules (300): Calculate pay amounts and conversions
   - Validation Rules (500): Data integrity and business rule validation  

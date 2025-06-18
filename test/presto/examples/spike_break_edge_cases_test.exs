@@ -826,7 +826,7 @@ defmodule Presto.Examples.SpikeBreakEdgeCasesTest do
       end)
 
       # Results should be consistent for same input with same jurisdiction
-      # (Test deterministic behavior)
+      # (Test deterministic behaviour)
       assert length(Enum.uniq(results)) <= length(jurisdictions)
     end
   end

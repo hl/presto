@@ -123,7 +123,7 @@ RETE constructs a discrimination network with two main components:
 
 1. **Best Simple System for Now (BSSN)**: Start with the simplest implementation that meets current needs
 2. **Leverage Elixir Strengths**: Use pattern matching, ETS, processes, and supervision trees effectively  
-3. **Performance through Architecture**: Minimize copying, maximize concurrency, optimize for common cases
+3. **Performance through Architecture**: Minimise copying, maximise concurrency, optimise for common cases
 4. **Fault Tolerance**: Design for failure recovery at every level
 
 ## Implementation Strategy

@@ -39,7 +39,9 @@
       "Bash(ls:*)",
       "Bash(mix deps.get:*)",
       "Bash(true)",
-      "mcp__filesystem__get_file_info"
+      "mcp__filesystem__get_file_info",
+      "Bash(python3:*)",
+      "Bash(yq eval:*)"
     ],
     "deny": []
   }

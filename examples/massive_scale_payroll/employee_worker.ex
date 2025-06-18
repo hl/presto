@@ -218,7 +218,7 @@ defmodule Examples.MassiveScalePayroll.EmployeeWorker do
       # Presto handles all the pattern matching and rule execution
       rule_results = Presto.fire_rules(presto_engine, concurrent: true)
 
-      # Extract and organize results
+      # Extract and organise results
       {processed_segments, overtime_eligible_segments} = extract_processing_results(rule_results)
 
       # Generate employee summary

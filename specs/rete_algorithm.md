@@ -522,23 +522,23 @@ end
 
 ### Pattern Compilation Optimizations
 
-Transform runtime pattern matching into compile-time optimized code generation.
+Transform runtime pattern matching into compile-time optimised code generation.
 
 #### Static Pattern Analysis
 ```elixir
 defmodule Presto.PatternAnalyzer do
-  def analyze_pattern_selectivity(pattern, fact_statistics) do
+  def analyse_pattern_selectivity(pattern, fact_statistics) do
     %{
       type_selectivity: calculate_type_selectivity(pattern.type, fact_statistics),
-      attribute_selectivity: analyze_attributes(pattern.attributes),
+      attribute_selectivity: analyse_attributes(pattern.attributes),
       guard_selectivity: estimate_guard_efficiency(pattern.guards),
       overall_selectivity: combined_selectivity_score(pattern)
     }
   end
   
-  def optimize_pattern_order(patterns) do
+  def optimise_pattern_order(patterns) do
     patterns
-    |> Enum.map(&analyze_pattern_selectivity/1)
+    |> Enum.map(&analyse_pattern_selectivity/1)
     |> Enum.sort_by(& &1.overall_selectivity)
     |> Enum.map(& &1.pattern)
   end
@@ -554,7 +554,7 @@ end
 **Performance Improvements**:
 - 2-5x faster pattern matching through code specialization
 - Reduced runtime overhead from generic matching logic
-- Better compiler optimization opportunities
+- Better compiler optimisation opportunities
 
 ### Memory Access Optimizations
 
@@ -570,7 +570,7 @@ defmodule Presto.CacheOptimizedMemory do
     :cold_data    # Rarely accessed: metadata, debug info
   ]
   
-  def optimize_memory_layout(facts) do
+  def optimise_memory_layout(facts) do
     facts
     |> Enum.map(&separate_data_by_access_frequency/1)
     |> pack_for_cache_lines()
@@ -588,7 +588,7 @@ end
 ```elixir
 # Optimize ETS table configuration for access patterns
 defmodule Presto.ETSOptimization do
-  def create_optimized_memory_table(usage_pattern) do
+  def create_optimised_memory_table(usage_pattern) do
     case usage_pattern do
       :read_heavy ->
         :ets.new(:memory, [:set, :public, {:read_concurrency, true}])
@@ -665,18 +665,18 @@ defmodule Presto.PerformanceProfiler do
       alpha_node_times: result.alpha_timings,
       beta_node_times: result.beta_timings,
       memory_operations: result.memory_stats,
-      optimization_opportunities: analyze_bottlenecks(result)
+      optimisation_opportunities: analyse_bottlenecks(result)
     }
   end
 end
 ```
 
 #### Adaptive Optimization
-Implement runtime optimization based on observed patterns:
+Implement runtime optimisation based on observed patterns:
 
 - **Pattern Frequency Analysis**: Optimize for common patterns
 - **Join Selectivity Learning**: Adapt join ordering based on data
 - **Memory Size Tuning**: Adjust memory allocation based on usage
 - **Cache Strategy Selection**: Choose optimal cache policies
 
-These performance optimizations can provide 10-100x performance improvements for typical RETE workloads while maintaining algorithmic correctness and adding powerful introspection capabilities.
+These performance optimisations can provide 10-100x performance improvements for typical RETE workloads while maintaining algorithmic correctness and adding powerful introspection capabilities.

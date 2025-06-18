@@ -192,7 +192,7 @@ Presto's RETE engine provides:
 - **Join Operations**: Complex multi-fact relationships with indexed lookups  
 - **Rule Priorities**: Configurable execution order for rule dependencies
 - **Concurrent Execution**: Parallel rule firing with automatic conflict resolution
-- **Memory Efficiency**: ETS-based storage optimized for read/write patterns
+- **Memory Efficiency**: ETS-based storage optimised for read/write patterns
 
 ## Complete Tutorial: Payroll System
 
@@ -476,7 +476,7 @@ sequenceDiagram
     participant Rules as Rule Execution
     
     App->>Presto: start_link(rules)
-    Presto->>ETS: Initialize working memory
+    Presto->>ETS: Initialise working memory
     ETS-->>Presto: Memory ready
     Presto-->>App: {:ok, engine}
     
@@ -906,10 +906,10 @@ case Presto.RuleRegistry.validate_configuration() do
 end
 ```
 
-**"Module doesn't implement behavior" Error**
+**"Module doesn't implement behaviour" Error**
 ```elixir
 # Problem: Your rule module is missing @behaviour declaration
-# Solution: Add behavior implementation
+# Solution: Add behaviour implementation
 
 defmodule MyApp.MyRules do
   @behaviour Presto.RuleBehaviour  # ← Add this!
@@ -963,7 +963,7 @@ end
 
 ### Performance Optimization
 
-Presto includes comprehensive performance optimizations based on advanced RETE implementations:
+Presto includes comprehensive performance optimisations based on advanced RETE implementations:
 
 #### ETS Optimization
 ```elixir
@@ -978,17 +978,17 @@ config :presto, :engine,
 
 #### Pattern Compilation
 ```elixir
-# Compile-time pattern optimization
+# Compile-time pattern optimisation
 defmodule MyApp.OptimizedRules do
   # Patterns are compiled into efficient matching functions
   %Presto.Rule{
-    name: "optimized_pattern",
+    name: "optimised_pattern",
     conditions: [
       {:person, :name, :age},  # Compiled to efficient matcher
       {:order, :name, :total}  # Indexed joins for performance
     ],
     guards: [
-      {:>=, :age, 18}  # Guard optimization with selectivity analysis
+      {:>=, :age, 18}  # Guard optimisation with selectivity analysis
     ]
   }
 end
@@ -1000,10 +1000,10 @@ end
 defmodule MyApp.MonitoredEngine do
   def start_with_monitoring() do
     {:ok, engine} = Presto.start_link(rules, 
-      optimizations: %{
+      optimisations: %{
         indexing: %{enabled: true, strategy: :hash},
-        compilation: %{enabled: true, optimization_level: :aggressive},
-        memory: %{enabled: true, cache_optimization: true}
+        compilation: %{enabled: true, optimisation_level: :aggressive},
+        memory: %{enabled: true, cache_optimisation: true}
       }
     )
     
@@ -1023,27 +1023,27 @@ end
 
 #### Optimization Layers
 ```elixir
-# Advanced optimization configuration
-config :presto, :optimizations,
-  # Indexing optimizations for join performance
+# Advanced optimisation configuration
+config :presto, :optimisations,
+  # Indexing optimisations for join performance
   indexing: %{
     enabled: true,
     join_indexing: %{strategy: :hash, rebuild_threshold: 1000},
     type_discrimination: %{enabled: true, cache_size: 10000}
   },
   
-  # Pattern compilation optimizations
+  # Pattern compilation optimisations
   compilation: %{
     enabled: true,
-    pattern_compilation: %{compile_at_startup: true, optimization_level: :aggressive},
-    guard_optimization: %{enabled: true, reorder_guards: true}
+    pattern_compilation: %{compile_at_startup: true, optimisation_level: :aggressive},
+    guard_optimisation: %{enabled: true, reorder_guards: true}
   },
   
-  # Memory optimizations
+  # Memory optimisations
   memory: %{
     enabled: true,
-    cache_optimization: %{enabled: true, prefetch_strategy: :sequential},
-    gc_optimization: %{cleanup_interval: 60_000}
+    cache_optimisation: %{enabled: true, prefetch_strategy: :sequential},
+    gc_optimisation: %{cleanup_interval: 60_000}
   }
 ```
 
@@ -1101,7 +1101,7 @@ end
 - **Engine Supervision**: Proper supervision tree integration
 - **Error Handling**: Graceful degradation when rules fail
 - **Monitoring**: Track rule execution metrics with built-in statistics
-- **Configuration Management**: Environment-specific rule optimization
+- **Configuration Management**: Environment-specific rule optimisation
 
 ```elixir
 defmodule MyApp.Application do
@@ -1115,7 +1115,7 @@ defmodule MyApp.Application do
     children = [
       # Presto engine as supervised child
       {Presto, [rules, [name: MyApp.RulesEngine, 
-                        optimizations: production_optimizations()]]},
+                        optimisations: production_optimisations()]]}
       
       # Your other processes
       MyApp.DataProcessor,
@@ -1126,11 +1126,11 @@ defmodule MyApp.Application do
     Supervisor.start_link(children, opts)
   end
   
-  defp production_optimizations() do
+  defp production_optimisations() do
     %{
       indexing: %{enabled: true, strategy: :hash},
-      compilation: %{enabled: true, optimization_level: :aggressive},
-      memory: %{enabled: true, cache_optimization: true},
+      compilation: %{enabled: true, optimisation_level: :aggressive},
+      memory: %{enabled: true, cache_optimisation: true},
       execution: %{enabled: true, parallel_rules: true}
     }
   end
@@ -1199,7 +1199,7 @@ flowchart TB
 - Fact lifecycle and working memory (ETS)
 - Alpha/Beta memory management (integrated)
 - Rule execution coordination
-- Memory cleanup and optimization
+- Memory cleanup and optimisation
 
 **Alpha Network**: Pattern matching using Elixir's native pattern matching + ETS storage
 

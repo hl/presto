@@ -27,11 +27,11 @@ flowchart TD
 
 ### Automatic Rule Complexity Analysis
 
-Presto automatically analyzes each rule to determine the optimal execution strategy and provides detailed complexity metrics.
+Presto automatically analyses each rule to determine the optimal execution strategy and provides detailed complexity metrics.
 
 ```elixir
 # Automatic rule analysis when adding rules
-analysis = Presto.RuleAnalyzer.analyze_rule(rule)
+analysis = Presto.RuleAnalyzer.analyse_rule(rule)
 %{
   strategy: :fast_path,           # Execution strategy selection
   complexity: :simple,            # Rule complexity assessment  
@@ -41,10 +41,10 @@ analysis = Presto.RuleAnalyzer.analyze_rule(rule)
 }
 
 # Get analysis for existing rule
-analysis = Presto.RuleEngine.analyze_rule(engine, :adult_rule)
+analysis = Presto.RuleEngine.analyse_rule(engine, :adult_rule)
 
 # Analyze entire rule set
-rule_set_analysis = Presto.RuleEngine.analyze_rule_set(engine)
+rule_set_analysis = Presto.RuleEngine.analyse_rule_set(engine)
 %{
   total_rules: 15,
   fast_path_eligible: 8,
@@ -83,9 +83,9 @@ end
 ```
 
 **Benefits:**
-- **Automatic optimization**: No manual strategy selection required
+- **Automatic optimisation**: No manual strategy selection required
 - **Performance insights**: Understand rule complexity and execution characteristics
-- **System analysis**: Overall rule set optimization opportunities
+- **System analysis**: Overall rule set optimisation opportunities
 
 ## 2. Fast-Path Execution
 
@@ -159,15 +159,15 @@ end
 ### Fast-Path Configuration
 
 ```elixir
-# Configure fast-path optimization
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+# Configure fast-path optimisation
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,           # Enable fast-path execution
   fast_path_threshold: 2,           # Max conditions for fast-path
   enable_rule_batching: true        # Batch multiple fast-path rules
 ])
 
 # Get current configuration
-config = Presto.RuleEngine.get_optimization_config(engine)
+config = Presto.RuleEngine.get_optimisation_config(engine)
 ```
 
 **Performance Benefits:**
@@ -281,7 +281,7 @@ updated_fact_lineage = Map.put(state.fact_lineage, fact_key, %{
 - **Incremental processing**: Only process rules affected by new facts
 - **Debugging**: Understand how facts were derived
 - **Auditing**: Track fact creation and modification history
-- **Optimization**: Identify derivation patterns for optimization
+- **Optimisation**: Identify derivation patterns for optimisation
 
 ## 4. Rule Registry and Discovery
 
@@ -328,7 +328,7 @@ flowchart TB
 
 ### Modular Rule Organization
 
-Presto provides a registry system for organizing and discovering rules across modules.
+Presto provides a registry system for organising and discovering rules across modules.
 
 ```elixir
 # Rule behaviour definition
@@ -425,7 +425,7 @@ end)
 ```
 
 **Benefits:**
-- **Modular organization**: Separate rules by domain or functionality
+- **Modular organisation**: Separate rules by domain or functionality
 - **Automatic discovery**: Find and load rules without manual registration
 - **Metadata tracking**: Version, author, and dependency information
 - **Team collaboration**: Different teams can maintain separate rule modules
@@ -585,7 +585,7 @@ end
 - **Automatic convergence detection**: Stops when no new facts are produced
 - **Cycle limit protection**: Prevents infinite loops
 - **Fact lineage tracking**: Maintains derivation history across cycles
-- **Performance optimization**: Efficient chaining implementation
+- **Performance optimisation**: Efficient chaining implementation
 
 ## 7. Enhanced Statistics and Monitoring
 
@@ -607,16 +607,16 @@ rule_stats = Presto.get_rule_statistics(engine)
   }
 }
 
-# Engine optimization statistics
+# Engine optimisation statistics
 engine_stats = Presto.get_engine_statistics(engine)
 %{
   total_facts: 1234,
   total_rules: 56,
   total_rule_firings: 789,
   last_execution_time: 1500,
-  fast_path_executions: 45,        # Fast-path optimization usage
+  fast_path_executions: 45,        # Fast-path optimisation usage
   rete_network_executions: 11,     # Traditional RETE execution
-  alpha_nodes_saved_by_sharing: 12 # Memory optimization metric
+  alpha_nodes_saved_by_sharing: 12 # Memory optimisation metric
 }
 
 # Execution order tracking
@@ -627,8 +627,8 @@ execution_order = Presto.RuleEngine.get_last_execution_order(engine)
 ### Performance Analysis
 
 ```elixir
-# Rule set analysis for optimization insights
-analysis = Presto.RuleEngine.analyze_rule_set(engine)
+# Rule set analysis for optimisation insights
+analysis = Presto.RuleEngine.analyse_rule_set(engine)
 %{
   total_rules: 15,
   fast_path_eligible: 8,           # Rules eligible for fast-path
@@ -703,11 +703,11 @@ graph TB
 ### Complete Workflow Example
 
 ```elixir
-# 1. Start engine with optimization
+# 1. Start engine with optimisation
 {:ok, engine} = Presto.start_engine()
 
-# 2. Configure optimizations
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+# 2. Configure optimisations
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   enable_alpha_sharing: true,
   fast_path_threshold: 2
@@ -721,7 +721,7 @@ Enum.each(rule_modules, fn {module, _metadata} ->
 end)
 
 # 4. Analyze rule set
-analysis = Presto.RuleEngine.analyze_rule_set(engine)
+analysis = Presto.RuleEngine.analyse_rule_set(engine)
 IO.inspect(analysis, label: "Rule Set Analysis")
 
 # 5. Assert facts and execute rules

@@ -161,13 +161,13 @@ sequenceDiagram
     Engine->>Engine: validate_rule(rule)
     
     alt Rule is valid
-        Engine->>Engine: analyze_complexity(rule)
+        Engine->>Engine: analyse_complexity(rule)
         alt Simple rule (≤2 conditions)
             Engine->>Engine: mark_for_fast_path(rule)
         else Complex rule
             Engine->>RETENetwork: build_network_nodes(rule)
             RETENetwork-->>Engine: nodes_created
-            Engine->>Engine: optimize_alpha_sharing()
+            Engine->>Engine: optimise_alpha_sharing()
         end
         Engine-->>Presto: :ok
         Presto-->>Client: :ok
@@ -358,7 +358,7 @@ results = Presto.fire_rules(engine, auto_chain: true)       # Automatic rule cha
   total_rules: 56,
   total_rule_firings: 789,
   last_execution_time: 1500,
-  fast_path_executions: 45,         # Rules executed via fast-path optimization
+  fast_path_executions: 45,         # Rules executed via fast-path optimisation
   rete_network_executions: 11,      # Rules executed via full RETE network
   alpha_nodes_saved_by_sharing: 12  # Optimization metric
 } = Presto.get_engine_statistics(engine)
@@ -527,22 +527,22 @@ flowchart TD
 
 ```elixir
 # Analyze individual rule complexity and strategy
-analysis = Presto.RuleEngine.analyze_rule(engine, :adult_rule)
+analysis = Presto.RuleEngine.analyse_rule(engine, :adult_rule)
 # Returns: %{strategy: :fast_path, complexity: :simple, ...}
 
 # Analyze entire rule set
-rule_set_analysis = Presto.RuleEngine.analyze_rule_set(engine)
+rule_set_analysis = Presto.RuleEngine.analyse_rule_set(engine)
 
-# Configure optimization settings
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+# Configure optimisation settings
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   enable_alpha_sharing: true,
   enable_rule_batching: true,
   fast_path_threshold: 2
 ])
 
-# Get current optimization configuration
-config = Presto.RuleEngine.get_optimization_config(engine)
+# Get current optimisation configuration
+config = Presto.RuleEngine.get_optimisation_config(engine)
 ```
 
 ### Execution Order Tracking
@@ -674,7 +674,7 @@ end
 Currently, the engine has minimal configuration options. Optimization settings can be configured at runtime:
 
 ```elixir
-# Default optimization configuration
+# Default optimisation configuration
 default_config = %{
   enable_fast_path: false,           # Fast-path execution for simple rules
   enable_alpha_sharing: true,        # Share alpha nodes between rules
@@ -683,8 +683,8 @@ default_config = %{
   sharing_threshold: 2               # Min rules sharing pattern for alpha node sharing
 }
 
-# Update optimization settings
-Presto.RuleEngine.configure_optimization(engine, [
+# Update optimisation settings
+Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   fast_path_threshold: 3
 ])
@@ -744,7 +744,7 @@ flowchart LR
 - **Rule Execution**: O(F) for fast-path rules, O(F×P) for RETE rules where F=facts, P=patterns
 - **Memory Usage**: Linear with fact count, shared alpha nodes reduce rule network size
 
-This API provides a solid foundation for building rules engines in Elixir, balancing simplicity for basic use cases with performance optimizations for production scenarios.
+This API provides a solid foundation for building rules engines in Elixir, balancing simplicity for basic use cases with performance optimisations for production scenarios.
 
 ## Future Considerations
 

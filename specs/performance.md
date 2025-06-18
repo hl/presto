@@ -7,7 +7,7 @@
 **Throughput Targets (Achieved):**
 - **Fact Assertion**: Direct ETS operations with consolidated architecture
 - **Rule Execution**: Dual-strategy execution (fast-path + RETE) based on rule complexity
-- **Memory Usage**: Linear growth with fact count, optimized through alpha node sharing
+- **Memory Usage**: Linear growth with fact count, optimised through alpha node sharing
 - **Latency**: Sub-millisecond for fast-path rules, low-latency for RETE network rules
 
 **Scalability Characteristics (Implemented):**
@@ -91,8 +91,8 @@ end
 
 **Performance Impact:**
 - **Simple rules**: Bypass full RETE network for 2-10x speedup
-- **Complex rules**: Use full RETE network with optimized joins
-- **Automatic selection**: No manual optimization required
+- **Complex rules**: Use full RETE network with optimised joins
+- **Automatic selection**: No manual optimisation required
 
 ```mermaid
 graph LR
@@ -120,8 +120,8 @@ graph LR
 
 #### Runtime Configuration
 ```elixir
-# Configurable optimization settings
-optimization_config: %{
+# Configurable optimisation settings
+optimisation_config: %{
   enable_fast_path: true,           # Fast-path execution for simple rules
   enable_alpha_sharing: true,       # Share alpha nodes between rules
   enable_rule_batching: true,       # Batch rule execution for efficiency
@@ -129,8 +129,8 @@ optimization_config: %{
   sharing_threshold: 2              # Min rules sharing pattern for alpha node sharing
 }
 
-# Runtime optimization configuration
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+# Runtime optimisation configuration
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   fast_path_threshold: 3
 ])
@@ -138,14 +138,14 @@ optimization_config: %{
 
 #### Rule Complexity Analysis
 ```elixir
-# Automatic rule analysis for optimization decisions
+# Automatic rule analysis for optimisation decisions
 %{
   strategy: :fast_path | :rete_network,
   complexity: :simple | :moderate | :complex,
   fact_types: [atom()],
   variable_count: integer(),
   condition_count: integer()
-} = Presto.RuleEngine.analyze_rule(engine, rule_id)
+} = Presto.RuleEngine.analyse_rule(engine, rule_id)
 ```
 
 ### 4. Memory Access Optimizations
@@ -297,7 +297,7 @@ engine_statistics: %{
   last_execution_time: integer(),
   fast_path_executions: integer(),        # Optimization metric
   rete_network_executions: integer(),     # Traditional execution metric
-  alpha_nodes_saved_by_sharing: integer() # Memory optimization metric
+  alpha_nodes_saved_by_sharing: integer() # Memory optimisation metric
 }
 ```
 
@@ -323,8 +323,8 @@ execution_order = Presto.RuleEngine.get_last_execution_order(engine)
 # Built-in execution timing
 defp execute_rules(state, concurrent) do
   {time, {results, updated_state}} = :timer.tc(fn ->
-    if state.optimization_config.enable_fast_path do
-      execute_rules_optimized(state, concurrent)
+    if state.optimisation_config.enable_fast_path do
+      execute_rules_optimised(state, concurrent)
     else
       execute_rules_traditional(state, concurrent)
     end
@@ -395,7 +395,7 @@ graph TD
 **RETE Network Rules (>2 conditions):**
 - **Fact Assertion**: O(1) ETS insert + O(A) alpha nodes + O(B) beta propagation
 - **Rule Execution**: O(F×P) where F = facts, P = patterns per rule
-- **Memory Usage**: O(F×R×P) for complete network state (optimized through sharing)
+- **Memory Usage**: O(F×R×P) for complete network state (optimised through sharing)
 
 ### Memory Usage Patterns
 
@@ -445,22 +445,22 @@ graph LR
 ### Features Not Implemented
 
 **Advanced Optimizations:**
-- Join order optimization based on selectivity
+- Join order optimisation based on selectivity
 - Hash-based join indexing for large memory tables
-- Pattern compilation to optimized bytecode
-- Adaptive optimization based on runtime patterns
+- Pattern compilation to optimised bytecode
+- Adaptive optimisation based on runtime patterns
 
 **Comprehensive Benchmarking:**
 - Automated performance regression testing
 - Load testing framework for concurrent clients
-- Memory profiling and optimization analysis
+- Memory profiling and optimisation analysis
 - Scalability testing with large rule sets
 
 **Advanced Monitoring:**
 - Real-time performance alerts and thresholds
 - Performance dashboard and visualization
 - Bottleneck analysis and recommendations
-- Adaptive optimization configuration
+- Adaptive optimisation configuration
 
 ### Performance Tuning Guidelines
 
@@ -514,21 +514,21 @@ flowchart TD
 
 ```elixir
 # High-throughput workloads
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   enable_rule_batching: true,
   fast_path_threshold: 3
 ])
 
 # Low-latency workloads  
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_fast_path: true,
   enable_alpha_sharing: true,
   fast_path_threshold: 2
 ])
 
 # Memory-constrained environments
-:ok = Presto.RuleEngine.configure_optimization(engine, [
+:ok = Presto.RuleEngine.configure_optimisation(engine, [
   enable_alpha_sharing: true,
   enable_rule_batching: false,
   sharing_threshold: 1
@@ -557,13 +557,13 @@ facts_table: :ets.new(:facts, [:set, :public,
 - Lazy evaluation of expensive joins
 
 **Pattern Compilation:**
-- Compile-time pattern optimization
+- Compile-time pattern optimisation
 - Generated matching functions
-- Guard condition optimization
+- Guard condition optimisation
 
 **Adaptive Systems:**
 - Runtime performance learning
-- Automatic optimization configuration
+- Automatic optimisation configuration
 - Dynamic strategy adjustment
 
 **Distributed Processing:**
@@ -571,4 +571,4 @@ facts_table: :ets.new(:facts, [:set, :public,
 - Distributed rule execution
 - Network partitioning strategies
 
-This performance specification reflects the current implemented optimizations while providing guidance for effective usage and future enhancement opportunities. The system successfully delivers good performance through strategic architectural choices rather than complex optimization algorithms.
+This performance specification reflects the current implemented optimisations while providing guidance for effective usage and future enhancement opportunities. The system successfully delivers good performance through strategic architectural choices rather than complex optimisation algorithms.

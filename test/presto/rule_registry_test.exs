@@ -78,9 +78,9 @@ defmodule Presto.RuleRegistryTest do
     end
   end
 
-  describe "behavior validation" do
-    test "rejects modules that don't implement the behavior" do
-      # Try to register a module that doesn't implement the behavior
+  describe "behaviour validation" do
+    test "rejects modules that don't implement the behaviour" do
+      # Try to register a module that doesn't implement the behaviour
       result = RuleRegistry.register_rule("invalid_rule", String)
 
       assert {:error, {:invalid_module, _message}} = result
