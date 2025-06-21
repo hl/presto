@@ -3,14 +3,16 @@ defmodule Presto.PrestoTestHelpers do
   General test helpers for Presto RETE engine integration testing.
   """
 
+  import ExUnit.Callbacks, only: [start_supervised!: 1]
+
   @doc """
   Starts a Presto engine with the given rules.
   """
   def start_engine_with_rules(rules, opts \\ []) do
     engine_opts = Keyword.merge([rules: rules], opts)
 
-    {:ok, engine} = Presto.RuleEngine.start_link(engine_opts)
-    engine
+    # Use start_supervised! to ensure proper cleanup in test environment
+    start_supervised!({Presto.RuleEngine, engine_opts})
   end
 
   @doc """

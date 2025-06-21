@@ -856,9 +856,11 @@ defmodule Presto.Examples.CaliforniaSpikeBreakRulesTest do
       jurisdiction = %{state: "california"}
 
       # Process same session multiple times concurrently
+      task_supervisor = start_supervised!(Task.Supervisor)
+
       tasks =
         for _i <- 1..10 do
-          Task.async(fn ->
+          Task.Supervisor.async(task_supervisor, fn ->
             CaliforniaSpikeBreakRules.process_spike_break_compliance(
               [work_session],
               %{},

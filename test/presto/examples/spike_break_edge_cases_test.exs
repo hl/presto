@@ -805,9 +805,11 @@ defmodule Presto.Examples.SpikeBreakEdgeCasesTest do
         %{state: "california", region: "central_valley"}
       ]
 
+      task_supervisor = start_supervised!(Task.Supervisor)
+
       tasks =
         Enum.map(jurisdictions, fn jurisdiction ->
-          Task.async(fn ->
+          Task.Supervisor.async(task_supervisor, fn ->
             CaliforniaSpikeBreakRules.process_spike_break_compliance(
               [work_session],
               %{},
