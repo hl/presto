@@ -329,7 +329,7 @@ defmodule Presto do
       :ok = add_rules(engine, rules)
     end
 
-    # Add facts if provided  
+    # Add facts if provided
     unless Enum.empty?(facts) do
       :ok = assert_facts(engine, facts)
     end

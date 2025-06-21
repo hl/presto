@@ -291,7 +291,7 @@ defmodule Presto.Examples.TroncRulesTest do
   describe "TRONC rules creation" do
     test "create_rules/1 generates valid rules" do
       # Test that the module can create rules
-      assert function_exported?(TroncRules, :create_rules, 1)
+      assert function_exported?(Presto.Examples.TroncRules, :create_rules, 1)
 
       rules = TroncRules.create_rules(%{})
       assert is_list(rules)

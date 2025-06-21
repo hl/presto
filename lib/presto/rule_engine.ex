@@ -1732,19 +1732,18 @@ defmodule Presto.RuleEngine do
     # Check if fact matches any pattern in the rule
     matching_pattern = Enum.find(patterns, &fact_matches_pattern?(fact, &1))
 
-    if matching_pattern do
-      # Check if tests would pass
-      bindings = extract_bindings_from_fact(fact, matching_pattern)
+    matching_pattern && evaluate_rule_tests(fact, matching_pattern, tests)
+  end
 
-      Enum.all?(tests, fn {var, op, value} ->
-        case Map.get(bindings, var) do
-          nil -> false
-          bound_value -> evaluate_operator(op, bound_value, value)
-        end
-      end)
-    else
-      false
-    end
+  defp evaluate_rule_tests(fact, matching_pattern, tests) do
+    bindings = extract_bindings_from_fact(fact, matching_pattern)
+
+    Enum.all?(tests, fn {var, op, value} ->
+      case Map.get(bindings, var) do
+        nil -> false
+        bound_value -> evaluate_operator(op, bound_value, value)
+      end
+    end)
   end
 
   # Introspection and Debugging Implementation
@@ -1791,23 +1790,7 @@ defmodule Presto.RuleEngine do
     # Execute rules with detailed profiling
     {total_time, results} =
       :timer.tc(fn ->
-        Enum.map(rules_to_profile, fn rule_id ->
-          rule = Map.get(state.rules, rule_id)
-
-          {rule_time, rule_results} =
-            :timer.tc(fn ->
-              execute_single_rule(rule_id, rule, state)
-            end)
-
-          %{
-            rule_id: rule_id,
-            execution_time_us: rule_time,
-            results_count: length(rule_results),
-            results: rule_results,
-            memory_before: :erlang.process_info(self(), :memory),
-            memory_after: :erlang.process_info(self(), :memory)
-          }
-        end)
+        Enum.map(rules_to_profile, &profile_single_rule(&1, state))
       end)
 
     %{
@@ -1818,6 +1801,24 @@ defmodule Presto.RuleEngine do
         slowest_rule: Enum.max_by(results, & &1.execution_time_us),
         total_results: Enum.sum(Enum.map(results, & &1.results_count))
       }
+    }
+  end
+
+  defp profile_single_rule(rule_id, state) do
+    rule = Map.get(state.rules, rule_id)
+
+    {rule_time, rule_results} =
+      :timer.tc(fn ->
+        execute_single_rule(rule_id, rule, state)
+      end)
+
+    %{
+      rule_id: rule_id,
+      execution_time_us: rule_time,
+      results_count: length(rule_results),
+      results: rule_results,
+      memory_before: :erlang.process_info(self(), :memory),
+      memory_after: :erlang.process_info(self(), :memory)
     }
   end
 
@@ -1924,8 +1925,9 @@ defmodule Presto.RuleEngine do
   defp get_beta_nodes_count(state) do
     # Simplified beta node count - would need proper implementation
     case state.beta_network do
-      beta_nodes when is_map(beta_nodes) -> map_size(beta_nodes)
-      _ -> 0
+      # Would query the beta network process
+      pid when is_pid(pid) -> 0
+      nil -> 0
     end
   rescue
     _ -> 0
@@ -2039,7 +2041,7 @@ defmodule Presto.RuleEngine do
   defp maybe_recommend_memory_optimization(state, recommendations) do
     fact_count = WorkingMemory.get_fact_count(state)
 
-    if fact_count > 10000 do
+    if fact_count > 10_000 do
       recommendation = %{
         type: :memory_optimization,
         severity: :high,
