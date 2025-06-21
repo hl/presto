@@ -288,9 +288,9 @@ defmodule Presto.Examples.TroncRulesTest do
     end
   end
 
-  describe "RuleBehaviour implementation" do
-    test "implements create_rules/1 callback" do
-      # Test that the module properly implements the RuleBehaviour
+  describe "TRONC rules creation" do
+    test "create_rules/1 generates valid rules" do
+      # Test that the module can create rules
       assert function_exported?(TroncRules, :create_rules, 1)
 
       rules = TroncRules.create_rules(%{})

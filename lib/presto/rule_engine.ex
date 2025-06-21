@@ -10,9 +10,8 @@ defmodule Presto.RuleEngine do
   require Logger
 
   alias Presto.BetaNetwork
-  alias Presto.FastPathExecutor
   alias Presto.Logger, as: PrestoLogger
-  alias Presto.RuleAnalyzer
+  alias Presto.Rule
   alias Presto.Utils
 
   @type rule :: %{
@@ -124,8 +123,8 @@ defmodule Presto.RuleEngine do
     GenServer.call(pid, {:analyze_rule, rule_id})
   end
 
-  @spec analyze_rule_set(GenServer.server()) :: map()
-  def analyze_rule_set(pid) do
+  @spec get_rule_set_analysis(GenServer.server()) :: map()
+  def get_rule_set_analysis(pid) do
     GenServer.call(pid, :analyze_rule_set)
   end
 
@@ -140,6 +139,101 @@ defmodule Presto.RuleEngine do
   end
 
   # Private functions
+
+  # Rule Analysis (merged from RuleAnalyzer)
+  defp analyze_rule(rule) do
+    conditions = Map.get(rule, :conditions, [])
+    {patterns, tests} = separate_conditions(conditions)
+
+    pattern_count = length(patterns)
+    test_count = length(tests)
+    join_count = calculate_join_count(patterns)
+
+    complexity = determine_complexity(pattern_count, test_count, join_count)
+    strategy = choose_execution_strategy(complexity, pattern_count, join_count)
+
+    %{
+      complexity: complexity,
+      strategy: strategy,
+      pattern_count: pattern_count,
+      test_count: test_count,
+      join_count: join_count,
+      fact_types: extract_fact_types(patterns),
+      variable_count: count_variables(patterns)
+    }
+  end
+
+  defp determine_complexity(pattern_count, test_count, join_count) do
+    total_complexity = pattern_count + test_count + join_count * 2
+
+    cond do
+      total_complexity <= 2 and join_count == 0 -> :simple
+      total_complexity <= 5 and join_count <= 1 -> :moderate
+      true -> :complex
+    end
+  end
+
+  defp choose_execution_strategy(:simple, pattern_count, join_count)
+       when pattern_count <= 2 and join_count == 0 do
+    :fast_path
+  end
+
+  defp choose_execution_strategy(_complexity, _pattern_count, _join_count) do
+    :rete_network
+  end
+
+  defp calculate_join_count(patterns) when length(patterns) <= 1, do: 0
+
+  defp calculate_join_count(patterns) do
+    # Count potential joins based on shared variables
+    patterns
+    |> Enum.map(&extract_variables_from_pattern/1)
+    |> count_variable_intersections()
+  end
+
+  defp count_variable_intersections(variable_sets) do
+    variable_sets
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {vars1, i} ->
+      variable_sets
+      |> Enum.drop(i + 1)
+      |> Enum.map(fn vars2 ->
+        length(Enum.filter(vars1, &(&1 in vars2)))
+      end)
+    end)
+    |> Enum.sum()
+  end
+
+  defp extract_fact_types(patterns) do
+    patterns
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.uniq()
+  end
+
+  defp count_variables(patterns) do
+    patterns
+    |> Enum.flat_map(&extract_variables_from_pattern/1)
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp analyze_rule_set(rules) do
+    analyses = Enum.map(rules, &analyze_rule/1)
+
+    fast_path_count = Enum.count(analyses, &(&1.strategy == :fast_path))
+    total_rules = length(rules)
+
+    %{
+      total_rules: total_rules,
+      fast_path_eligible: fast_path_count,
+      complexity_distribution: %{
+        simple: Enum.count(analyses, &(&1.complexity == :simple)),
+        moderate: Enum.count(analyses, &(&1.complexity == :moderate)),
+        complex: Enum.count(analyses, &(&1.complexity == :complex))
+      },
+      fact_type_coverage: analyses |> Enum.flat_map(& &1.fact_types) |> Enum.uniq() |> length()
+    }
+  end
 
   defp generate_engine_id do
     "engine_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
@@ -245,7 +339,7 @@ defmodule Presto.RuleEngine do
 
   @impl true
   def handle_call({:add_rule, rule}, _from, state) do
-    case validate_rule(rule) do
+    case Rule.validate(rule) do
       :ok -> process_valid_rule(rule, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -428,7 +522,7 @@ defmodule Presto.RuleEngine do
   @impl true
   def handle_call(:analyze_rule_set, _from, state) do
     rules = Map.values(state.rules)
-    analysis = RuleAnalyzer.analyze_rule_set(rules)
+    analysis = analyze_rule_set(rules)
     {:reply, analysis, state}
   end
 
@@ -497,33 +591,19 @@ defmodule Presto.RuleEngine do
     })
   end
 
-  defp validate_rule(rule) do
-    required_fields = [:id, :conditions, :action]
+  defp process_valid_rule(rule, state) do
+    case Map.get(rule, :type) do
+      :aggregation ->
+        process_aggregation_rule(rule, state)
 
-    cond do
-      not is_map(rule) ->
-        {:error, :rule_must_be_map}
-
-      not Enum.all?(required_fields, &Map.has_key?(rule, &1)) ->
-        {:error, :missing_required_fields}
-
-      not is_atom(rule.id) ->
-        {:error, :id_must_be_atom}
-
-      not is_list(rule.conditions) ->
-        {:error, :conditions_must_be_list}
-
-      not is_function(rule.action) ->
-        {:error, :action_must_be_function}
-
-      true ->
-        :ok
+      _ ->
+        process_standard_rule(rule, state)
     end
   end
 
-  defp process_valid_rule(rule, state) do
+  defp process_standard_rule(rule, state) do
     # Phase 1: Standard rule analysis
-    rule_analysis = RuleAnalyzer.analyze_rule(rule)
+    rule_analysis = analyze_rule(rule)
 
     # Phase 2: Create network (simplified - no compile-time optimization)
     {network_nodes, new_state} = create_rule_network(rule, rule_analysis, state)
@@ -542,6 +622,49 @@ defmodule Presto.RuleEngine do
         fast_path_rules: updated_fast_path_rules,
         rule_statistics: updated_statistics,
         engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
+    }
+
+    {:reply, :ok, final_state}
+  end
+
+  defp process_aggregation_rule(rule, state) do
+    # Create alpha nodes for conditions (patterns to match)
+    {alpha_nodes, state_with_alpha} = create_alpha_nodes_for_conditions(rule.conditions, state)
+
+    # Create aggregation node in beta network
+    input_source =
+      if length(alpha_nodes) == 1 do
+        # Single alpha node input
+        hd(alpha_nodes)
+      else
+        # Multiple alpha nodes need join first
+        {beta_join_nodes, _} = create_beta_nodes_for_rule(alpha_nodes, state_with_alpha)
+        # Use the final join result
+        List.last(beta_join_nodes)
+      end
+
+    # Create aggregation node
+    {:ok, agg_node_id} =
+      BetaNetwork.create_aggregation_node(
+        state_with_alpha.beta_network,
+        {:aggregate, input_source, rule.group_by, rule.aggregate, rule.field}
+      )
+
+    network_nodes = %{
+      alpha_nodes: alpha_nodes,
+      beta_nodes: [agg_node_id],
+      aggregation_node: agg_node_id
+    }
+
+    updated_rules = Map.put(state_with_alpha.rules, rule.id, rule)
+    updated_networks = Map.put(state_with_alpha.rule_networks, rule.id, network_nodes)
+
+    final_state = %{
+      state_with_alpha
+      | rules: updated_rules,
+        rule_networks: updated_networks,
+        engine_statistics:
+          Map.update!(state_with_alpha.engine_statistics, :total_rules, &(&1 + 1))
     }
 
     {:reply, :ok, final_state}
@@ -937,7 +1060,17 @@ defmodule Presto.RuleEngine do
     execute_single_rule(rule_id, rule, state, :no_error_handling)
   end
 
-  defp execute_single_rule(rule_id, rule, state, :no_error_handling) do
+  defp execute_single_rule(rule_id, rule, state, error_handling) do
+    case Map.get(rule, :type) do
+      :aggregation ->
+        execute_aggregation_rule(rule_id, rule, state, error_handling)
+
+      _ ->
+        execute_standard_rule(rule_id, rule, state, error_handling)
+    end
+  end
+
+  defp execute_standard_rule(rule_id, rule, state, :no_error_handling) do
     # Get matching facts for this rule
     # This is simplified - production would use proper network results
     facts = get_rule_matches(rule, state)
@@ -961,7 +1094,7 @@ defmodule Presto.RuleEngine do
     results
   end
 
-  defp execute_single_rule(rule_id, rule, state, :with_error_handling) do
+  defp execute_standard_rule(rule_id, rule, state, :with_error_handling) do
     # Get matching facts for this rule
     facts = get_rule_matches(rule, state)
 
@@ -977,6 +1110,81 @@ defmodule Presto.RuleEngine do
     update_rule_statistics(rule_id, time, length(facts), state)
 
     results
+  end
+
+  defp execute_aggregation_rule(rule_id, rule, state, _error_handling) do
+    # Get aggregation results from beta network
+    network_nodes = Map.get(state.rule_networks, rule_id, %{})
+    agg_node_id = Map.get(network_nodes, :aggregation_node)
+
+    {time, results} =
+      :timer.tc(fn ->
+        if agg_node_id do
+          # Get aggregation results from beta memory
+          agg_results = BetaNetwork.get_beta_memory(state.beta_network, agg_node_id)
+
+          # Transform aggregation results to output facts
+          Enum.map(agg_results, fn result ->
+            transform_aggregation_result(result, rule.output)
+          end)
+        else
+          []
+        end
+      end)
+
+    # Update rule statistics
+    update_rule_statistics(rule_id, time, length(results), state)
+
+    results
+  end
+
+  defp transform_aggregation_result(result, output_pattern) when is_tuple(output_pattern) do
+    # Transform the aggregation result map into the specified output pattern
+    output_list = Tuple.to_list(output_pattern)
+
+    # Find the aggregated value key (e.g., :count, :sum_hours, etc.)
+    aggregate_key =
+      result
+      |> Map.keys()
+      |> Enum.find(fn key ->
+        key_str = Atom.to_string(key)
+
+        String.starts_with?(key_str, "sum_") or
+          String.starts_with?(key_str, "avg_") or
+          String.starts_with?(key_str, "min_") or
+          String.starts_with?(key_str, "max_") or
+          String.starts_with?(key_str, "collect_") or
+          key == :count
+      end)
+
+    aggregate_value = Map.get(result, aggregate_key)
+
+    transformed =
+      Enum.map(output_list, fn
+        # Replace :value with the aggregated value
+        :value ->
+          aggregate_value
+
+        # For tuples (like group key tuples), replace atoms with their values
+        tuple when is_tuple(tuple) ->
+          tuple
+          |> Tuple.to_list()
+          |> Enum.map(fn
+            atom when is_atom(atom) -> Map.get(result, atom, atom)
+            other -> other
+          end)
+          |> List.to_tuple()
+
+        # For direct atoms, get their value from the result
+        atom when is_atom(atom) ->
+          Map.get(result, atom, atom)
+
+        # Pass through anything else
+        other ->
+          other
+      end)
+
+    List.to_tuple(transformed)
   end
 
   defp execute_rules_with_error_handling(state) do
@@ -1181,6 +1389,94 @@ defmodule Presto.RuleEngine do
     end
   end
 
+  # Fast-path execution (merged from FastPathExecutor)
+  defp execute_fast_path(rule, state) do
+    # Get all facts from working memory
+    all_facts = do_get_facts(state)
+
+    # Extract pattern from rule
+    conditions = Map.get(rule, :conditions, [])
+    {patterns, tests} = separate_conditions(conditions)
+    pattern = hd(patterns)
+    fact_type = elem(pattern, 0)
+
+    # Filter facts by type
+    relevant_facts =
+      Enum.filter(all_facts, fn fact ->
+        elem(fact, 0) == fact_type
+      end)
+
+    # Find matching facts
+    matching_bindings = find_fast_path_matches(relevant_facts, pattern, tests)
+
+    # Execute action for each match
+    results =
+      Enum.flat_map(matching_bindings, fn bindings ->
+        try do
+          rule.action.(bindings)
+        rescue
+          _ -> []
+        end
+      end)
+
+    {:ok, results}
+  end
+
+  defp find_fast_path_matches(facts, pattern, tests) do
+    facts
+    |> Enum.filter(&fact_matches_pattern?(&1, pattern))
+    |> Enum.map(&extract_bindings_from_fact(&1, pattern))
+    |> Enum.filter(&all_tests_pass?(&1, tests))
+  end
+
+  defp fact_matches_pattern?(fact, pattern) when tuple_size(fact) != tuple_size(pattern),
+    do: false
+
+  defp fact_matches_pattern?(fact, pattern) do
+    fact_list = Tuple.to_list(fact)
+    pattern_list = Tuple.to_list(pattern)
+
+    Enum.zip(fact_list, pattern_list)
+    |> Enum.with_index()
+    |> Enum.all?(fn {{fact_elem, pattern_elem}, index} ->
+      element_matches?(fact_elem, pattern_elem, index)
+    end)
+  end
+
+  defp element_matches?(_fact_elem, :_, _index), do: true
+  # Fact type must match
+  defp element_matches?(fact_elem, pattern_elem, 0), do: fact_elem == pattern_elem
+
+  defp element_matches?(fact_elem, pattern_elem, _index) when is_atom(pattern_elem) do
+    Utils.variable?(pattern_elem) or fact_elem == pattern_elem
+  end
+
+  defp element_matches?(fact_elem, pattern_elem, _index), do: fact_elem == pattern_elem
+
+  defp extract_bindings_from_fact(fact, pattern) do
+    fact_list = Tuple.to_list(fact)
+    pattern_list = Tuple.to_list(pattern)
+
+    Enum.zip(fact_list, pattern_list)
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {{fact_elem, pattern_elem}, _index}, acc ->
+      if Utils.variable?(pattern_elem) do
+        Map.put(acc, pattern_elem, fact_elem)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp all_tests_pass?(bindings, tests) do
+    Enum.all?(tests, fn {var, op, value} ->
+      case Map.get(bindings, var) do
+        nil -> false
+        bound_value -> evaluate_operator(op, bound_value, value)
+      end
+    end)
+  end
+
   defp execute_fast_path_rules_batched(fast_path_rules, state) do
     # Group rules by fact type for batched execution
     rules_by_fact_type =
@@ -1189,21 +1485,18 @@ defmodule Presto.RuleEngine do
 
     # Execute each group as a batch
     Enum.flat_map(rules_by_fact_type, fn {_fact_type, rules} ->
-      rule_list = Enum.map(rules, fn {_rule_id, rule} -> rule end)
-
-      case FastPathExecutor.execute_batch_fast_path(rule_list, state.working_memory) do
-        {:ok, results} -> results
-        {:error, _reason} -> []
-      end
+      # Execute each rule in the batch
+      Enum.flat_map(rules, fn {_rule_id, rule} ->
+        {:ok, results} = execute_fast_path(rule, state)
+        results
+      end)
     end)
   end
 
   defp execute_fast_path_rules_individually(fast_path_rules, state) do
     Enum.flat_map(fast_path_rules, fn {_rule_id, rule} ->
-      case FastPathExecutor.execute_fast_path(rule, state.working_memory) do
-        {:ok, results} -> results
-        {:error, _reason} -> []
-      end
+      {:ok, results} = execute_fast_path(rule, state)
+      results
     end)
   end
 

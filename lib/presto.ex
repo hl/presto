@@ -241,78 +241,49 @@ defmodule Presto do
     RuleEngine.get_engine_statistics(engine)
   end
 
-  # Batch Operations API
+  # Bulk Operations
 
   @doc """
-  Starts a batch operation for efficient bulk fact processing.
+  Asserts multiple facts at once.
 
-  Batch operations allow you to assert multiple facts and fire rules
-  once at the end, which is more efficient than processing facts individually.
+  More efficient than asserting facts one by one when dealing with large datasets.
 
   ## Examples
 
-      batch = Presto.start_batch(engine)
-      batch = Presto.batch_assert_fact(batch, {:person, "Alice", 25})
-      batch = Presto.batch_assert_fact(batch, {:person, "Bob", 30})
-      results = Presto.execute_batch(batch)
+      facts = [
+        {:person, "Alice", 25},
+        {:person, "Bob", 30},
+        {:employment, "Alice", "TechCorp"},
+        {:employment, "Bob", "StartupInc"}
+      ]
+      
+      :ok = Presto.assert_facts(engine, facts)
   """
-  @spec start_batch(GenServer.server()) :: map()
-  def start_batch(engine) do
-    %{
-      engine: engine,
-      facts_to_assert: [],
-      facts_to_retract: [],
-      rules_to_add: []
-    }
+  @spec assert_facts(GenServer.server(), [fact()]) :: :ok
+  def assert_facts(engine, facts) when is_list(facts) do
+    Enum.each(facts, &assert_fact(engine, &1))
+    :ok
   end
 
   @doc """
-  Adds a fact to a batch for later assertion.
+  Adds multiple rules at once.
+
+  ## Examples
+
+      rules = [
+        Presto.Rule.new(:rule1, conditions1, action1),
+        Presto.Rule.new(:rule2, conditions2, action2)
+      ]
+      
+      :ok = Presto.add_rules(engine, rules)
   """
-  @spec batch_assert_fact(map(), fact()) :: map()
-  def batch_assert_fact(batch, fact) do
-    Map.update!(batch, :facts_to_assert, fn facts -> [fact | facts] end)
-  end
+  @spec add_rules(GenServer.server(), [rule()]) :: :ok | {:error, term()}
+  def add_rules(engine, rules) when is_list(rules) do
+    results = Enum.map(rules, &add_rule(engine, &1))
 
-  @doc """
-  Adds a fact to a batch for later retraction.
-  """
-  @spec batch_retract_fact(map(), fact()) :: map()
-  def batch_retract_fact(batch, fact) do
-    Map.update!(batch, :facts_to_retract, fn facts -> [fact | facts] end)
-  end
-
-  @doc """
-  Adds a rule to a batch for later addition.
-  """
-  @spec batch_add_rule(map(), rule()) :: map()
-  def batch_add_rule(batch, rule) do
-    Map.update!(batch, :rules_to_add, fn rules -> [rule | rules] end)
-  end
-
-  @doc """
-  Executes a batch operation, applying all queued changes and firing rules.
-
-  Returns the results of rule execution after all batch changes are applied.
-  """
-  @spec execute_batch(map()) :: [rule_result()]
-  def execute_batch(batch) do
-    engine = batch.engine
-
-    # Apply all changes in the batch
-    Enum.each(Enum.reverse(batch.rules_to_add), fn rule ->
-      add_rule(engine, rule)
-    end)
-
-    Enum.each(Enum.reverse(batch.facts_to_retract), fn fact ->
-      retract_fact(engine, fact)
-    end)
-
-    Enum.each(Enum.reverse(batch.facts_to_assert), fn fact ->
-      assert_fact(engine, fact)
-    end)
-
-    # Fire rules once after all changes
-    fire_rules(engine)
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> :ok
+      error -> error
+    end
   end
 end

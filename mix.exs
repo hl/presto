@@ -53,14 +53,9 @@ defmodule Presto.MixProject do
             Presto.BetaNetwork
           ],
           "Rules & Registry": [
+            Presto.Rule,
             Presto.RuleRegistry,
-            Presto.RuleBehaviour,
-            Presto.RuleAnalyzer
-          ],
-          Requirements: [
-            Presto.RequirementBehaviour,
-            Presto.RequirementScheduler,
-            Presto.Requirements.TimeBasedRequirement
+            Presto.RuleBehaviour
           ],
           Examples: [
             Presto.Examples.PayrollRules,
@@ -77,8 +72,7 @@ defmodule Presto.MixProject do
           ],
           Utilities: [
             Presto.Utils,
-            Presto.Application,
-            Presto.FastPathExecutor
+            Presto.Application
           ]
         ],
         source_ref: "v#{@version}",
