@@ -7,6 +7,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-06-21
+
+```mermaid
+graph TD
+    subgraph "🎯 Single Responsibility Principle"
+        A1[SRP-Compliant Module Architecture]
+        A2[PatternMatcher - Pattern Logic Only]
+        A3[AlphaNodeManager - Node CRUD Only]
+        A4[AlphaMemoryManager - Memory Ops Only]
+        A5[AlphaNetworkCoordinator - Coordination Only]
+        A6[RuleStorage - Rule CRUD Only]
+        A7[RuleMetadata - Metadata Only]
+        A8[ExecutionTracker - Execution Order Only]
+    end
+    
+    subgraph "🔧 Architectural Improvements"
+        B1[Split 845-line State Module]
+        B2[Created 8 Focused Modules]
+        B3[Clear Module Boundaries]
+        B4[Eliminated SRP Violations]
+    end
+    
+    subgraph "🚀 Enhanced Maintainability"
+        C1[Each Module Has One Reason to Change]
+        C2[Improved Code Organization]
+        C3[Better Testability]
+        C4[BSSN Principles Applied]
+    end
+    
+    subgraph "✅ Quality Assurance"
+        D1[All 235 Tests Passing]
+        D2[Functionality Preserved]
+        D3[Zero Breaking Changes]
+        D4[Clean Modular Design]
+    end
+    
+    A1 --> A2
+    A2 --> A8
+    B1 --> B2
+    C1 --> C4
+    
+    classDef srp fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef arch fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef maintain fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef quality fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    
+    class A1,A2,A3,A4,A5,A6,A7,A8 srp
+    class B1,B2,B3,B4 arch
+    class C1,C2,C3,C4 maintain
+    class D1,D2,D3,D4 quality
+```
+
+### Major Changes
+
+#### 🎯 Single Responsibility Principle Implementation
+- **Architectural Refactoring**: Split state management into SRP-compliant modules
+- **Created PatternMatcher**: Handles pattern matching and test evaluation logic only
+- **Created AlphaNodeManager**: Manages alpha node CRUD operations and indexing only
+- **Created AlphaMemoryManager**: Handles alpha memory operations and storage only
+- **Created AlphaNetworkCoordinator**: Coordinates alpha network processing only
+- **Created RuleStorage**: Manages rule storage and retrieval operations only
+- **Created RuleMetadata**: Handles rule metadata and optimization data only
+- **Created ExecutionTracker**: Tracks rule execution order and history only
+
+#### 🔧 Code Organization Improvements
+- **Module Separation**: Reduced 845-line State module to focused components
+- **Clear Boundaries**: Each module has exactly one well-defined responsibility
+- **Eliminated Violations**: Fixed all identified SRP violations in previous architecture
+- **Updated RuleEngine**: Refactored GenServer to use new modular architecture
+
+#### 🚀 Developer Experience
+- **Improved Maintainability**: Each module has single reason to change
+- **Better Testability**: Focused modules enable targeted testing
+- **Clean Architecture**: Follows BSSN (Best Simple System for Now) principles
+- **Type Safety**: Maintained comprehensive type specifications
+
+### Technical Details
+- **Zero Breaking Changes**: All existing APIs preserved
+- **Functionality Preserved**: All 235 tests continue to pass
+- **Performance Maintained**: No performance regression in modular design
+- **Documentation Updated**: Module documentation reflects single responsibilities
+
+## [0.3.0] - 2025-06-21
+
+```mermaid
+graph TD
+    subgraph "🏗️ State Module Refactoring"
+        A1[Separated State Management]
+        A2[Created RuleEngine.State Module]
+        A3[Structured State with @enforce_keys]
+        A4[Type-Safe State Operations]
+    end
+    
+    subgraph "🧹 GenServer Simplification"
+        B1[Simplified GenServer Callbacks]
+        B2[Cleaner Message Handling]
+        B3[Removed 200+ Lines of Code]
+        B4[Better Separation of Concerns]
+    end
+    
+    subgraph "📊 Enhanced Maintainability"
+        C1[40+ State Management Functions]
+        C2[Comprehensive Type Specifications]
+        C3[Organised Logical Groupings]
+        C4[Independent State Testing]
+    end
+    
+    subgraph "✅ Quality Assurance"
+        D1[All 235 Tests Passing]
+        D2[Functionality Preserved]
+        D3[BSSN Principles Applied]
+        D4[Improved Code Organisation]
+    end
+    
+    A1 --> A2
+    A2 --> A3
+    B1 --> B2
+    C1 --> C4
+    
+    classDef refactor fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef genserver fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef maintain fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef quality fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    
+    class A1,A2,A3,A4 refactor
+    class B1,B2,B3,B4 genserver
+    class C1,C2,C3,C4 maintain
+    class D1,D2,D3,D4 quality
+```
+
+### Added
+- **Presto.RuleEngine.State Module**: New dedicated module for state management with comprehensive type specifications
+- **Structured State Management**: Introduced `defstruct` with `@enforce_keys` for critical state fields
+- **Type-Safe Operations**: 40+ functions for state manipulation with proper type specifications
+- **Independent State Testing**: State operations can now be tested independently from GenServer
+
+### Changed
+- **GenServer Simplification**: Refactored GenServer to focus purely on message handling, delegating state operations to State module
+- **Improved Code Organisation**: Organised state into 9 logical groupings (Engine Core, ETS Tables, Working Memory, Alpha Network, Rules Management, Statistics, Incremental Processing, Configuration, Fact Lineage)
+- **Enhanced Maintainability**: Cleaner separation of concerns between message handling and state management
+
+### Removed
+- **Duplicated State Logic**: Consolidated state operations from GenServer into dedicated State module
+- **200+ Lines of Code**: Removed redundant state management code from GenServer through consolidation
+
+### Refactoring Details
+- **State Initialisation**: Simplified `init/1` to use `State.new/1`
+- **State Operations**: All working memory, alpha network, and statistics operations moved to State module
+- **Message Handlers**: Updated all `handle_call` functions to use State module APIs
+- **Resource Management**: Centralised cleanup through `State.cleanup/1`
+
+### Quality Assurance
+- **Test Coverage**: All 235 tests continue to pass, ensuring functionality preservation
+- **BSSN Compliance**: Applied "Best Simple System for Now" principles for cleaner architecture
+- **Type Safety**: Enhanced type safety through structured state and enforce_keys
+
+### Impact
+This release represents a significant architectural improvement focused on maintainability and code organisation. The separation of state management from GenServer logic creates clearer boundaries, improves testability, and makes the codebase more maintainable whilst preserving all existing functionality.
+
 ## [0.2.0] - 2025-06-21
 
 ```mermaid
@@ -163,6 +322,7 @@ graph TD
 - Performance benchmarking guides
 - Example implementations for common use cases
 
-[Unreleased]: https://github.com/hl/presto/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hl/presto/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hl/presto/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hl/presto/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hl/presto/releases/tag/v0.1.0

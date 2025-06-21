@@ -1,7 +1,7 @@
 defmodule Presto.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.4.0"
 
   def project do
     [
@@ -71,7 +71,7 @@ defmodule Presto.MixProject do
             Presto.Benchmarks.ResultAnalyzer
           ],
           Utilities: [
-            Presto.Utils,
+            Presto.PatternMatching,
             Presto.Application
           ]
         ],

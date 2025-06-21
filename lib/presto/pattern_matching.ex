@@ -1,9 +1,11 @@
-defmodule Presto.Utils do
+defmodule Presto.PatternMatching do
   @moduledoc """
-  Shared utility functions for the Presto RETE engine.
+  Pattern matching utilities for the Presto RETE engine.
 
-  This module consolidates common functionality used across multiple components
-  to reduce code duplication and ensure consistency.
+  Provides functions to classify atoms as variables or literals
+  in RETE pattern matching contexts. This focused module helps
+  distinguish between different types of atoms during rule compilation
+  and pattern analysis.
   """
 
   @doc """
@@ -18,13 +20,13 @@ defmodule Presto.Utils do
 
   ## Examples
 
-      iex> Presto.Utils.is_literal_atom?(:Person)
+      iex> Presto.PatternMatching.is_literal_atom?(:Person)
       true
-      iex> Presto.Utils.is_literal_atom?(:person)
+      iex> Presto.PatternMatching.is_literal_atom?(:person)
       false
-      iex> Presto.Utils.is_literal_atom?(:variable_name)
+      iex> Presto.PatternMatching.is_literal_atom?(:variable_name)
       false
-      iex> Presto.Utils.is_literal_atom?(:ok)
+      iex> Presto.PatternMatching.is_literal_atom?(:ok)
       true
   """
   @spec is_literal_atom?(atom()) :: boolean()
@@ -50,11 +52,11 @@ defmodule Presto.Utils do
 
   ## Examples
 
-      iex> Presto.Utils.variable?(:name)
+      iex> Presto.PatternMatching.variable?(:name)
       true
-      iex> Presto.Utils.variable?(:_)
+      iex> Presto.PatternMatching.variable?(:_)
       false
-      iex> Presto.Utils.variable?(:Person)
+      iex> Presto.PatternMatching.variable?(:Person)
       false
   """
   @spec variable?(atom()) :: boolean()

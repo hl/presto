@@ -12,7 +12,17 @@ defmodule Presto.RuleEngine do
   alias Presto.BetaNetwork
   alias Presto.Logger, as: PrestoLogger
   alias Presto.Rule
-  alias Presto.Utils
+  alias Presto.RuleEngine.AlphaNetworkCoordinator
+  alias Presto.RuleEngine.BetaNetworkCoordinator
+  alias Presto.RuleEngine.Configuration
+  alias Presto.RuleEngine.ExecutionTracker
+  alias Presto.RuleEngine.FactLineage
+  alias Presto.RuleEngine.RuleMetadata
+  alias Presto.RuleEngine.RuleStorage
+  alias Presto.RuleEngine.State
+  alias Presto.RuleEngine.Statistics
+  alias Presto.RuleEngine.WorkingMemory
+  alias Presto.PatternMatching
 
   @type rule :: %{
           id: atom(),
@@ -235,144 +245,20 @@ defmodule Presto.RuleEngine do
     }
   end
 
-  defp generate_engine_id do
-    "engine_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
-  end
-
   # Server implementation
 
   @impl true
   def init(opts) do
-    engine_id = Keyword.get(opts, :engine_id, generate_engine_id())
-    PrestoLogger.log_engine_lifecycle(:info, engine_id, "initializing", %{opts: opts})
-    # Create ETS tables for consolidated working memory and alpha network
-    try do
-      # WorkingMemory ETS tables - optimized for concurrent access
-      facts_table =
-        :ets.new(:facts, [
-          :set,
-          :public,
-          {:read_concurrency, true},
-          {:write_concurrency, true},
-          {:heir, self(), nil}
-        ])
+    case State.new(opts) do
+      {:ok, state} ->
+        # Start beta network using the coordinator
+        case BetaNetworkCoordinator.start_beta_network(state) do
+          {:ok, updated_state} -> {:ok, updated_state}
+          {:error, reason} -> {:stop, reason}
+        end
 
-      changes_table = :ets.new(:changes, [:ordered_set, :private])
-
-      # AlphaNetwork ETS tables - optimized for concurrent rule execution
-      alpha_memories =
-        :ets.new(:alpha_memories, [
-          :set,
-          :public,
-          {:read_concurrency, true},
-          {:write_concurrency, true},
-          {:heir, self(), nil}
-        ])
-
-      compiled_patterns =
-        :ets.new(:compiled_patterns, [
-          :set,
-          :public,
-          {:read_concurrency, true},
-          {:heir, self(), nil}
-        ])
-
-      # Performance optimization: ETS-based statistics collection
-      rule_statistics_table =
-        :ets.new(:rule_statistics, [
-          :set,
-          :public,
-          {:read_concurrency, true},
-          {:write_concurrency, true}
-        ])
-
-      PrestoLogger.log_engine_lifecycle(:debug, engine_id, "ets_tables_created", %{
-        facts_table: facts_table,
-        changes_table: changes_table,
-        alpha_memories: alpha_memories,
-        compiled_patterns: compiled_patterns,
-        rule_statistics_table: rule_statistics_table
-      })
-
-      {:ok, beta_network} =
-        BetaNetwork.start_link(
-          rule_engine: self(),
-          alpha_memories_table: alpha_memories
-        )
-
-      PrestoLogger.log_engine_lifecycle(:debug, engine_id, "beta_network_started", %{
-        pid: beta_network
-      })
-
-      state = %{
-        engine_id: engine_id,
-        beta_network: beta_network,
-        # Consolidated ETS tables
-        facts_table: facts_table,
-        changes_table: changes_table,
-        alpha_memories: alpha_memories,
-        compiled_patterns: compiled_patterns,
-        rule_statistics_table: rule_statistics_table,
-        # Working memory state
-        tracking_changes: false,
-        change_counter: 0,
-        # Alpha network state
-        alpha_nodes: %{},
-        fact_type_index: %{},
-        rules: %{},
-        # Maps rule_id to network node IDs
-        rule_networks: %{},
-        # NEW: Maps rule_id to rule analysis
-        rule_analyses: %{},
-        # NEW: Fast-path eligible rules grouped by fact type
-        fast_path_rules: %{},
-        last_execution_order: [],
-        rule_statistics: %{},
-        engine_statistics: %{
-          total_facts: 0,
-          total_rules: 0,
-          total_rule_firings: 0,
-          last_execution_time: 0,
-          # NEW: Optimization statistics
-          fast_path_executions: 0,
-          rete_network_executions: 0,
-          alpha_nodes_saved_by_sharing: 0
-        },
-        # Timestamp for incremental processing
-        last_incremental_execution: 0,
-        # Facts added since last incremental execution
-        facts_since_incremental: [],
-        # NEW: Enhanced optimization configuration
-        optimization_config: %{
-          enable_fast_path: false,
-          enable_alpha_sharing: true,
-          enable_rule_batching: true,
-          # Max conditions for fast path
-          fast_path_threshold: 2,
-          # Min rules sharing pattern for alpha node sharing
-          sharing_threshold: 2,
-          # NEW: Performance tuning options
-          hash_join_threshold: 50,
-          enable_pattern_compilation_cache: true,
-          enable_statistics_collection: true,
-          memory_pressure_threshold_mb: 1000,
-          auto_tune_thresholds: false
-        },
-        # Fact lineage tracking for incremental processing
-        fact_lineage: %{},
-        fact_generation: 0,
-        result_lineage: %{}
-      }
-
-      PrestoLogger.log_engine_lifecycle(:info, engine_id, "initialized", %{
-        state_keys: Map.keys(state)
-      })
-
-      {:ok, state}
-    rescue
-      error ->
-        PrestoLogger.log_error(error, %{engine_id: engine_id, stage: "initialization"})
-        {:stop, {:initialization_failed, error}}
+      {:error, reason} ->
+        {:stop, reason}
     end
   end
 
@@ -389,7 +275,7 @@ defmodule Presto.RuleEngine do
 
   @impl true
   def handle_call({:remove_rule, rule_id}, _from, state) do
-    case Map.get(state.rule_networks, rule_id) do
+    case RuleMetadata.get_rule_networks(state, rule_id) do
       nil ->
         # Rule doesn't exist, that's fine
         {:reply, :ok, state}
@@ -398,17 +284,11 @@ defmodule Presto.RuleEngine do
         # Remove network nodes
         new_state = cleanup_rule_network(network_nodes, state)
 
-        updated_rules = Map.delete(new_state.rules, rule_id)
-        updated_networks = Map.delete(new_state.rule_networks, rule_id)
-        updated_statistics = Map.delete(new_state.rule_statistics, rule_id)
-
-        final_state = %{
+        final_state =
           new_state
-          | rules: updated_rules,
-            rule_networks: updated_networks,
-            rule_statistics: updated_statistics,
-            engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 - 1))
-        }
+          |> RuleStorage.remove_rule(rule_id)
+          |> RuleMetadata.remove_rule_metadata(rule_id)
+          |> Statistics.remove_rule_statistics(rule_id)
 
         {:reply, :ok, final_state}
     end
@@ -416,65 +296,65 @@ defmodule Presto.RuleEngine do
 
   @impl true
   def handle_call(:get_rules, _from, state) do
-    {:reply, state.rules, state}
+    rules = RuleStorage.get_rules(state)
+    {:reply, rules, state}
   end
 
   @impl true
   def handle_call({:assert_fact, fact}, _from, state) do
-    # Consolidated working memory and alpha network processing
-    new_state = do_assert_fact(state, fact)
+    # Assert fact using WorkingMemory module
+    new_state = WorkingMemory.assert_fact(state, fact)
 
-    # Track fact lineage - assign generation number and mark as input fact
-    fact_key = create_fact_key(fact)
+    # Process fact through alpha network
+    alpha_processed_state = AlphaNetworkCoordinator.process_fact_assertion(new_state, fact)
 
-    updated_fact_lineage =
-      Map.put(new_state.fact_lineage, fact_key, %{
-        fact: fact,
-        generation: new_state.fact_generation,
-        source: :input,
-        derived_from: [],
-        derived_by_rule: nil,
-        timestamp: System.system_time(:microsecond)
-      })
+    # Track fact lineage
+    fact_key = FactLineage.create_fact_key(fact)
 
-    final_state = %{
-      new_state
-      | engine_statistics: Map.update!(new_state.engine_statistics, :total_facts, &(&1 + 1)),
-        facts_since_incremental: [fact | new_state.facts_since_incremental],
-        fact_lineage: updated_fact_lineage,
-        fact_generation: new_state.fact_generation + 1
+    lineage_info = %{
+      fact: fact,
+      generation: alpha_processed_state.fact_generation,
+      source: :input,
+      derived_from: [],
+      derived_by_rule: nil,
+      timestamp: System.system_time(:microsecond)
     }
+
+    final_state =
+      alpha_processed_state
+      |> FactLineage.update_fact_lineage(fact_key, lineage_info)
+      |> Statistics.update_total_facts(1)
+      |> FactLineage.update_facts_since_incremental([
+        fact | alpha_processed_state.facts_since_incremental
+      ])
 
     {:reply, :ok, final_state}
   end
 
   @impl true
   def handle_call({:retract_fact, fact}, _from, state) do
-    # Consolidated working memory and alpha network processing
-    new_state = do_retract_fact(state, fact)
+    # Retract fact using WorkingMemory module
+    new_state = WorkingMemory.retract_fact(state, fact)
 
-    final_state = %{
-      new_state
-      | engine_statistics: Map.update!(new_state.engine_statistics, :total_facts, &(&1 - 1))
-    }
+    # Process fact retraction through alpha network
+    alpha_processed_state = AlphaNetworkCoordinator.process_fact_retraction(new_state, fact)
+
+    # Update statistics
+    final_state = Statistics.update_total_facts(alpha_processed_state, -1)
 
     {:reply, :ok, final_state}
   end
 
   @impl true
   def handle_call(:get_facts, _from, state) do
-    facts = do_get_facts(state)
+    facts = WorkingMemory.get_facts(state)
     {:reply, facts, state}
   end
 
   @impl true
   def handle_call(:clear_facts, _from, state) do
-    new_state = do_clear_facts(state)
-
-    final_state = %{
-      new_state
-      | engine_statistics: Map.put(new_state.engine_statistics, :total_facts, 0)
-    }
+    new_state = WorkingMemory.clear_facts(state)
+    final_state = Statistics.reset_total_facts(new_state)
 
     {:reply, :ok, final_state}
   end
@@ -494,13 +374,13 @@ defmodule Presto.RuleEngine do
       end)
 
     # Clear incremental tracking since we've processed all facts
-    state_with_stats = update_execution_statistics(updated_state, time, length(results))
+    state_with_stats =
+      Statistics.update_execution_statistics(updated_state, time, length(results))
 
-    final_state = %{
+    final_state =
       state_with_stats
-      | facts_since_incremental: [],
-        last_incremental_execution: System.system_time(:microsecond)
-    }
+      |> FactLineage.update_facts_since_incremental([])
+      |> FactLineage.update_incremental_timestamp(System.system_time(:microsecond))
 
     {:reply, results, final_state}
   end
@@ -521,11 +401,10 @@ defmodule Presto.RuleEngine do
         filter_incremental_results(all_results, state.facts_since_incremental, state)
 
       # Clear the new facts list and update timestamp
-      final_state = %{
+      final_state =
         updated_state
-        | facts_since_incremental: [],
-          last_incremental_execution: System.system_time(:microsecond)
-      }
+        |> FactLineage.update_facts_since_incremental([])
+        |> FactLineage.update_incremental_timestamp(System.system_time(:microsecond))
 
       {:reply, incremental_results, final_state}
     end
@@ -539,65 +418,74 @@ defmodule Presto.RuleEngine do
 
   @impl true
   def handle_call(:get_last_execution_order, _from, state) do
-    {:reply, state.last_execution_order, state}
+    execution_order = ExecutionTracker.get_last_execution_order(state)
+    {:reply, execution_order, state}
   end
 
   @impl true
   def handle_call(:get_rule_statistics, _from, state) do
-    {:reply, state.rule_statistics, state}
+    statistics = Statistics.get_all_rule_statistics(state)
+    {:reply, statistics, state}
   end
 
   @impl true
   def handle_call(:get_engine_statistics, _from, state) do
-    {:reply, state.engine_statistics, state}
+    statistics = Statistics.get_engine_statistics(state)
+    {:reply, statistics, state}
   end
 
   @impl true
   def handle_call({:analyze_rule, rule_id}, _from, state) do
-    analysis = Map.get(state.rule_analyses, rule_id)
+    analysis = RuleMetadata.get_rule_analysis(state, rule_id)
     {:reply, analysis, state}
   end
 
   @impl true
   def handle_call(:analyze_rule_set, _from, state) do
-    rules = Map.values(state.rules)
+    rules = RuleStorage.get_rules(state) |> Map.values()
     analysis = analyze_rule_set(rules)
     {:reply, analysis, state}
   end
 
   @impl true
   def handle_call({:configure_optimization, opts}, _from, state) do
-    new_config = Map.merge(state.optimization_config, Map.new(opts))
-    new_state = %{state | optimization_config: new_config}
+    new_state = Configuration.update_optimization_config(state, Map.new(opts))
     {:reply, :ok, new_state}
   end
 
   @impl true
   def handle_call(:get_optimization_config, _from, state) do
-    {:reply, state.optimization_config, state}
+    config = Configuration.get_optimization_config(state)
+    {:reply, config, state}
   end
 
   @impl true
   def handle_call({:get_alpha_memory, node_id}, _from, state) do
-    memory = do_get_alpha_memory(state, node_id)
+    memory = AlphaNetworkCoordinator.get_alpha_memory(state, node_id)
     {:reply, memory, state}
   end
 
   @impl true
   def terminate(_reason, state) do
-    # Clean shutdown of component processes
-    GenServer.stop(state.beta_network)
-
-    # Clean up ETS tables
-    :ets.delete(state.facts_table)
-    :ets.delete(state.changes_table)
-    :ets.delete(state.alpha_memories)
-    :ets.delete(state.compiled_patterns)
-    :ets.delete(state.rule_statistics_table)
-    :ok
+    # Stop beta network using coordinator
+    BetaNetworkCoordinator.stop_beta_network(state)
+    # Clean up state resources
+    State.cleanup(state)
   end
 
   # Private functions
+
+  defp generate_engine_id do
+    "engine_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
+  end
+
+  defp evaluate_operator(:>, bound_value, value), do: bound_value > value
+  defp evaluate_operator(:<, bound_value, value), do: bound_value < value
+  defp evaluate_operator(:>=, bound_value, value), do: bound_value >= value
+  defp evaluate_operator(:<=, bound_value, value), do: bound_value <= value
+  defp evaluate_operator(:==, bound_value, value), do: bound_value == value
+  defp evaluate_operator(:!=, bound_value, value), do: bound_value != value
+  defp evaluate_operator(_, _bound_value, _value), do: false
 
   defp create_rule_network(rule, rule_analysis, state) do
     if should_use_fast_path?(rule_analysis, state) do
@@ -610,25 +498,27 @@ defmodule Presto.RuleEngine do
     end
   end
 
-  defp update_fast_path_rules(rule, rule_analysis, state) do
+  defp update_fast_path_rules_with_metadata(state, rule, rule_analysis) do
     if rule_analysis.strategy == :fast_path do
       fact_type = extract_fact_type_from_rule(rule)
-      fast_path_rules_for_type = Map.get(state.fast_path_rules, fact_type, [])
-      Map.put(state.fast_path_rules, fact_type, [rule.id | fast_path_rules_for_type])
+      current_fast_path_rules = Map.get(state.fast_path_rules, fact_type, [])
+      RuleMetadata.update_fast_path_rules(state, fact_type, [rule.id | current_fast_path_rules])
     else
-      state.fast_path_rules
+      state
     end
   end
 
-  defp create_rule_statistics(rule, rule_analysis, state) do
-    Map.put(state.rule_statistics, rule.id, %{
+  defp update_rule_statistics_with_metadata(state, rule, rule_analysis) do
+    initial_stats = %{
       executions: 0,
       total_time: 0,
       average_time: 0,
       facts_processed: 0,
       strategy_used: rule_analysis.strategy,
       complexity: rule_analysis.complexity
-    })
+    }
+
+    Statistics.initialize_rule_statistics(state, rule.id, initial_stats)
   end
 
   defp process_valid_rule(rule, state) do
@@ -648,21 +538,14 @@ defmodule Presto.RuleEngine do
     # Phase 2: Create network (simplified - no compile-time optimization)
     {network_nodes, new_state} = create_rule_network(rule, rule_analysis, state)
 
-    updated_rules = Map.put(new_state.rules, rule.id, rule)
-    updated_networks = Map.put(new_state.rule_networks, rule.id, network_nodes)
-    updated_analyses = Map.put(new_state.rule_analyses, rule.id, rule_analysis)
-    updated_fast_path_rules = update_fast_path_rules(rule, rule_analysis, new_state)
-    updated_statistics = create_rule_statistics(rule, rule_analysis, new_state)
-
-    final_state = %{
+    # Use SRP-compliant modules to update state
+    final_state =
       new_state
-      | rules: updated_rules,
-        rule_networks: updated_networks,
-        rule_analyses: updated_analyses,
-        fast_path_rules: updated_fast_path_rules,
-        rule_statistics: updated_statistics,
-        engine_statistics: Map.update!(new_state.engine_statistics, :total_rules, &(&1 + 1))
-    }
+      |> RuleStorage.add_rule(rule.id, rule)
+      |> RuleMetadata.update_rule_networks(rule.id, network_nodes)
+      |> RuleMetadata.update_rule_analyses(rule.id, rule_analysis)
+      |> update_fast_path_rules_with_metadata(rule, rule_analysis)
+      |> update_rule_statistics_with_metadata(rule, rule_analysis)
 
     {:reply, :ok, final_state}
   end
@@ -685,8 +568,8 @@ defmodule Presto.RuleEngine do
 
     # Create aggregation node
     {:ok, agg_node_id} =
-      BetaNetwork.create_aggregation_node(
-        state_with_alpha.beta_network,
+      BetaNetworkCoordinator.create_aggregation_node(
+        state_with_alpha,
         {:aggregate, input_source, rule.group_by, rule.aggregate, rule.field}
       )
 
@@ -696,16 +579,10 @@ defmodule Presto.RuleEngine do
       aggregation_node: agg_node_id
     }
 
-    updated_rules = Map.put(state_with_alpha.rules, rule.id, rule)
-    updated_networks = Map.put(state_with_alpha.rule_networks, rule.id, network_nodes)
-
-    final_state = %{
+    final_state =
       state_with_alpha
-      | rules: updated_rules,
-        rule_networks: updated_networks,
-        engine_statistics:
-          Map.update!(state_with_alpha.engine_statistics, :total_rules, &(&1 + 1))
-    }
+      |> RuleStorage.add_rule(rule.id, rule)
+      |> RuleMetadata.update_rule_networks(rule.id, network_nodes)
 
     {:reply, :ok, final_state}
   end
@@ -735,7 +612,7 @@ defmodule Presto.RuleEngine do
     {pattern_conditions, _test_conditions} = separate_conditions(conditions)
 
     Enum.reduce(pattern_conditions, {[], state}, fn condition, {acc_nodes, acc_state} ->
-      {:ok, node_id, new_state} = do_create_alpha_node(acc_state, condition)
+      {:ok, node_id, new_state} = AlphaNetworkCoordinator.create_alpha_node(acc_state, condition)
       {[node_id | acc_nodes], new_state}
     end)
   end
@@ -750,7 +627,7 @@ defmodule Presto.RuleEngine do
     join_key = determine_join_key(node1, node2, state)
 
     {:ok, beta_id} =
-      BetaNetwork.create_beta_node(state.beta_network, {:join, node1, node2, join_key})
+      BetaNetworkCoordinator.create_beta_node(state, {:join, node1, node2, join_key})
 
     {[beta_id], state}
   end
@@ -766,8 +643,8 @@ defmodule Presto.RuleEngine do
     join_key = determine_join_key(first_alpha, second_alpha, state)
 
     {:ok, first_beta} =
-      BetaNetwork.create_beta_node(
-        state.beta_network,
+      BetaNetworkCoordinator.create_beta_node(
+        state,
         {:join, first_alpha, second_alpha, join_key}
       )
 
@@ -791,8 +668,8 @@ defmodule Presto.RuleEngine do
     join_key = determine_beta_alpha_join_key(current_beta, next_alpha, state)
 
     {:ok, new_beta} =
-      BetaNetwork.create_beta_node(
-        state.beta_network,
+      BetaNetworkCoordinator.create_beta_node(
+        state,
         {:join, current_beta, next_alpha, join_key}
       )
 
@@ -802,8 +679,8 @@ defmodule Presto.RuleEngine do
   # Helper functions to determine join keys based on alpha node patterns
   defp determine_join_key(alpha_node1, alpha_node2, state) do
     # Get alpha node info to determine their patterns
-    node1_info = do_get_alpha_node_info(state, alpha_node1)
-    node2_info = do_get_alpha_node_info(state, alpha_node2)
+    node1_info = AlphaNetworkCoordinator.get_alpha_node_info(state, alpha_node1)
+    node2_info = AlphaNetworkCoordinator.get_alpha_node_info(state, alpha_node2)
 
     case {node1_info, node2_info} do
       {%{pattern: pattern1}, %{pattern: pattern2}} ->
@@ -818,7 +695,7 @@ defmodule Presto.RuleEngine do
   defp determine_beta_alpha_join_key(_beta_node, alpha_node, state) do
     # For beta-alpha joins, we assume the beta node has all previous variables
     # and we look for any variable that the alpha node also has
-    node_info = do_get_alpha_node_info(state, alpha_node)
+    node_info = AlphaNetworkCoordinator.get_alpha_node_info(state, alpha_node)
 
     case node_info do
       %{pattern: pattern} ->
@@ -931,12 +808,12 @@ defmodule Presto.RuleEngine do
     # Remove alpha nodes
     new_state =
       Enum.reduce(network_nodes.alpha_nodes, state, fn node_id, acc_state ->
-        do_remove_alpha_node(acc_state, node_id)
+        AlphaNetworkCoordinator.remove_alpha_node(acc_state, node_id)
       end)
 
     # Remove beta nodes
     Enum.each(network_nodes.beta_nodes, fn node_id ->
-      BetaNetwork.remove_beta_node(new_state.beta_network, node_id)
+      BetaNetworkCoordinator.remove_beta_node(new_state, node_id)
     end)
 
     new_state
@@ -944,7 +821,7 @@ defmodule Presto.RuleEngine do
 
   defp execute_rules(state, concurrent) do
     # NEW: Use optimized execution strategy
-    if state.optimization_config.enable_fast_path do
+    if Configuration.fast_path_enabled?(state) do
       execute_rules_optimized(state, concurrent)
     else
       execute_rules_traditional(state, concurrent)
@@ -954,7 +831,7 @@ defmodule Presto.RuleEngine do
   # NEW: Optimized execution with fast-path and batching
   defp execute_rules_optimized(state, concurrent) do
     # Process changes through beta network for RETE rules only
-    BetaNetwork.process_alpha_changes(state.beta_network)
+    BetaNetworkCoordinator.process_alpha_changes(state)
 
     # Separate fast-path rules from RETE rules
     {fast_path_rules, rete_rules} = separate_rules_by_strategy(state)
@@ -977,8 +854,8 @@ defmodule Presto.RuleEngine do
     }
 
     # Collect rule statistics
-    all_rules = fast_path_rules ++ rete_rules
-    final_state = collect_rule_statistics(updated_state, all_rules)
+    all_rule_ids = Enum.map(fast_path_rules ++ rete_rules, fn {rule_id, _rule} -> rule_id end)
+    final_state = Statistics.collect_rule_statistics(updated_state, all_rule_ids)
 
     {List.flatten(all_results), final_state}
   end
@@ -986,7 +863,7 @@ defmodule Presto.RuleEngine do
   # Traditional execution without optimizations
   defp execute_rules_traditional(state, concurrent) do
     # Process changes through beta network
-    BetaNetwork.process_alpha_changes(state.beta_network)
+    BetaNetworkCoordinator.process_alpha_changes(state)
 
     # Get rules sorted by priority
     sorted_rules =
@@ -1009,10 +886,14 @@ defmodule Presto.RuleEngine do
       end
 
     # Update execution order tracking and collect rule statistics
-    updated_state = %{state | last_execution_order: execution_order}
+    updated_state =
+      Enum.reduce(execution_order, state, fn rule_id, acc_state ->
+        ExecutionTracker.record_execution(acc_state, rule_id)
+      end)
 
     # Collect updated rule statistics from process dictionary
-    final_state = collect_rule_statistics(updated_state, sorted_rules)
+    rule_ids = Enum.map(sorted_rules, fn {rule_id, _rule} -> rule_id end)
+    final_state = Statistics.collect_rule_statistics(updated_state, rule_ids)
 
     {List.flatten(results), final_state}
   end
@@ -1057,32 +938,30 @@ defmodule Presto.RuleEngine do
       # Assert all results back into working memory for next cycle
       new_state =
         Enum.reduce(cycle_results, updated_state, fn fact, acc_state ->
-          # Assert fact into working memory using consolidated function
-          intermediate_state = do_assert_fact(acc_state, fact)
+          # Assert fact into working memory using WorkingMemory module
+          wm_state = WorkingMemory.assert_fact(acc_state, fact)
+          intermediate_state = AlphaNetworkCoordinator.process_fact_assertion(wm_state, fact)
 
           # Track fact lineage for derived facts (no specific rule context in chaining)
-          fact_key = create_fact_key(fact)
+          fact_key = FactLineage.create_fact_key(fact)
 
-          updated_fact_lineage =
-            Map.put(intermediate_state.fact_lineage, fact_key, %{
-              fact: fact,
-              generation: intermediate_state.fact_generation,
-              source: :derived,
-              # Could be enhanced to track chaining sources
-              derived_from: [],
-              derived_by_rule: :chaining,
-              timestamp: System.system_time(:microsecond)
-            })
-
-          # Update engine statistics
-          %{
-            intermediate_state
-            | engine_statistics:
-                Map.update!(intermediate_state.engine_statistics, :total_facts, &(&1 + 1)),
-              facts_since_incremental: [fact | intermediate_state.facts_since_incremental],
-              fact_lineage: updated_fact_lineage,
-              fact_generation: intermediate_state.fact_generation + 1
+          lineage_info = %{
+            fact: fact,
+            generation: intermediate_state.fact_generation,
+            source: :derived,
+            # Could be enhanced to track chaining sources
+            derived_from: [],
+            derived_by_rule: :chaining,
+            timestamp: System.system_time(:microsecond)
           }
+
+          # Update fact lineage and statistics
+          intermediate_state
+          |> FactLineage.update_fact_lineage(fact_key, lineage_info)
+          |> Statistics.update_execution_statistics(0, 1)
+          |> FactLineage.update_facts_since_incremental([
+            fact | intermediate_state.facts_since_incremental
+          ])
         end)
 
       # Continue with next cycle
@@ -1129,7 +1008,7 @@ defmodule Presto.RuleEngine do
       end)
 
     # Update rule statistics
-    update_rule_statistics(rule_id, time, length(facts), state)
+    Statistics.update_rule_statistics(state, rule_id, time, length(facts))
 
     results
   end
@@ -1147,7 +1026,7 @@ defmodule Presto.RuleEngine do
       end)
 
     # Update rule statistics (only if no exception occurred)
-    update_rule_statistics(rule_id, time, length(facts), state)
+    Statistics.update_rule_statistics(state, rule_id, time, length(facts))
 
     results
   end
@@ -1161,7 +1040,7 @@ defmodule Presto.RuleEngine do
       :timer.tc(fn -> get_and_transform_aggregation_results(agg_node_id, rule.output, state) end)
 
     # Update rule statistics
-    update_rule_statistics(rule_id, time, length(results), state)
+    Statistics.update_rule_statistics(state, rule_id, time, length(results))
 
     results
   end
@@ -1256,7 +1135,7 @@ defmodule Presto.RuleEngine do
     case network_nodes.beta_nodes do
       [_ | _] = beta_nodes ->
         final_beta = find_final_beta_node(beta_nodes, state)
-        BetaNetwork.get_beta_memory(state.beta_network, final_beta)
+        BetaNetworkCoordinator.get_beta_memory(state, final_beta)
 
       [] ->
         get_matches_from_alpha_nodes(network_nodes.alpha_nodes, state)
@@ -1264,7 +1143,7 @@ defmodule Presto.RuleEngine do
   end
 
   defp get_matches_from_alpha_nodes([alpha_node | _], state) do
-    do_get_alpha_memory(state, alpha_node)
+    AlphaNetworkCoordinator.get_alpha_memory(state, alpha_node)
   end
 
   defp get_matches_from_alpha_nodes([], _state) do
@@ -1282,7 +1161,7 @@ defmodule Presto.RuleEngine do
   end
 
   defp node_uses_as_input?(other_id, node_id, state) when other_id != node_id do
-    case BetaNetwork.get_beta_node_info(state.beta_network, other_id) do
+    case BetaNetworkCoordinator.get_beta_node_info(state, other_id) do
       %{left_input: ^node_id} -> true
       %{right_input: ^node_id} -> true
       _ -> false
@@ -1291,58 +1170,10 @@ defmodule Presto.RuleEngine do
 
   defp node_uses_as_input?(_other_id, _node_id, _state), do: false
 
-  defp update_execution_statistics(state, execution_time, result_count) do
-    new_engine_stats =
-      state.engine_statistics
-      |> Map.put(:last_execution_time, execution_time)
-      |> Map.update!(:total_rule_firings, &(&1 + result_count))
-
-    %{state | engine_statistics: new_engine_stats}
-  end
-
-  defp update_rule_statistics(rule_id, execution_time, facts_processed, state) do
-    # Performance optimization: Use ETS counters for efficient statistics updates
-    # Default tuple: {rule_id, executions, total_time, facts_processed}
-    default_tuple = {rule_id, 0, 0, 0}
-
-    # Use atomic counter operations for thread-safe updates
-    try do
-      :ets.update_counter(
-        state.rule_statistics_table,
-        rule_id,
-        [
-          # increment executions
-          {2, 1},
-          # add to total_time
-          {3, execution_time},
-          # add to facts_processed
-          {4, facts_processed}
-        ],
-        default_tuple
-      )
-    catch
-      :error, :badarg ->
-        # Table might not exist during shutdown, ignore silently
-        :ok
-    end
-
-    :ok
-  end
-
-  defp collect_rule_statistics(state, sorted_rules) do
-    # Performance optimization: Build rule statistics from ETS table
-    updated_rule_stats =
-      Enum.reduce(sorted_rules, state.rule_statistics, fn {rule_id, _rule}, acc_stats ->
-        build_rule_stats_from_ets(rule_id, state.rule_statistics_table, acc_stats)
-      end)
-
-    %{state | rule_statistics: updated_rule_stats}
-  end
-
   defp get_and_transform_aggregation_results(agg_node_id, output, state) do
     if agg_node_id do
       # Get aggregation results from beta memory
-      agg_results = BetaNetwork.get_beta_memory(state.beta_network, agg_node_id)
+      agg_results = BetaNetworkCoordinator.get_beta_memory(state, agg_node_id)
 
       # Transform aggregation results to output facts
       Enum.map(agg_results, fn result ->
@@ -1353,40 +1184,21 @@ defmodule Presto.RuleEngine do
     end
   end
 
-  defp build_rule_stats_from_ets(rule_id, stats_table, acc_stats) do
-    case :ets.lookup(stats_table, rule_id) do
-      [] ->
-        # No stats for this rule yet
-        acc_stats
-
-      [{^rule_id, executions, total_time, facts_processed}] ->
-        # Calculate average time from ETS counters
-        average_time = if executions > 0, do: div(total_time, executions), else: 0
-
-        updated_stats = %{
-          executions: executions,
-          total_time: total_time,
-          average_time: average_time,
-          facts_processed: facts_processed
-        }
-
-        Map.put(acc_stats, rule_id, updated_stats)
-    end
-  end
-
   defp filter_incremental_results(all_results, new_facts, state) do
     # Use fact lineage tracking to identify results that involve new facts
-    new_fact_keys = Enum.map(new_facts, &create_fact_key/1)
+    new_fact_keys = Enum.map(new_facts, &FactLineage.create_fact_key/1)
 
     # Get all facts derived from new facts (transitively)
     derived_facts = get_facts_derived_from_new_facts(new_fact_keys, state)
 
     # Filter results to only include those that are derived facts or involve new facts
     all_relevant_facts = new_facts ++ derived_facts
-    all_relevant_fact_keys = Enum.map(all_relevant_facts, &create_fact_key/1) |> MapSet.new()
+
+    all_relevant_fact_keys =
+      Enum.map(all_relevant_facts, &FactLineage.create_fact_key/1) |> MapSet.new()
 
     Enum.filter(all_results, fn result ->
-      result_key = create_fact_key(result)
+      result_key = FactLineage.create_fact_key(result)
 
       MapSet.member?(all_relevant_fact_keys, result_key) or
         result_involves_new_facts?(result, new_facts)
@@ -1421,7 +1233,7 @@ defmodule Presto.RuleEngine do
   # NEW: Helper functions for Phase 4 optimizations
 
   defp should_use_fast_path?(rule_analysis, state) do
-    state.optimization_config.enable_fast_path and
+    Configuration.fast_path_enabled?(state) and
       rule_analysis.strategy == :fast_path
   end
 
@@ -1434,7 +1246,7 @@ defmodule Presto.RuleEngine do
   end
 
   defp execute_fast_path_rules(fast_path_rules, state) do
-    if state.optimization_config.enable_rule_batching do
+    if Configuration.rule_batching_enabled?(state) do
       execute_fast_path_rules_batched(fast_path_rules, state)
     else
       execute_fast_path_rules_individually(fast_path_rules, state)
@@ -1444,7 +1256,7 @@ defmodule Presto.RuleEngine do
   # Fast-path execution (merged from FastPathExecutor)
   defp execute_fast_path(rule, state) do
     # Get all facts from working memory
-    all_facts = do_get_facts(state)
+    all_facts = WorkingMemory.get_facts(state)
 
     # Extract pattern from rule
     conditions = Map.get(rule, :conditions, [])
@@ -1508,7 +1320,7 @@ defmodule Presto.RuleEngine do
   defp element_matches?(fact_elem, pattern_elem, 0), do: fact_elem == pattern_elem
 
   defp element_matches?(fact_elem, pattern_elem, _index) when is_atom(pattern_elem) do
-    Utils.variable?(pattern_elem) or fact_elem == pattern_elem
+    PatternMatching.variable?(pattern_elem) or fact_elem == pattern_elem
   end
 
   defp element_matches?(fact_elem, pattern_elem, _index), do: fact_elem == pattern_elem
@@ -1524,7 +1336,7 @@ defmodule Presto.RuleEngine do
     pattern_elem = :erlang.element(index + 1, pattern)
 
     new_acc =
-      if Utils.variable?(pattern_elem) do
+      if PatternMatching.variable?(pattern_elem) do
         fact_elem = :erlang.element(index + 1, fact)
         Map.put(acc, pattern_elem, fact_elem)
       else
@@ -1584,6 +1396,8 @@ defmodule Presto.RuleEngine do
   end
 
   defp update_optimization_statistics(engine_stats, fast_path_rules, rete_rules) do
+    # This can now be replaced with Statistics.update_optimization_statistics
+    # but keeping for backward compatibility in this refactor
     engine_stats
     |> Map.update!(:fast_path_executions, &(&1 + length(fast_path_rules)))
     |> Map.update!(:rete_network_executions, &(&1 + length(rete_rules)))
@@ -1600,10 +1414,6 @@ defmodule Presto.RuleEngine do
   end
 
   # Fact lineage tracking helper functions
-
-  defp create_fact_key(fact) do
-    :crypto.hash(:sha256, :erlang.term_to_binary(fact)) |> Base.encode16(case: :lower)
-  end
 
   defp get_facts_derived_from_new_facts(new_fact_keys, state) do
     # Find all facts that were derived from the new facts or their descendants
@@ -1644,362 +1454,5 @@ defmodule Presto.RuleEngine do
     # Fallback heuristic for results that aren't tracked in lineage
     new_fact_identifiers = extract_fact_identifiers(new_facts)
     result_involves_identifiers?(result, new_fact_identifiers)
-  end
-
-  # Consolidated Working Memory Functions
-
-  defp do_assert_fact(state, fact) do
-    fact_key = wm_make_fact_key(fact)
-    :ets.insert(state.facts_table, {fact_key, fact})
-
-    # Track change if enabled
-    new_state = wm_maybe_track_change({:assert, fact}, state)
-
-    # Process fact through alpha network
-    alpha_process_fact_assertion(new_state, fact)
-  end
-
-  defp do_retract_fact(state, fact) do
-    fact_key = wm_make_fact_key(fact)
-    :ets.delete(state.facts_table, fact_key)
-
-    # Track change if enabled
-    new_state = wm_maybe_track_change({:retract, fact}, state)
-
-    # Process fact retraction through alpha network
-    alpha_process_fact_retraction(new_state, fact)
-  end
-
-  defp do_get_facts(state) do
-    :ets.tab2list(state.facts_table)
-    |> Enum.map(fn {_key, fact} -> fact end)
-  end
-
-  defp do_clear_facts(state) do
-    :ets.delete_all_objects(state.facts_table)
-    wm_maybe_track_change({:clear_all}, state)
-  end
-
-  defp wm_make_fact_key(fact) do
-    # Use the fact itself as the key for simple deduplication
-    fact
-  end
-
-  defp wm_maybe_track_change(_change, %{tracking_changes: false} = state) do
-    state
-  end
-
-  defp wm_maybe_track_change(change, %{tracking_changes: true} = state) do
-    counter = state.change_counter + 1
-    :ets.insert(state.changes_table, {counter, change})
-    %{state | change_counter: counter}
-  end
-
-  # Consolidated Alpha Network Functions
-
-  defp alpha_process_fact_assertion(state, fact) do
-    # Process fact through all alpha nodes
-    fact_type = elem(fact, 0)
-    relevant_nodes = Map.get(state.fact_type_index, fact_type, [])
-
-    Enum.reduce(relevant_nodes, state, fn node_id, acc_state ->
-      process_alpha_node_for_fact(acc_state, node_id, fact)
-    end)
-  end
-
-  defp process_alpha_node_for_fact(state, node_id, fact) do
-    case Map.get(state.alpha_nodes, node_id) do
-      nil ->
-        state
-
-      alpha_node ->
-        if alpha_node_matches?(alpha_node, fact) do
-          alpha_add_to_memory(state, node_id, fact)
-        else
-          state
-        end
-    end
-  end
-
-  defp alpha_process_fact_retraction(state, fact) do
-    # Remove fact from all alpha memories
-    fact_type = elem(fact, 0)
-    relevant_nodes = Map.get(state.fact_type_index, fact_type, [])
-
-    Enum.reduce(relevant_nodes, state, fn node_id, acc_state ->
-      alpha_remove_from_memory(acc_state, node_id, fact)
-    end)
-  end
-
-  defp alpha_node_matches?(alpha_node, fact) do
-    # Use compiled test function if available, otherwise pattern match + test conditions
-    case Map.get(alpha_node, :test_function) do
-      nil -> alpha_pattern_match_with_tests(alpha_node, fact)
-      test_fn -> test_fn.(fact)
-    end
-  end
-
-  defp alpha_pattern_match_with_tests(alpha_node, fact) do
-    # First check if pattern matches and extract variable bindings
-    case alpha_basic_pattern_match_with_bindings(alpha_node.pattern, fact) do
-      {:ok, bindings} ->
-        # Pattern matches, now evaluate test conditions with bindings
-        evaluate_test_conditions(alpha_node.conditions, bindings)
-
-      false ->
-        false
-    end
-  end
-
-  defp alpha_basic_pattern_match_with_bindings(pattern, fact)
-       when tuple_size(pattern) != tuple_size(fact) do
-    false
-  end
-
-  defp alpha_basic_pattern_match_with_bindings(pattern, fact) do
-    pattern_list = Tuple.to_list(pattern)
-    fact_list = Tuple.to_list(fact)
-
-    Enum.zip(pattern_list, fact_list)
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, %{}}, &match_pattern_element/2)
-    |> case do
-      {:ok, final_bindings} -> {:ok, final_bindings}
-      false -> false
-    end
-  end
-
-  defp match_pattern_element({{pattern_elem, fact_elem}, 0}, {:ok, acc_bindings}) do
-    # First element (fact type) must match exactly
-    if pattern_elem == fact_elem do
-      {:cont, {:ok, acc_bindings}}
-    else
-      {:halt, false}
-    end
-  end
-
-  defp match_pattern_element({{pattern_elem, fact_elem}, _index}, {:ok, acc_bindings}) do
-    match_non_type_element(pattern_elem, fact_elem, acc_bindings)
-  end
-
-  defp match_non_type_element(:_, _fact_elem, acc_bindings) do
-    # Wildcard matches anything
-    {:cont, {:ok, acc_bindings}}
-  end
-
-  defp match_non_type_element(pattern_elem, fact_elem, acc_bindings)
-       when pattern_elem == fact_elem do
-    # Exact match
-    {:cont, {:ok, acc_bindings}}
-  end
-
-  defp match_non_type_element(pattern_elem, fact_elem, acc_bindings) do
-    if Utils.variable?(pattern_elem) do
-      # Variable binding
-      new_bindings = Map.put(acc_bindings, pattern_elem, fact_elem)
-      {:cont, {:ok, new_bindings}}
-    else
-      # No match
-      {:halt, false}
-    end
-  end
-
-  defp evaluate_test_conditions(conditions, bindings) do
-    # Extract test conditions from the alpha node conditions
-    test_conditions = extract_test_conditions_from_alpha_conditions(conditions)
-
-    # Evaluate each test condition with variable bindings
-    Enum.all?(test_conditions, fn test_condition ->
-      evaluate_single_test_condition(test_condition, bindings)
-    end)
-  end
-
-  defp extract_test_conditions_from_alpha_conditions(conditions) do
-    Enum.flat_map(conditions, &extract_tests_from_condition/1)
-  end
-
-  defp extract_tests_from_condition({_pattern, tests}) when is_list(tests) do
-    # Pattern with tests: {{:person, :name, :age}, [test_conditions]}
-    tests
-  end
-
-  defp extract_tests_from_condition(condition_tuple) when is_tuple(condition_tuple) do
-    # Pattern with tests appended: {:person, :name, :age, [test_conditions]}
-    extract_tests_from_tuple(condition_tuple)
-  end
-
-  defp extract_tests_from_condition(_condition) do
-    # Just a pattern, no tests
-    []
-  end
-
-  defp extract_tests_from_tuple(condition_tuple) do
-    case Tuple.to_list(condition_tuple) do
-      list when length(list) > 2 ->
-        extract_tests_from_last_element(List.last(list))
-
-      _ ->
-        []
-    end
-  end
-
-  defp extract_tests_from_last_element(last_elem) when is_list(last_elem) do
-    last_elem
-  end
-
-  defp extract_tests_from_last_element(_last_elem) do
-    []
-  end
-
-  defp evaluate_single_test_condition({variable, operator, value}, bindings) do
-    case Map.get(bindings, variable) do
-      # Variable not bound
-      nil -> false
-      bound_value -> evaluate_operator(operator, bound_value, value)
-    end
-  end
-
-  defp evaluate_single_test_condition(_, _), do: false
-
-  defp evaluate_operator(:>, bound_value, value), do: bound_value > value
-  defp evaluate_operator(:<, bound_value, value), do: bound_value < value
-  defp evaluate_operator(:>=, bound_value, value), do: bound_value >= value
-  defp evaluate_operator(:<=, bound_value, value), do: bound_value <= value
-  defp evaluate_operator(:==, bound_value, value), do: bound_value == value
-  defp evaluate_operator(:!=, bound_value, value), do: bound_value != value
-  defp evaluate_operator(_, _bound_value, _value), do: false
-
-  defp alpha_add_to_memory(state, node_id, fact) do
-    bindings = alpha_extract_bindings(state.alpha_nodes[node_id].pattern, fact)
-
-    # Get current matches and add new binding
-    current_matches =
-      case :ets.lookup(state.alpha_memories, node_id) do
-        [{^node_id, matches}] -> matches
-        [] -> []
-      end
-
-    # Add new binding if not already present
-    new_matches =
-      if bindings in current_matches do
-        current_matches
-      else
-        [bindings | current_matches]
-      end
-
-    :ets.insert(state.alpha_memories, {node_id, new_matches})
-    state
-  end
-
-  defp alpha_remove_from_memory(state, node_id, fact) do
-    bindings = alpha_extract_bindings(state.alpha_nodes[node_id].pattern, fact)
-
-    # Get current matches and remove the specific binding
-    case :ets.lookup(state.alpha_memories, node_id) do
-      [{^node_id, current_matches}] ->
-        new_matches = List.delete(current_matches, bindings)
-        :ets.insert(state.alpha_memories, {node_id, new_matches})
-
-      [] ->
-        # No memory for this node
-        :ok
-    end
-
-    state
-  end
-
-  defp alpha_extract_bindings(pattern, fact) do
-    pattern_list = Tuple.to_list(pattern)
-    fact_list = Tuple.to_list(fact)
-
-    Enum.zip(pattern_list, fact_list)
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn {{pattern_elem, fact_elem}, _index}, bindings ->
-      if Utils.variable?(pattern_elem) do
-        Map.put(bindings, pattern_elem, fact_elem)
-      else
-        bindings
-      end
-    end)
-  end
-
-  defp do_get_alpha_memory(state, node_id) do
-    case :ets.lookup(state.alpha_memories, node_id) do
-      [{^node_id, matches}] -> matches
-      [] -> []
-    end
-  end
-
-  defp do_create_alpha_node(state, condition) do
-    node_id = generate_alpha_node_id()
-
-    # Extract pattern from condition
-    pattern = extract_pattern_from_condition(condition)
-
-    alpha_node = %{
-      id: node_id,
-      pattern: pattern,
-      test_function: nil,
-      conditions: [condition]
-    }
-
-    # Add to alpha nodes map
-    new_alpha_nodes = Map.put(state.alpha_nodes, node_id, alpha_node)
-
-    # Initialize empty memory for this node
-    :ets.insert(state.alpha_memories, {node_id, []})
-
-    # Update fact type index
-    fact_type = elem(pattern, 0)
-    existing_nodes = Map.get(state.fact_type_index, fact_type, [])
-    new_fact_type_index = Map.put(state.fact_type_index, fact_type, [node_id | existing_nodes])
-
-    new_state = %{state | alpha_nodes: new_alpha_nodes, fact_type_index: new_fact_type_index}
-
-    {:ok, node_id, new_state}
-  end
-
-  defp do_get_alpha_node_info(state, node_id) do
-    Map.get(state.alpha_nodes, node_id)
-  end
-
-  defp do_remove_alpha_node(state, node_id) do
-    case Map.get(state.alpha_nodes, node_id) do
-      nil ->
-        state
-
-      alpha_node ->
-        # Remove from alpha nodes
-        new_alpha_nodes = Map.delete(state.alpha_nodes, node_id)
-
-        # Remove from fact type index
-        fact_type = elem(alpha_node.pattern, 0)
-        existing_nodes = Map.get(state.fact_type_index, fact_type, [])
-        new_nodes = List.delete(existing_nodes, node_id)
-
-        new_fact_type_index =
-          if new_nodes == [] do
-            Map.delete(state.fact_type_index, fact_type)
-          else
-            Map.put(state.fact_type_index, fact_type, new_nodes)
-          end
-
-        # Remove from alpha memories
-        :ets.delete(state.alpha_memories, node_id)
-
-        %{state | alpha_nodes: new_alpha_nodes, fact_type_index: new_fact_type_index}
-    end
-  end
-
-  defp generate_alpha_node_id do
-    "alpha_#{:erlang.unique_integer([:positive])}"
-  end
-
-  defp extract_pattern_from_condition({pattern, _tests}) when is_tuple(pattern) do
-    pattern
-  end
-
-  defp extract_pattern_from_condition(condition) when is_tuple(condition) do
-    condition
   end
 end
