@@ -34,6 +34,129 @@ graph TB
     style E fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
 ```
 
+## Getting Started with Presto
+
+### Basic Usage
+
+```elixir
+# Start a rule engine
+{:ok, engine} = Presto.start_engine()
+
+# Create a rule using the new Rule helper
+rule = Presto.Rule.new(
+  :adult_rule,
+  [
+    {:person, :name, :age},
+    {:age, :>, 18}
+  ],
+  fn facts -> [{:adult, facts[:name]}] end
+)
+
+# Add rule and facts using the simplified batch API
+:ok = Presto.add_rules(engine, [rule])
+:ok = Presto.assert_facts(engine, [
+  {:person, "Alice", 25},
+  {:person, "Bob", 16}
+])
+
+# Execute rules
+results = Presto.fire_rules(engine)
+# => [{:adult, "Alice"}]
+```
+
+### Aggregation Rules
+
+Presto now supports RETE-native aggregations for efficient data processing:
+
+```elixir
+# Sum aggregation by group
+sum_rule = Presto.Rule.aggregation(
+  :employee_hours,
+  [{:timesheet, :id, :employee_id, :hours}],
+  [:employee_id],           # Group by employee_id
+  :sum,                     # Aggregate function
+  :hours                    # Field to aggregate
+)
+
+# Count aggregation
+count_rule = Presto.Rule.aggregation(
+  :shift_count,
+  [{:shift, :id, :department}],
+  [:department],
+  :count,
+  nil                       # No field needed for count
+)
+
+# Average with custom output
+avg_rule = Presto.Rule.aggregation(
+  :avg_score,
+  [{:score, :student, :value}],
+  [:student],
+  :avg,
+  :value,
+  output: {:student_avg, :student, :score}
+)
+
+# Add aggregation rules
+:ok = Presto.add_rules(engine, [sum_rule, count_rule, avg_rule])
+
+# Add facts
+:ok = Presto.assert_facts(engine, [
+  {:timesheet, "t1", "emp1", 8},
+  {:timesheet, "t2", "emp1", 6},
+  {:timesheet, "t3", "emp2", 7},
+  {:shift, "s1", "kitchen"},
+  {:shift, "s2", "kitchen"},
+  {:shift, "s3", "bar"},
+  {:score, "alice", 85},
+  {:score, "alice", 90}
+])
+
+results = Presto.fire_rules(engine)
+# => [
+#      {:aggregate_result, {"emp1"}, 14},
+#      {:aggregate_result, {"emp2"}, 7},
+#      {:aggregate_result, {"kitchen"}, 2},
+#      {:aggregate_result, {"bar"}, 1},
+#      {:student_avg, "alice", 87.5}
+#    ]
+```
+
+### Multi-field Grouping
+
+```elixir
+# Group by multiple fields
+sales_rule = Presto.Rule.aggregation(
+  :regional_sales,
+  [{:sale, :region, :product, :amount}],
+  [:region, :product],      # Group by both region and product
+  :sum,
+  :amount
+)
+
+:ok = Presto.add_rules(engine, [sales_rule])
+:ok = Presto.assert_facts(engine, [
+  {:sale, "north", "widget", 100},
+  {:sale, "north", "widget", 150},
+  {:sale, "south", "widget", 200}
+])
+
+results = Presto.fire_rules(engine)
+# => [
+#      {:aggregate_result, {"north", "widget"}, 250},
+#      {:aggregate_result, {"south", "widget"}, 200}
+#    ]
+```
+
+### Available Aggregation Functions
+
+- `:sum` - Sum of numeric values
+- `:count` - Count of facts in each group
+- `:avg` - Average of numeric values
+- `:min` - Minimum value in each group
+- `:max` - Maximum value in each group
+- `:collect` - Collect all values into a list
+
 ## Examples
 
 ### 1. Payroll Processing System
@@ -93,8 +216,8 @@ sequenceDiagram
     
     loop For each employee (10,000)
         Demo->>PS: process_employee(id, time_entries)
-        PS->>PC: add_facts(employee_data)
-        PS->>PC: fire_all_rules()
+        PS->>PC: assert_facts(employee_data)
+        PS->>PC: fire_rules()
         PC-->>PS: rule_results
         PS->>PA: accumulate_results()
     end
@@ -121,6 +244,41 @@ Simple payroll rule implementations showing how to define business logic using P
 - Time duration calculation
 - Overtime detection and calculation
 - Integration with Presto RETE engine
+
+**Updated Example with New API:**
+```elixir
+# Create payroll rules using the new Rule helpers
+overtime_rule = Presto.Rule.new(
+  :overtime_calculation,
+  [
+    {:shift_segment, :id, :data},
+    Presto.Rule.test(:hours, :>, 8)
+  ],
+  fn facts -> 
+    overtime_hours = facts[:hours] - 8
+    [{:overtime, facts[:id], overtime_hours}]
+  end
+)
+
+# Aggregation rule for total hours by employee
+total_hours_rule = Presto.Rule.aggregation(
+  :employee_total_hours,
+  [{:shift_segment, :id, :data}],
+  [:employee_id],
+  :sum,
+  :hours
+)
+
+# Add rules using batch API
+:ok = Presto.add_rules(engine, [overtime_rule, total_hours_rule])
+
+# Add facts using batch API
+:ok = Presto.assert_facts(engine, [
+  {:shift_segment, "seg1", %{employee_id: "emp1", hours: 10}},
+  {:shift_segment, "seg2", %{employee_id: "emp1", hours: 6}},
+  {:shift_segment, "seg3", %{employee_id: "emp2", hours: 9}}
+])
+```
 
 ## Key Architectural Principles
 
@@ -155,7 +313,9 @@ graph TD
 - ✅ Generic rule management (add/remove/fire rules)
 - ✅ Working memory management
 - ✅ Alpha and beta network processing
-- ✅ Generic bulk rule loading
+- ✅ **NEW**: Simplified batch API (`assert_facts/2`, `add_rules/2`)
+- ✅ **NEW**: RETE-native aggregations with incremental updates
+- ✅ **NEW**: Rule construction helpers (`Presto.Rule` module)
 - ✅ Performance optimizations
 
 **What's in Examples:**
@@ -202,6 +362,66 @@ graph LR
     style REP fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
 ```
 
+## New API Features
+
+### Rule Construction Helpers
+
+The `Presto.Rule` module provides explicit functions for building rules:
+
+```elixir
+# Basic rule construction
+rule = Presto.Rule.new(
+  :rule_id,
+  conditions,
+  action_function,
+  priority: 10  # Optional priority
+)
+
+# Pattern matching helper
+pattern = Presto.Rule.pattern(:person, [:name, :age])
+# => {:person, :name, :age}
+
+# Test condition helper
+test = Presto.Rule.test(:age, :>, 18)
+# => {:age, :>, 18}
+
+# Aggregation rule
+agg_rule = Presto.Rule.aggregation(
+  :rule_id,
+  conditions,
+  group_by_fields,
+  aggregate_function,
+  field_to_aggregate,
+  output: custom_output_pattern  # Optional
+)
+```
+
+### Simplified Batch API
+
+```elixir
+# Add multiple rules at once
+:ok = Presto.add_rules(engine, [rule1, rule2, rule3])
+
+# Assert multiple facts at once
+:ok = Presto.assert_facts(engine, [fact1, fact2, fact3])
+
+# Combined workflow
+rules = [
+  Presto.Rule.new(:rule1, conditions1, action1),
+  Presto.Rule.aggregation(:agg1, patterns1, group_by1, :sum, :field1)
+]
+
+facts = [
+  {:person, "Alice", 25},
+  {:employment, "Alice", "TechCorp"},
+  {:salary, "Alice", 50000}
+]
+
+:ok = Presto.add_rules(engine, rules)
+:ok = Presto.assert_facts(engine, facts)
+results = Presto.fire_rules(engine)
+```
+
 ## Performance Characteristics
 
 The payroll example demonstrates Presto's capabilities at scale:
@@ -210,13 +430,16 @@ The payroll example demonstrates Presto's capabilities at scale:
 - **Performance**: ~1-2ms per employee with optimization
 - **Memory**: ~100MB per employee processing session
 - **Total Processing Time**: ~10-20 seconds for full payroll run
+- **NEW**: Incremental aggregation updates reduce computational overhead
 
 ## Getting Started
 
-1. **Study the PayrollSystem example** to understand how to build applications on Presto
-2. **Run the demo** to see it in action
-3. **Examine the PayrollRules** to understand how business logic maps to Presto rules
-4. **Use as a template** for your own domain-specific applications
+1. **Study the basic API examples** to understand rule construction and batch operations
+2. **Explore aggregation rules** for efficient data processing
+3. **Study the PayrollSystem example** to understand how to build applications on Presto
+4. **Run the demo** to see it in action
+5. **Examine the PayrollRules** to understand how business logic maps to Presto rules
+6. **Use as a template** for your own domain-specific applications
 
 ## Best Practices
 
@@ -224,12 +447,15 @@ The payroll example demonstrates Presto's capabilities at scale:
 - Don't add domain-specific functions to the main Presto API
 - Use Presto for rule processing, build domain logic on top
 
-### 2. Leverage Bulk Loading
-- Use `Presto.bulk_load_rules_from_*` functions for large rule sets
-- Enable optimization for production workloads
+### 2. Leverage New API Features
+- Use `Presto.Rule.new/4` for clear rule construction
+- Use `Presto.Rule.aggregation/6` for efficient data aggregation
+- Use batch APIs (`add_rules/2`, `assert_facts/2`) for better performance
+- Use pattern and test helpers for readable rule conditions
 
 ### 3. Design for Scale
 - Use single-entity processing patterns (like single-employee processing)
+- Leverage RETE-native aggregations instead of post-processing
 - Build aggregation layers separate from rule processing
 - Monitor performance and optimize rule complexity
 
@@ -244,9 +470,11 @@ When adding new examples:
 
 1. Create a new subdirectory or file in `examples/`
 2. Follow the pattern of building domain-specific applications on top of Presto
-3. Include both the application code and a demonstration script
-4. Document the architecture and usage patterns
-5. Keep the Presto core generic and unchanged
+3. Use the new `Presto.Rule` helpers for rule construction
+4. Leverage aggregation rules where appropriate
+5. Include both the application code and a demonstration script
+6. Document the architecture and usage patterns
+7. Keep the Presto core generic and unchanged
 
 ## Architecture Validation
 
@@ -260,3 +488,4 @@ This ensures:
 - Presto remains generic
 - Examples work as separate layers
 - No domain-specific functions leak into the core
+- New API features maintain proper abstraction boundaries

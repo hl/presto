@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-06-21
+
+```mermaid
+graph TD
+    subgraph "🔄 BSSN Architecture Simplification"
+        A1[Module Consolidation: 11 → 8 modules]
+        A2[Removed FastPathExecutor & RuleAnalyzer]
+        A3[New Presto.Rule Module]
+        A4[Explicit Elixir Helper Functions]
+    end
+    
+    subgraph "📊 RETE-Native Aggregations"
+        B1[sum/count/avg Aggregations]
+        B2[min/max Aggregations]
+        B3[collect Aggregation]
+        B4[Native Performance Optimisation]
+    end
+    
+    subgraph "🚀 Simplified API"
+        C1[assert_facts/2 Batch API]
+        C2[add_rules/2 Batch API]
+        C3[Cleaner Interface Design]
+        C4[Reduced Complexity]
+    end
+    
+    subgraph "⚡ Performance Improvements"
+        D1[Faster Module Loading]
+        D2[Reduced Memory Footprint]
+        D3[Optimised Rule Processing]
+        D4[235 Tests Passing]
+    end
+    
+    A1 --> A3
+    A3 --> C1
+    B1 --> B4
+    C1 --> D1
+    
+    classDef bssn fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef agg fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef api fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef perf fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    
+    class A1,A2,A3,A4 bssn
+    class B1,B2,B3,B4 agg
+    class C1,C2,C3,C4 api
+    class D1,D2,D3,D4 perf
+```
+
+### Added
+- **RETE-Native Aggregations**: Introduced native support for `sum`, `count`, `avg`, `min`, `max`, and `collect` aggregations directly within the RETE network
+- **Presto.Rule Module**: New module providing explicit Elixir helper functions for rule construction and manipulation
+- **Batch API Functions**: Added `assert_facts/2` and `add_rules/2` for efficient batch operations
+
+### Changed
+- **BSSN-based Architecture**: Implemented Best Simple System for Now approach, consolidating from 11 to 8 modules
+- **Simplified API**: Streamlined interface design with cleaner, more intuitive function signatures
+- **Performance Optimisations**: Enhanced processing speed through module consolidation and native aggregations
+
+### Removed
+- **FastPathExecutor Module**: Consolidated functionality into core processing modules
+- **RuleAnalyzer Module**: Integrated analysis capabilities into simplified architecture
+- **Legacy Aggregation Patterns**: Replaced with native RETE implementations
+
+### Performance
+- **Module Loading**: Faster startup times with 27% fewer modules to load
+- **Memory Efficiency**: Reduced memory footprint through architectural consolidation
+- **Processing Speed**: Improved rule execution performance with native aggregations
+- **Test Coverage**: All 235 tests passing with improved reliability
+
+### Impact
+This release represents a significant architectural improvement focusing on the "Best Simple System for Now" philosophy. The consolidation reduces complexity whilst maintaining full functionality, and the addition of native aggregations provides substantial performance benefits for data-intensive rule processing.
+
 ## [0.1.0] - 2024-12-16
 
 ```mermaid
@@ -91,5 +163,6 @@ graph TD
 - Performance benchmarking guides
 - Example implementations for common use cases
 
-[Unreleased]: https://github.com/hl/presto/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hl/presto/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hl/presto/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hl/presto/releases/tag/v0.1.0

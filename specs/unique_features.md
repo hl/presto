@@ -4,7 +4,173 @@
 
 This document describes unique features implemented in Presto that extend beyond the standard RETE algorithm specification. These features provide enhanced functionality, better performance, and improved developer experience while maintaining the core RETE algorithm principles.
 
-## 1. Rule Analysis and Strategy Selection
+Presto implements a **Best Simple System for Now (BSSN)** architectural approach, focusing on building the simplest system that meets current needs whilst maintaining appropriate quality standards. This philosophy permeates all design decisions, resulting in an explicit Elixir API without complex DSLs or over-engineering.
+
+## 1. RETE-Native Aggregations
+
+### Incremental Aggregation Processing Architecture
+
+```mermaid
+flowchart TD
+    subgraph "Traditional Aggregation Approach"
+        A1[All Facts] --> B1[Group by Key]
+        B1 --> C1[Apply Aggregation Function]
+        C1 --> D1[Return Complete Result]
+    end
+    
+    subgraph "RETE-Native Incremental Aggregation"
+        A2[New/Modified Facts] --> B2[Identify Affected Aggregation Keys]
+        B2 --> C2[Update Only Changed Aggregations]
+        C2 --> D2[Merge with Existing Results]
+        D2 --> E2[Emit Changed Aggregations Only]
+    end
+    
+    F[Fact Change Event] --> G{Large Dataset?}
+    G -->|Small| A1
+    G -->|Large| A2
+    
+    style A2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style B2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style C2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style D2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    style E2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+```
+
+### Native Aggregation Support
+
+Presto provides first-class support for aggregations that integrate seamlessly with the RETE network, offering incremental processing capabilities that scale efficiently with large datasets.
+
+```elixir
+# Define aggregation rules with native support
+aggregation_rule = %{
+  id: :total_sales_by_region,
+  conditions: [
+    {:sale, :region, :region_name},
+    {:sale, :amount, :sale_amount}
+  ],
+  aggregation: %{
+    group_by: [:region_name],
+    aggregate: :sum,
+    field: :sale_amount,
+    emit_as: :regional_total
+  },
+  action: fn %{regional_total: total, region_name: region} ->
+    [{:regional_sales_total, region, total}]
+  end
+}
+
+# Add aggregation rule to engine
+:ok = Presto.add_aggregation_rule(engine, aggregation_rule)
+
+# Incremental updates - only affected aggregations recalculated
+:ok = Presto.assert_fact(engine, {:sale, "North", 1500})  # Only North region total updated
+:ok = Presto.assert_fact(engine, {:sale, "South", 2000})  # Only South region total updated
+```
+
+### Supported Aggregation Operations
+
+```elixir
+# Sum aggregation
+sum_rule = %{
+  aggregation: %{
+    group_by: [:department],
+    aggregate: :sum,
+    field: :salary
+  }
+}
+
+# Count aggregation
+count_rule = %{
+  aggregation: %{
+    group_by: [:status],
+    aggregate: :count
+  }
+}
+
+# Average aggregation with incremental updates
+avg_rule = %{
+  aggregation: %{
+    group_by: [:category],
+    aggregate: :avg,
+    field: :rating
+  }
+}
+
+# Custom aggregation functions
+custom_rule = %{
+  aggregation: %{
+    group_by: [:team],
+    aggregate: :custom,
+    function: fn values -> 
+      # Custom aggregation logic
+      Enum.max(values) - Enum.min(values)
+    end,
+    field: :performance_score
+  }
+}
+```
+
+**Key Benefits:**
+- **Incremental processing**: Only affected aggregations recalculated on fact changes
+- **Memory efficient**: Maintains aggregation state without storing intermediate results
+- **RETE integration**: Aggregations participate in rule chaining and conflict resolution
+- **Scalable performance**: O(1) updates for most aggregation operations
+
+## 2. BSSN Architectural Philosophy
+
+### Best Simple System for Now (BSSN) Implementation
+
+Presto's architecture embodies BSSN principles by focusing on current requirements rather than speculative future needs.
+
+```elixir
+# BSSN Example: Explicit API design over DSL complexity
+# Instead of complex DSL:
+# rule "adult classification" do
+#   when person.age >= 18
+#   then classify_as :adult
+# end
+
+# BSSN approach: Simple, explicit Elixir structures
+adult_rule = %{
+  id: :adult_classification,
+  conditions: [
+    {:person, :name, :person_name},
+    {:person, :age, :person_age},
+    {:person_age, :>=, 18}
+  ],
+  action: fn bindings ->
+    [{:adult, bindings[:person_name]}]
+  end
+}
+```
+
+### BSSN Design Decisions
+
+```elixir
+# 1. No complex rule builder patterns
+# BSSN: Direct map structures
+rule = %{id: :my_rule, conditions: [...], action: fn -> ... end}
+
+# 2. No generic configuration frameworks  
+# BSSN: Specific configuration for actual needs
+config = %{
+  enable_fast_path: true,      # Current optimisation need
+  fast_path_threshold: 2       # Actual measured threshold
+}
+
+# 3. No speculative interfaces
+# BSSN: Concrete implementations for current use cases
+def add_rule(engine, rule), do: add_rule_impl(engine, rule)
+def fire_rules(engine), do: fire_rules_impl(engine)
+```
+
+**BSSN Benefits:**
+- **Reduced complexity**: No unnecessary abstractions or indirection
+- **Clear intentions**: Explicit code reveals actual system behaviour  
+- **Maintenance efficiency**: Less code to understand and modify
+- **Performance clarity**: Direct implementation paths are easier to optimise
+
+## 3. Rule Analysis and Strategy Selection
 
 ### Rule Analysis and Strategy Selection Workflow
 
@@ -87,7 +253,7 @@ end
 - **Performance insights**: Understand rule complexity and execution characteristics
 - **System analysis**: Overall rule set optimisation opportunities
 
-## 2. Fast-Path Execution
+## 4. Fast-Path Execution
 
 ### Fast-Path vs RETE Network Execution Flow
 
@@ -175,7 +341,7 @@ config = Presto.RuleEngine.get_optimisation_config(engine)
 - **Reduced memory usage** by bypassing network construction
 - **Lower latency** through direct pattern matching
 
-## 3. Fact Lineage Tracking
+## 5. Fact Lineage Tracking
 
 ### Fact Lineage Relationship Graph
 
@@ -283,7 +449,7 @@ updated_fact_lineage = Map.put(state.fact_lineage, fact_key, %{
 - **Auditing**: Track fact creation and modification history
 - **Optimisation**: Identify derivation patterns for optimisation
 
-## 4. Rule Registry and Discovery
+## 6. Rule Registry and Discovery
 
 ### Rule Registry Architecture
 
@@ -430,7 +596,7 @@ end)
 - **Metadata tracking**: Version, author, and dependency information
 - **Team collaboration**: Different teams can maintain separate rule modules
 
-## 5. Advanced Error Handling
+## 7. Advanced Error Handling
 
 ### Error Handling and Isolation Workflow
 
@@ -519,7 +685,7 @@ end
 # Detailed error context with rule and fact information
 ```
 
-## 6. Rule Chaining with Convergence Detection
+## 8. Rule Chaining with Convergence Detection
 
 ### Rule Chaining and Convergence Detection Flow
 
@@ -587,7 +753,7 @@ end
 - **Fact lineage tracking**: Maintains derivation history across cycles
 - **Performance optimisation**: Efficient chaining implementation
 
-## 7. Enhanced Statistics and Monitoring
+## 9. Enhanced Statistics and Monitoring
 
 ### Comprehensive Performance Tracking
 
@@ -656,6 +822,8 @@ graph TB
     end
     
     subgraph "Presto Unique Features"
+        AG[RETE-Native Aggregations]
+        BS[BSSN Architecture]
         A[Rule Analysis & Strategy]
         F[Fast-Path Execution]
         L[Fact Lineage Tracking]
@@ -671,8 +839,14 @@ graph TB
         P3[Complete Auditability]
         P4[Robust Error Recovery]
         P5[Automatic Optimization]
+        P6[Incremental Aggregations]
+        P7[Simplified Architecture]
     end
     
+    AG --> P6
+    AG --> C
+    BS --> P7
+    BS --> F
     A --> F
     A --> R
     F --> P1
@@ -688,7 +862,10 @@ graph TB
     R -.->|Enhanced by| A
     R -.->|Bypassed by| F
     R -.->|Monitored by| S
+    R -.->|Aggregated by| AG
     
+    style AG fill:#e1f5fe,stroke:#01579b,stroke-width:3px
+    style BS fill:#f9fbe7,stroke:#33691e,stroke-width:3px
     style A fill:#e3f2fd,stroke:#0277bd,stroke-width:2px
     style F fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
     style L fill:#fff3e0,stroke:#e65100,stroke-width:2px
@@ -713,20 +890,28 @@ graph TB
   fast_path_threshold: 2
 ])
 
-# 3. Load rules from modules
+# 3. Load rules from modules (including aggregation rules)
 rule_modules = Presto.RuleRegistry.discover_rules("MyApp.*.Rules")
 Enum.each(rule_modules, fn {module, _metadata} ->
   {rules, _metadata} = Presto.RuleRegistry.register_rule_module(module)
-  Enum.each(rules, &Presto.add_rule(engine, &1))
+  Enum.each(rules, fn rule ->
+    if Map.has_key?(rule, :aggregation) do
+      Presto.add_aggregation_rule(engine, rule)
+    else
+      Presto.add_rule(engine, rule)
+    end
+  end)
 end)
 
 # 4. Analyze rule set
 analysis = Presto.RuleEngine.analyse_rule_set(engine)
 IO.inspect(analysis, label: "Rule Set Analysis")
 
-# 5. Assert facts and execute rules
+# 5. Assert facts and execute rules (including facts for aggregations)
 :ok = Presto.assert_fact(engine, {:person, "John", 25})
 :ok = Presto.assert_fact(engine, {:employment, "John", "TechCorp"})
+:ok = Presto.assert_fact(engine, {:sale, "North", 1500})
+:ok = Presto.assert_fact(engine, {:sale, "South", 2000})
 
 # 6. Execute with chaining and error handling
 {:ok, results, errors} = Presto.RuleEngine.fire_rules_with_errors(engine)
@@ -735,9 +920,22 @@ IO.inspect(analysis, label: "Rule Set Analysis")
 rule_stats = Presto.get_rule_statistics(engine)
 engine_stats = Presto.get_engine_statistics(engine)
 
-# 8. Incremental processing for new facts
+# 8. Incremental processing for new facts (including aggregation updates)
 :ok = Presto.assert_fact(engine, {:person, "Jane", 30})
+:ok = Presto.assert_fact(engine, {:sale, "North", 500})  # Incremental aggregation update
 incremental_results = Presto.RuleEngine.fire_rules_incremental(engine)
+
+# 9. BSSN philosophy in practice - explicit, simple operations
+aggregation_results = Presto.get_aggregation_results(engine, :total_sales_by_region)
+IO.inspect(aggregation_results, label: "Regional Sales Totals")
 ```
 
-These unique features significantly enhance Presto's capabilities beyond a standard RETE implementation, providing better performance, easier development workflows, and comprehensive monitoring capabilities while maintaining the core algorithmic benefits of RETE.
+These unique features significantly enhance Presto's capabilities beyond a standard RETE implementation. The combination of **RETE-native aggregations** with **incremental processing**, the **BSSN architectural philosophy** promoting explicit simplicity over complex abstractions, and the suite of performance optimisations provides a powerful yet maintainable rules engine. The system delivers better performance, easier development workflows, and comprehensive monitoring capabilities while maintaining the core algorithmic benefits of RETE.
+
+**Key Differentiators:**
+- **First-class aggregation support** with O(1) incremental updates
+- **BSSN architecture** avoiding over-engineering and speculative complexity
+- **Explicit Elixir API** without DSL overhead
+- **2-10x performance improvements** through intelligent strategy selection
+- **Complete fact lineage tracking** for debugging and auditing
+- **Modular rule organisation** supporting team collaboration

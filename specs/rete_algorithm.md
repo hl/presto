@@ -680,3 +680,297 @@ Implement runtime optimisation based on observed patterns:
 - **Cache Strategy Selection**: Choose optimal cache policies
 
 These performance optimisations can provide 10-100x performance improvements for typical RETE workloads while maintaining algorithmic correctness and adding powerful introspection capabilities.
+
+## RETE-Native Aggregations
+
+### Overview
+
+RETE-native aggregations extend the traditional RETE algorithm to support incremental aggregate computation directly within the beta network. This implementation treats aggregation operations as first-class citizens alongside join operations, enabling efficient computation of sums, counts, averages, and other aggregates with automatic maintenance as facts change.
+
+### Architecture Integration
+
+Aggregation nodes are integrated into the beta network as specialized node types that operate alongside traditional join nodes:
+
+```mermaid
+flowchart TD
+    subgraph "Extended Beta Network with Aggregations"
+        AM1["Alpha Memory<br/>timesheet facts"] --> J1["Join Node<br/>employee matching"]
+        AM2["Alpha Memory<br/>employee facts"] --> J1
+        
+        J1 --> BM1["Beta Memory<br/>employee-timesheet matches"]
+        BM1 --> AN1["Aggregation Node<br/>SUM(hours) GROUP BY employee_id"]
+        
+        AN1 --> AM3["Aggregation Memory<br/>employee totals"]
+        AM3 --> T1["Terminal Node<br/>Rule Activation"] 
+        
+        T1 --> CS[Conflict Set]
+    end
+    
+    classDef alphamem fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef betamem fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef aggnode fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef aggmem fill:#f1f8e9,stroke:#33691e,stroke-width:2px
+    classDef terminal fill:#ffebee,stroke:#c62828,stroke-width:2px
+    
+    class AM1,AM2 alphamem
+    class BM1 betamem
+    class AN1 aggnode
+    class AM3 aggmem
+    class T1,CS terminal
+```
+
+### Aggregation Node Structure
+
+Aggregation nodes are distinct beta network components with the following characteristics:
+
+```elixir
+%{
+  id: "aggr_node_id",
+  type: :aggregation,
+  input_source: "source_node_id",  # Input from alpha or beta node
+  group_by: [:field1, :field2],    # Grouping fields
+  aggregate_fn: :sum,              # Aggregation function
+  aggregate_field: :amount         # Field to aggregate over
+}
+```
+
+**Supported Aggregation Functions:**
+- `:sum` - Summation of numeric values
+- `:count` - Count of matching facts  
+- `:avg` - Average of numeric values
+- `:min` - Minimum value
+- `:max` - Maximum value
+- `:collect` - Collection of all values
+
+### Incremental Aggregation Processing
+
+The key advantage of RETE-native aggregations is incremental maintenance. When facts are added or removed, only the affected aggregation groups are recomputed:
+
+```mermaid
+sequenceDiagram
+    participant WM as Working Memory
+    participant AN as Alpha Node
+    participant AGN as Aggregation Node
+    participant AM as Aggregation Memory
+    participant RE as Rule Engine
+    
+    Note over WM,RE: Fact Assertion with Incremental Aggregation
+    
+    WM->>AN: Assert timesheet fact
+    AN->>AGN: New fact matches pattern
+    AGN->>AGN: Extract group key (employee_id)
+    AGN->>AM: Update group aggregate
+    AM->>RE: Notify aggregate change
+    
+    Note over WM,RE: Only affected group recalculated
+    
+    WM->>AN: Retract timesheet fact  
+    AN->>AGN: Fact removed
+    AGN->>AGN: Extract group key
+    AGN->>AM: Decrement group aggregate
+    AM->>RE: Notify aggregate change
+```
+
+### Multi-Field Grouping
+
+Aggregation nodes support complex grouping scenarios with multiple fields:
+
+```elixir
+# Group by region and product for sales analysis
+aggregation_spec = {
+  :aggregate,
+  "alpha_sales",        # Input source
+  [:region, :product],  # Multi-field grouping
+  :sum,                 # Aggregate function
+  :amount              # Field to sum
+}
+
+# Results in groups like:
+# {"north", "widget"} => 250
+# {"north", "gadget"} => 200  
+# {"south", "widget"} => 120
+```
+
+### Rule Creation API
+
+The `Presto.Rule` module provides a clean API for creating aggregation rules:
+
+```elixir
+# Sum hours by employee
+rule = Presto.Rule.aggregation(
+  :weekly_hours,
+  [{:timesheet, :id, :employee_id, :hours}],
+  [:employee_id],  # Group by employee
+  :sum,           # Sum function
+  :hours,         # Field to sum
+  output: {:employee_total, :employee_id, :total_hours}
+)
+
+# Count facts without field specification
+rule = Presto.Rule.aggregation(
+  :shift_count,
+  [{:shift, :id, :department}],
+  [:department],  # Group by department
+  :count,         # Count function  
+  nil             # No field needed for count
+)
+```
+
+### Network Construction for Aggregations
+
+During rule compilation, aggregation rules create specialized network paths:
+
+1. **Pattern Analysis**: Extract patterns that feed the aggregation
+2. **Alpha Node Creation**: Standard alpha nodes for pattern matching
+3. **Aggregation Node Creation**: Specialized beta nodes for aggregate computation
+4. **Memory Allocation**: Dedicated memory structures for aggregate results
+5. **Update Path Establishment**: Connect aggregation nodes to change propagation
+
+```mermaid
+flowchart LR
+    subgraph "Aggregation Rule Compilation"
+        R["Aggregation Rule<br/>SUM(hours) BY employee"] --> PA["Pattern Analysis<br/>Extract timesheet pattern"]
+        PA --> AN["Create Alpha Node<br/>timesheet matcher"]
+        AN --> AGN["Create Aggregation Node<br/>SUM(hours) GROUP BY employee_id"]
+        AGN --> AM["Allocate Aggregation Memory<br/>Store results by group"]
+        AM --> UP["Establish Update Paths<br/>Connect to rule engine"]
+    end
+    
+    classDef rule fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef process fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef memory fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    
+    class R rule
+    class PA,AN,AGN,UP process
+    class AM memory
+```
+
+### Performance Characteristics
+
+RETE-native aggregations provide significant performance advantages:
+
+**Time Complexity:**
+- **Traditional Approach**: O(F) for each aggregate recomputation where F = facts
+- **RETE Aggregation**: O(1) for incremental updates to existing groups
+- **New Group Creation**: O(log G) where G = number of groups
+
+**Space Complexity:**
+- **Additional Memory**: O(G × A) where G = groups, A = aggregation state size
+- **Typical Overhead**: 10-50MB for thousands of aggregated groups
+
+**Update Performance:**
+- **Fact Addition**: Constant time for existing groups
+- **Fact Removal**: Constant time with proper bookkeeping  
+- **Group Creation**: Logarithmic time for new group establishment
+
+### Aggregation Processing Algorithm
+
+The aggregation processing follows this algorithm:
+
+```elixir
+def process_aggregation_node(node_id, node, state) do
+  # 1. Get input data from source
+  input_data = get_input_data(node.input_source, state)
+  
+  # 2. Group data by specified fields
+  grouped_data = group_by_fields(input_data, node.group_by)
+  
+  # 3. Apply aggregation function to each group
+  aggregated_results = 
+    Enum.map(grouped_data, fn {group_key, facts} ->
+      value = apply_aggregate_fn(facts, node.aggregate_fn, node.aggregate_field)
+      create_result_fact(group_key, value, node.group_by)
+    end)
+  
+  # 4. Update aggregation memory
+  update_aggregation_memory(node_id, aggregated_results, state)
+end
+```
+
+### Integration with Standard RETE
+
+Aggregation nodes integrate seamlessly with standard RETE components:
+
+**Input Sources:**
+- **Alpha Memory**: Direct aggregation of pattern-matched facts
+- **Beta Memory**: Aggregation of joined fact combinations
+- **Chained Aggregations**: Aggregation nodes feeding other aggregation nodes
+
+**Output Integration:**
+- **Rule Activation**: Aggregation results can trigger standard rules
+- **Join Operations**: Aggregated facts can participate in joins
+- **Nested Aggregations**: Support for hierarchical aggregation structures
+
+### Implementation Examples
+
+**Payroll Aggregation:**
+```elixir
+# Sum hours by employee and week
+Rule.aggregation(
+  :weekly_hours,
+  [{:shift_segment, :employee_id, :week, :hours}],
+  [:employee_id, :week],
+  :sum,
+  :hours
+)
+
+# Average hourly rate by department
+Rule.aggregation(
+  :dept_avg_rate,
+  [{:employee, :id, :department, :hourly_rate}],
+  [:department],
+  :avg,
+  :hourly_rate
+)
+```
+
+**Sales Analysis:**
+```elixir  
+# Total sales by region and quarter
+Rule.aggregation(
+  :quarterly_sales,
+  [{:sale, :id, :region, :quarter, :amount}],
+  [:region, :quarter],
+  :sum,
+  :amount
+)
+
+# Product performance metrics
+Rule.aggregation(
+  :product_stats,
+  [{:order_item, :product_id, :quantity}],
+  [:product_id],
+  :sum,
+  :quantity
+)
+```
+
+### Advanced Features
+
+**Conditional Aggregation:**
+Aggregation nodes can be combined with standard join nodes for conditional aggregation:
+
+```elixir
+# Only aggregate sales from active customers
+rule_conditions = [
+  {:sale, :customer_id, :amount},
+  {:customer, :customer_id, :status},
+  {:status, :==, :active}
+]
+```
+
+**Temporal Aggregations:**
+Support for time-windowed aggregations through date-based grouping:
+
+```elixir
+# Monthly sales totals with automatic month extraction
+Rule.aggregation(
+  :monthly_sales,
+  [{:sale, :date, :amount}],
+  [extract_month: :date],  # Custom grouping function
+  :sum,
+  :amount
+)
+```
+
+This RETE-native aggregation implementation provides a powerful foundation for building complex analytical rules while maintaining the incremental processing advantages that make RETE algorithms so effective for real-time rule processing systems.

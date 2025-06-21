@@ -8,6 +8,7 @@ The Presto API follows Elixir conventions and the "Best Simple System for Now" (
 - **Elixir Idiomatic**: Follow OTP patterns and Elixir naming conventions
 - **Process-Safe**: All operations safe for concurrent access
 - **Explicit Errors**: Clear error handling with `{:ok, result}` | `{:error, reason}` patterns
+- **Simplified API**: Direct batch operations without intermediate batch objects
 
 ## Core API
 
@@ -86,65 +87,158 @@ flowchart TD
     B -->|Valid| C[Add to Engine]
     B -->|Invalid| D[Return Error]
     
-    C --> E[Analyze Complexity]
-    E --> F{Simple Rule?}
-    F -->|Yes| G[Mark for Fast-Path]
-    F -->|No| H[Build RETE Network]
+    C --> E[Analyze Rule Type]
+    E --> F{Aggregation Rule?}
+    F -->|Yes| G[Build RETE Aggregation Network]
+    F -->|No| H{Simple Rule?}
     
-    G --> I[Rule Active]
-    H --> J[Share Alpha Nodes]
-    J --> I
+    H -->|Yes| I[Mark for Fast-Path]
+    H -->|No| J[Build RETE Network]
     
-    I --> K[Rule Execution]
-    K --> L[Pattern Matching]
-    L --> M{Conditions Met?}
-    M -->|Yes| N[Execute Action]
-    M -->|No| O[Skip Rule]
+    I --> K[Rule Active]
+    J --> L[Share Alpha Nodes]
+    G --> M[Configure Aggregation Nodes]
+    L --> K
+    M --> K
     
-    N --> P[Assert New Facts]
-    P --> Q[Update Statistics]
-    O --> Q
+    K --> N[Rule Execution]
+    N --> O[Pattern Matching]
+    O --> P{Conditions Met?}
+    P -->|Yes| Q[Execute Action/Aggregation]
+    P -->|No| R[Skip Rule]
     
-    I --> R[Remove Rule]
-    R --> S[Clean Up Network]
-    S --> T[Rule Removed]
+    Q --> S[Assert New Facts/Update Aggregates]
+    S --> T[Update Statistics]
+    R --> T
+    
+    K --> U[Remove Rule]
+    U --> V[Clean Up Network]
+    V --> W[Rule Removed]
     
     style A fill:#e1f5fe
-    style I fill:#c8e6c9
-    style T fill:#ffcdd2
+    style K fill:#c8e6c9
+    style W fill:#ffcdd2
     style D fill:#ffcdd2
+    style G fill:#fff3e0
+    style M fill:#fff3e0
 ```
 
 #### Rule Structure
 
+The Presto.Rule module provides helper functions for creating well-formed rules:
+
 ```elixir
-# Basic rule definition
-rule = %{
-  id: :adult_rule,                      # Required: unique atom identifier
-  conditions: [                         # Required: list of conditions
+# Basic rule using Presto.Rule helper
+rule = Presto.Rule.new(
+  :adult_rule,
+  [
     {:person, :name, :age},             # Pattern: bind variables
     {:age, :>, 18}                      # Test: age must be > 18
   ],
-  action: fn bindings ->                # Required: function taking bindings map
+  fn bindings ->                        # Function taking bindings map
     [{:adult, bindings[:name]}]         # Return list of new facts
-  end,
-  priority: 10                          # Optional: higher priority = earlier execution
-}
+  end
+)
 
-# Action as anonymous function with explicit bindings
-rule_with_function = %{
-  id: :complex_action,
-  conditions: [
+# Rule with priority
+rule_with_priority = Presto.Rule.new(
+  :high_priority_rule,
+  conditions,
+  action_fn,
+  priority: 100
+)
+
+# Complex rule with multiple conditions
+rule_with_function = Presto.Rule.new(
+  :complex_action,
+  [
     {:person, :name, :age},
     {:employment, :name, :company},
     {:age, :>, 25}
   ],
-  action: fn bindings -> 
+  fn bindings -> 
     name = bindings[:name]
     company = bindings[:company]
     [{:senior_employee, name, company}]
   end
+)
+
+# Raw map structure still supported
+rule_map = %{
+  id: :legacy_rule,
+  conditions: [{:person, :name, :age}, {:age, :>, 18}],
+  action: fn bindings -> [{:adult, bindings[:name]}] end,
+  priority: 10
 }
+```
+
+#### Aggregation Rules
+
+Presto supports RETE-native aggregations for efficient computation over groups of facts:
+
+```elixir
+# Sum aggregation by group
+sum_rule = Presto.Rule.aggregation(
+  :weekly_hours,
+  [{:shift_segment, :id, :data}],       # Conditions to match
+  [:employee_id, :week],                # Group by fields
+  :sum,                                 # Aggregate function
+  :hours                                # Field to aggregate
+)
+
+# Count aggregation with custom output
+count_rule = Presto.Rule.aggregation(
+  :department_shift_count,
+  [{:shift, :id, :data}],
+  [:department],
+  :count,
+  nil,                                  # No field needed for count
+  output: {:dept_shifts, :department, :count}
+)
+
+# Supported aggregate functions: :sum, :count, :avg, :min, :max, :collect
+avg_rule = Presto.Rule.aggregation(
+  :avg_salary_by_dept,
+  [{:employee, :id, :data}],
+  [:department],
+  :avg,
+  :salary
+)
+```
+
+#### Presto.Rule Helper Functions
+
+The Presto.Rule module provides additional helper functions for building conditions:
+
+```elixir
+# Pattern helper - creates fact patterns
+pattern = Presto.Rule.pattern(:person, [:name, :age])
+# => {:person, :name, :age}
+
+# Test helper - creates test conditions  
+test = Presto.Rule.test(:age, :>, 18)
+# => {:age, :>, 18}
+
+# Using helpers in rule construction
+rule = Presto.Rule.new(
+  :adult_employee,
+  [
+    Presto.Rule.pattern(:person, [:name, :age]),
+    Presto.Rule.pattern(:employment, [:name, :company]),
+    Presto.Rule.test(:age, :>=, 18)
+  ],
+  fn bindings ->
+    [{:adult_employee, bindings[:name], bindings[:company]}]
+  end
+)
+
+# Rule validation
+case Presto.Rule.validate(rule) do
+  :ok -> 
+    IO.puts("Rule is valid")
+  {:error, reason} ->
+    IO.puts("Rule validation failed: #{reason}")
+end
 ```
 
 #### Rule Management
@@ -189,6 +283,14 @@ sequenceDiagram
 ```elixir
 # Add single rule to running engine
 :ok = Presto.add_rule(engine, rule)
+
+# Add multiple rules at once (simplified batch operation)
+rules = [
+  Presto.Rule.new(:rule1, conditions1, action1),
+  Presto.Rule.new(:rule2, conditions2, action2),
+  Presto.Rule.aggregation(:agg_rule, patterns, [:group_field], :sum, :value_field)
+]
+:ok = Presto.add_rules(engine, rules)
 
 # Remove rule
 :ok = Presto.remove_rule(engine, :adult_rule)
@@ -246,6 +348,15 @@ flowchart TD
 # Facts are tuples representing structured information
 :ok = Presto.assert_fact(engine, {:employment, "John", "TechCorp"})
 :ok = Presto.assert_fact(engine, {:order, "ORDER-123", 150})
+
+# Assert multiple facts at once (simplified batch operation)
+facts = [
+  {:person, "Alice", 25},
+  {:person, "Bob", 30},
+  {:employment, "Alice", "TechCorp"},
+  {:employment, "Bob", "StartupInc"}
+]
+:ok = Presto.assert_facts(engine, facts)
 ```
 
 #### Retracting Facts
@@ -366,69 +477,37 @@ results = Presto.fire_rules(engine, auto_chain: true)       # Automatic rule cha
 
 ## Advanced Features
 
-### Batch Operations
+### Simplified Batch Operations
 
-#### Batch Processing Sequence
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Presto
-    participant Engine
-    participant BatchState as Batch State
-    
-    Client->>Presto: start_batch(engine)
-    Presto->>Engine: GenServer.call(:start_batch)
-    Engine->>BatchState: create_batch_context()
-    BatchState-->>Engine: batch_id
-    Engine-->>Presto: %Batch{id: batch_id, ...}
-    Presto-->>Client: batch
-    
-    loop Batch Operations
-        Client->>Presto: batch_assert_fact(batch, fact)
-        Presto->>BatchState: add_operation({:assert, fact})
-        BatchState-->>Presto: updated_batch
-        Presto-->>Client: updated_batch
-        
-        Client->>Presto: batch_add_rule(batch, rule)
-        Presto->>BatchState: add_operation({:add_rule, rule})
-        BatchState-->>Presto: updated_batch
-        Presto-->>Client: updated_batch
-    end
-    
-    Client->>Presto: execute_batch(batch)
-    Presto->>Engine: GenServer.call({:execute_batch, batch})
-    
-    Engine->>Engine: validate_all_operations(batch)
-    alt All operations valid
-        Engine->>Engine: execute_operations_atomically(batch)
-        Engine->>Engine: update_rete_network()
-        Engine->>Engine: fire_affected_rules()
-        Engine-->>Presto: {:ok, results}
-        Presto-->>Client: results
-    else Some operations invalid
-        Engine-->>Presto: {:error, failed_operations}
-        Presto-->>Client: {:error, failed_operations}
-    end
-    
-    Engine->>BatchState: cleanup_batch(batch_id)
-```
-
-Batch operations provide efficient bulk processing of multiple facts and rules:
+The API provides direct batch operations without requiring intermediate batch objects:
 
 ```elixir
-# Start a batch operation
-batch = Presto.start_batch(engine)
+# Batch assert facts - more efficient than individual assertions
+facts = [
+  {:person, "Alice", 25},
+  {:person, "Bob", 30},
+  {:employment, "Alice", "TechCorp"},
+  {:employment, "Bob", "StartupInc"},
+  {:shift_segment, "seg1", %{employee_id: "Alice", week: 1, hours: 8}},
+  {:shift_segment, "seg2", %{employee_id: "Bob", week: 1, hours: 10}}
+]
+:ok = Presto.assert_facts(engine, facts)
 
-# Add multiple operations to the batch
-batch = batch
-  |> Presto.batch_assert_fact({:person, "Alice", 30})
-  |> Presto.batch_assert_fact({:person, "Bob", 25})
-  |> Presto.batch_retract_fact({:old_person, "Charlie", 65})
-  |> Presto.batch_add_rule(new_rule)
+# Batch add rules - including aggregation rules
+rules = [
+  Presto.Rule.new(:adult_rule, adult_conditions, adult_action),
+  Presto.Rule.new(:senior_rule, senior_conditions, senior_action),
+  Presto.Rule.aggregation(:weekly_hours, hour_conditions, [:employee_id, :week], :sum, :hours)
+]
+:ok = Presto.add_rules(engine, rules)
 
-# Execute all batched operations at once
-results = Presto.execute_batch(batch)
+# Operations are executed atomically - if any fail, none are applied
+case Presto.add_rules(engine, rules) do
+  :ok -> 
+    IO.puts("All rules added successfully")
+  {:error, reason} ->
+    IO.puts("Failed to add rules: #{inspect(reason)}")
+end
 ```
 
 ### Incremental Processing
@@ -489,40 +568,47 @@ incremental_results = Presto.RuleEngine.fire_rules_incremental(engine)
 
 ```mermaid
 flowchart TD
-    A[Rule Added] --> B[Analyze Conditions]
-    B --> C{Condition Count}
+    A[Rule Added] --> B[Analyze Rule Type]
+    B --> C{Aggregation Rule?}
     
-    C -->|≤ fast_path_threshold| D[Mark for Fast Path]
-    C -->|> fast_path_threshold| E[Build RETE Network]
+    C -->|Yes| D[Build RETE Aggregation Network]
+    C -->|No| E[Analyze Conditions]
     
-    D --> F[Fast Path Strategy]
-    E --> G{Alpha Sharing Enabled?}
+    E --> F{Condition Count}
+    F -->|≤ fast_path_threshold| G[Mark for Fast Path]
+    F -->|> fast_path_threshold| H[Build RETE Network]
     
-    G -->|Yes| H[Check for Shared Patterns]
-    G -->|No| I[Create Individual Nodes]
+    G --> I[Fast Path Strategy]
+    H --> J{Alpha Sharing Enabled?}
+    D --> K[Aggregation Strategy]
     
-    H --> J{Shared Pattern Found?}
-    J -->|Yes| K[Reuse Alpha Node]
-    J -->|No| L[Create New Alpha Node]
+    J -->|Yes| L[Check for Shared Patterns]
+    J -->|No| M[Create Individual Nodes]
     
-    K --> M[Update Sharing Statistics]
-    L --> M
-    I --> N[Full Network Strategy]
+    L --> N{Shared Pattern Found?}
+    N -->|Yes| O[Reuse Alpha Node]
+    N -->|No| P[Create New Alpha Node]
     
-    M --> N
-    F --> O[Ready for Execution]
-    N --> O
+    O --> Q[Update Sharing Statistics]
+    P --> Q
+    M --> R[Full Network Strategy]
     
-    O --> P{Batching Enabled?}
-    P -->|Yes| Q[Group Similar Rules]
-    P -->|No| R[Individual Execution]
+    Q --> R
+    I --> S[Ready for Execution]
+    K --> S
+    R --> S
     
-    Q --> S[Batch Execution Strategy]
-    R --> T[Direct Execution Strategy]
+    S --> T{Batching Enabled?}
+    T -->|Yes| U[Group Similar Rules]
+    T -->|No| V[Individual Execution]
     
-    style D fill:#c8e6c9
-    style K fill:#e1f5fe
-    style S fill:#fff3e0
+    U --> W[Batch Execution Strategy]
+    V --> X[Direct Execution Strategy]
+    
+    style G fill:#c8e6c9
+    style O fill:#e1f5fe
+    style K fill:#fff3e0
+    style W fill:#fff3e0
 ```
 
 ```elixir
@@ -637,12 +723,22 @@ sequenceDiagram
 ### Common Error Patterns
 
 ```elixir
-# Rule definition errors
-{:error, :rule_must_be_map} = Presto.add_rule(engine, "invalid")
-{:error, :missing_required_fields} = Presto.add_rule(engine, %{})
-{:error, :id_must_be_atom} = Presto.add_rule(engine, %{id: "string_id", conditions: [], action: fn _ -> [] end})
-{:error, :conditions_must_be_list} = Presto.add_rule(engine, %{id: :test, conditions: :invalid, action: fn _ -> [] end})
-{:error, :action_must_be_function} = Presto.add_rule(engine, %{id: :test, conditions: [], action: "invalid"})
+# Rule definition errors - using Presto.Rule helpers reduce these
+{:error, "Rule must be a map"} = Presto.add_rule(engine, "invalid")
+{:error, "Rule is missing required field: id"} = Presto.add_rule(engine, %{})
+{:error, "Rule 'string_id': id must be an atom"} = Presto.add_rule(engine, %{id: "string_id", conditions: [], action: fn _ -> [] end})
+{:error, "Rule conditions must be a list"} = Presto.add_rule(engine, %{id: :test, conditions: :invalid, action: fn _ -> [] end})
+{:error, "Rule action must be a function"} = Presto.add_rule(engine, %{id: :test, conditions: [], action: "invalid"})
+
+# Aggregation rule errors
+{:error, "Aggregation rule missing required fields: [:group_by, :aggregate, :output]"} = 
+  Presto.add_rule(engine, %{id: :bad_agg, type: :aggregation, conditions: []})
+{:error, "Unknown aggregate function: :invalid"} = 
+  Presto.Rule.aggregation(:bad_rule, [], [], :invalid, nil)
+
+# Batch operation errors
+{:error, reason} = Presto.add_rules(engine, [valid_rule, invalid_rule])
+# Returns error for first invalid rule encountered
 
 # Engine state errors
 ** (EXIT) Process not alive - engine process has stopped
@@ -713,38 +809,56 @@ The engine tracks fact derivation for incremental processing:
 ```mermaid
 flowchart LR
     subgraph "Execution Strategies"
-        A[Fact Assertion] --> B{Rule Complexity}
+        A[Fact Assertion] --> B{Rule Type}
         B -->|Simple ≤2 conditions| C[Fast Path O(F)]
         B -->|Complex >2 conditions| D[RETE Network O(F×P)]
+        B -->|Aggregation| E[RETE Aggregation O(F×G)]
         
-        C --> E[Direct Pattern Match]
-        D --> F[Alpha/Beta Node Traversal]
+        C --> F[Direct Pattern Match]
+        D --> G[Alpha/Beta Node Traversal]
+        E --> H[Incremental Aggregate Update]
         
-        E --> G[Execute Action]
-        F --> H[Shared Alpha Nodes]
-        H --> G
+        F --> I[Execute Action]
+        G --> J[Shared Alpha Nodes]
+        H --> K[Update Aggregate Values]
         
-        G --> I[Assert New Facts]
+        J --> I
+        I --> L[Assert New Facts]
+        K --> M[Update Aggregate Facts]
     end
     
     subgraph "Optimization Benefits"
-        J[Alpha Node Sharing] --> K[Reduced Memory O(N)]
-        L[Fast Path Execution] --> M[Lower Latency O(1)]
-        N[Rule Batching] --> O[Better Throughput]
+        N[Alpha Node Sharing] --> O[Reduced Memory O(N)]
+        P[Fast Path Execution] --> Q[Lower Latency O(1)]
+        R[RETE Aggregations] --> S[Incremental Updates O(G)]
+        T[Batch Operations] --> U[Better Throughput]
     end
     
     style C fill:#c8e6c9
     style D fill:#fff3e0
-    style K fill:#e1f5fe
-    style M fill:#e1f5fe
+    style E fill:#fff3e0
     style O fill:#e1f5fe
+    style Q fill:#e1f5fe
+    style S fill:#e1f5fe
+    style U fill:#e1f5fe
 ```
 
 - **Fact Assertion**: O(1) for most cases, O(R) where R = rules matching fact type
 - **Rule Execution**: O(F) for fast-path rules, O(F×P) for RETE rules where F=facts, P=patterns
+- **Aggregation Rules**: O(F×G) where G = number of groups, with incremental updates
 - **Memory Usage**: Linear with fact count, shared alpha nodes reduce rule network size
+- **Batch Operations**: Reduced overhead for multiple facts/rules
 
-This API provides a solid foundation for building rules engines in Elixir, balancing simplicity for basic use cases with performance optimisations for production scenarios.
+This API provides a solid foundation for building rules engines in Elixir, balancing simplicity for basic use cases with performance optimisations and advanced features like RETE-native aggregations for production scenarios.
+
+## Recent Enhancements
+
+The following features have been implemented with the new simplified API:
+
+- **✅ RETE-native aggregations**: Efficient sum, count, avg, min, max, collect operations
+- **✅ Simplified batch operations**: Direct `assert_facts/2` and `add_rules/2` without batch objects  
+- **✅ Rule helper functions**: `Presto.Rule.new/4`, `Presto.Rule.aggregation/6`, validation
+- **✅ Improved error handling**: Clear validation messages and atomic batch operations
 
 ## Future Considerations
 
@@ -758,3 +872,4 @@ The following features are planned for future versions but not currently impleme
 - **Hot rule updates**: Modify rule definitions without engine restart
 - **Complex pattern matching**: Nested patterns and advanced guards
 - **Rule templates**: Reusable rule generation patterns
+- **Additional aggregation functions**: Custom aggregate functions and windowing
