@@ -106,10 +106,18 @@ defmodule Presto.BetaNetwork do
       rule_engine: rule_engine,
       alpha_memories_table: alpha_memories_table,
       beta_nodes: %{},
-      # ETS table for beta memories (complete joins)
-      beta_memories: :ets.new(:beta_memories, [:set, :private]),
-      # ETS table for partial matches (incomplete joins)
-      partial_matches: :ets.new(:partial_matches, [:set, :private]),
+      # ETS table for beta memories (complete joins) - optimized for concurrent access
+      beta_memories: :ets.new(:beta_memories, [
+        :set, :public, 
+        {:read_concurrency, true}, 
+        {:write_concurrency, true}
+      ]),
+      # ETS table for partial matches (incomplete joins) - optimized for concurrent access
+      partial_matches: :ets.new(:partial_matches, [
+        :set, :public, 
+        {:read_concurrency, true}, 
+        {:write_concurrency, true}
+      ]),
       # Track processing for performance monitoring
       process_count: 0,
       # Configuration for join optimization

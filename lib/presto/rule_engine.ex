@@ -247,19 +247,41 @@ defmodule Presto.RuleEngine do
     PrestoLogger.log_engine_lifecycle(:info, engine_id, "initializing", %{opts: opts})
     # Create ETS tables for consolidated working memory and alpha network
     try do
-      # WorkingMemory ETS tables
-      facts_table = :ets.new(:facts, [:set, :public, read_concurrency: true])
+      # WorkingMemory ETS tables - optimized for concurrent access
+      facts_table = :ets.new(:facts, [
+        :set, :public, 
+        {:read_concurrency, true}, 
+        {:write_concurrency, true},
+        {:heir, self(), nil}
+      ])
       changes_table = :ets.new(:changes, [:ordered_set, :private])
 
-      # AlphaNetwork ETS tables - need to be public for concurrent rule execution
-      alpha_memories = :ets.new(:alpha_memories, [:set, :public, read_concurrency: true])
-      compiled_patterns = :ets.new(:compiled_patterns, [:set, :public, read_concurrency: true])
+      # AlphaNetwork ETS tables - optimized for concurrent rule execution
+      alpha_memories = :ets.new(:alpha_memories, [
+        :set, :public, 
+        {:read_concurrency, true}, 
+        {:write_concurrency, true},
+        {:heir, self(), nil}
+      ])
+      compiled_patterns = :ets.new(:compiled_patterns, [
+        :set, :public, 
+        {:read_concurrency, true},
+        {:heir, self(), nil}
+      ])
+
+      # Performance optimization: ETS-based statistics collection
+      rule_statistics_table = :ets.new(:rule_statistics, [
+        :set, :public, 
+        {:read_concurrency, true}, 
+        {:write_concurrency, true}
+      ])
 
       PrestoLogger.log_engine_lifecycle(:debug, engine_id, "ets_tables_created", %{
         facts_table: facts_table,
         changes_table: changes_table,
         alpha_memories: alpha_memories,
-        compiled_patterns: compiled_patterns
+        compiled_patterns: compiled_patterns,
+        rule_statistics_table: rule_statistics_table
       })
 
       {:ok, beta_network} =
@@ -280,6 +302,7 @@ defmodule Presto.RuleEngine do
         changes_table: changes_table,
         alpha_memories: alpha_memories,
         compiled_patterns: compiled_patterns,
+        rule_statistics_table: rule_statistics_table,
         # Working memory state
         tracking_changes: false,
         change_counter: 0,
@@ -309,7 +332,7 @@ defmodule Presto.RuleEngine do
         last_incremental_execution: 0,
         # Facts added since last incremental execution
         facts_since_incremental: [],
-        # NEW: Optimization configuration
+        # NEW: Enhanced optimization configuration
         optimization_config: %{
           enable_fast_path: false,
           enable_alpha_sharing: true,
@@ -317,7 +340,13 @@ defmodule Presto.RuleEngine do
           # Max conditions for fast path
           fast_path_threshold: 2,
           # Min rules sharing pattern for alpha node sharing
-          sharing_threshold: 2
+          sharing_threshold: 2,
+          # NEW: Performance tuning options
+          hash_join_threshold: 50,
+          enable_pattern_compilation_cache: true,
+          enable_statistics_collection: true,
+          memory_pressure_threshold_mb: 1000,
+          auto_tune_thresholds: false
         },
         # Fact lineage tracking for incremental processing
         fact_lineage: %{},
@@ -554,6 +583,7 @@ defmodule Presto.RuleEngine do
     :ets.delete(state.changes_table)
     :ets.delete(state.alpha_memories)
     :ets.delete(state.compiled_patterns)
+    :ets.delete(state.rule_statistics_table)
     :ok
   end
 
@@ -1273,48 +1303,46 @@ defmodule Presto.RuleEngine do
   end
 
   defp update_rule_statistics(rule_id, execution_time, facts_processed, state) do
-    # Update statistics for this specific rule (execution_time is in microseconds)
-    current_stats =
-      Map.get(state.rule_statistics, rule_id, %{
-        executions: 0,
-        total_time: 0,
-        average_time: 0,
-        facts_processed: 0
-      })
-
-    new_executions = current_stats.executions + 1
-    new_total_time = current_stats.total_time + execution_time
-    new_average_time = if new_executions > 0, do: div(new_total_time, new_executions), else: 0
-    new_facts_processed = current_stats.facts_processed + facts_processed
-
-    updated_stats = %{
-      executions: new_executions,
-      total_time: new_total_time,
-      average_time: new_average_time,
-      facts_processed: new_facts_processed
-    }
-
-    # Note: This doesn't update the state directly since execute_single_rule
-    # is called during rule execution and we don't want to return a modified state.
-    # The statistics will be updated in the GenServer state after rule execution.
-    # For now, we'll store it in the process dictionary as a workaround.
-    Process.put({:rule_stats, rule_id}, updated_stats)
-
+    # Performance optimization: Use ETS counters for efficient statistics updates
+    # Default tuple: {rule_id, executions, total_time, facts_processed}
+    default_tuple = {rule_id, 0, 0, 0}
+    
+    # Use atomic counter operations for thread-safe updates
+    try do
+      :ets.update_counter(state.rule_statistics_table, rule_id, [
+        {2, 1},                    # increment executions
+        {3, execution_time},       # add to total_time  
+        {4, facts_processed}       # add to facts_processed
+      ], default_tuple)
+    catch
+      :error, :badarg ->
+        # Table might not exist during shutdown, ignore silently
+        :ok
+    end
+    
     :ok
   end
 
   defp collect_rule_statistics(state, sorted_rules) do
-    # Collect updated statistics from process dictionary
+    # Performance optimization: Build rule statistics from ETS table
     updated_rule_stats =
       Enum.reduce(sorted_rules, state.rule_statistics, fn {rule_id, _rule}, acc_stats ->
-        case Process.get({:rule_stats, rule_id}) do
-          # No update for this rule
-          nil ->
+        case :ets.lookup(state.rule_statistics_table, rule_id) do
+          [] ->
+            # No stats for this rule yet
             acc_stats
-
-          updated_stats ->
-            # Clean up process dictionary
-            Process.delete({:rule_stats, rule_id})
+            
+          [{^rule_id, executions, total_time, facts_processed}] ->
+            # Calculate average time from ETS counters
+            average_time = if executions > 0, do: div(total_time, executions), else: 0
+            
+            updated_stats = %{
+              executions: executions,
+              total_time: total_time,
+              average_time: average_time,
+              facts_processed: facts_processed
+            }
+            
             Map.put(acc_stats, rule_id, updated_stats)
         end
       end)
@@ -1433,14 +1461,18 @@ defmodule Presto.RuleEngine do
     do: false
 
   defp fact_matches_pattern?(fact, pattern) do
-    fact_list = Tuple.to_list(fact)
-    pattern_list = Tuple.to_list(pattern)
+    fact_matches_pattern_elements?(fact, pattern, 0, tuple_size(fact))
+  end
 
-    Enum.zip(fact_list, pattern_list)
-    |> Enum.with_index()
-    |> Enum.all?(fn {{fact_elem, pattern_elem}, index} ->
-      element_matches?(fact_elem, pattern_elem, index)
-    end)
+  # Optimized recursive pattern matching avoiding tuple-to-list conversion
+  defp fact_matches_pattern_elements?(_fact, _pattern, index, size) when index >= size, do: true
+  
+  defp fact_matches_pattern_elements?(fact, pattern, index, size) do
+    if element_matches?(:erlang.element(index + 1, fact), :erlang.element(index + 1, pattern), index) do
+      fact_matches_pattern_elements?(fact, pattern, index + 1, size)
+    else
+      false
+    end
   end
 
   defp element_matches?(_fact_elem, :_, _index), do: true
@@ -1454,18 +1486,23 @@ defmodule Presto.RuleEngine do
   defp element_matches?(fact_elem, pattern_elem, _index), do: fact_elem == pattern_elem
 
   defp extract_bindings_from_fact(fact, pattern) do
-    fact_list = Tuple.to_list(fact)
-    pattern_list = Tuple.to_list(pattern)
+    extract_bindings_elements(fact, pattern, 0, tuple_size(fact), %{})
+  end
 
-    Enum.zip(fact_list, pattern_list)
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn {{fact_elem, pattern_elem}, _index}, acc ->
-      if Utils.variable?(pattern_elem) do
-        Map.put(acc, pattern_elem, fact_elem)
-      else
-        acc
-      end
-    end)
+  # Optimized recursive binding extraction avoiding tuple-to-list conversion
+  defp extract_bindings_elements(_fact, _pattern, index, size, acc) when index >= size, do: acc
+
+  defp extract_bindings_elements(fact, pattern, index, size, acc) do
+    pattern_elem = :erlang.element(index + 1, pattern)
+    
+    new_acc = if Utils.variable?(pattern_elem) do
+      fact_elem = :erlang.element(index + 1, fact)
+      Map.put(acc, pattern_elem, fact_elem)
+    else
+      acc
+    end
+    
+    extract_bindings_elements(fact, pattern, index + 1, size, new_acc)
   end
 
   defp all_tests_pass?(bindings, tests) do
