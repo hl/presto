@@ -860,16 +860,105 @@ The following features have been implemented with the new simplified API:
 - **✅ Rule helper functions**: `Presto.Rule.new/4`, `Presto.Rule.aggregation/6`, validation
 - **✅ Improved error handling**: Clear validation messages and atomic batch operations
 
+## New Advanced Features
+
+The following advanced features have been recently implemented:
+
+### Query Interface
+
+```elixir
+# Query facts using pattern matching without executing rules
+people = Presto.query(engine, {:person, :_, :_})
+
+# Query with conditions
+adults = Presto.query(engine, {:person, :name, :age}, age: {:>, 18})
+
+# Complex joins across multiple fact types  
+results = Presto.query_join(engine, [
+  {:person, :name, :age},
+  {:employment, :name, :company}
+], join_on: [:name])
+
+# Count facts matching pattern
+count = Presto.count_facts(engine, {:person, :_, :_})
+
+# Explain how a fact would match current rules
+explanation = Presto.explain_fact(engine, {:person, "John", 25})
+```
+
+### Enhanced Bulk Operations
+
+```elixir
+# Complete batch operation with rules, facts, and execution
+result = Presto.execute_batch(engine,
+  rules: [rule1, rule2],
+  facts: [fact1, fact2, fact3],
+  opts: [concurrent: true]
+)
+
+# Create and execute in one operation
+{:ok, engine, results} = Presto.create_and_execute(
+  rules: [rule1, rule2],
+  facts: [fact1, fact2],
+  opts: [concurrent: true]
+)
+
+# Bulk fact retraction
+:ok = Presto.retract_facts(engine, facts_to_remove)
+```
+
+### Enhanced Aggregation Support
+
+```elixir
+# Custom aggregation functions
+rule = Presto.Rule.aggregation(
+  :custom_metric,
+  conditions,
+  [:group_field],
+  fn values -> Enum.max(values) - Enum.min(values) end,
+  :value_field
+)
+
+# Windowed aggregations for streaming data
+rule = Presto.Rule.aggregation(
+  :moving_average,
+  conditions,
+  [:sensor_id],
+  :avg,
+  :reading,
+  window_size: 100  # Last 100 readings
+)
+```
+
+### Introspection and Debugging Tools
+
+```elixir
+# Detailed rule information
+info = Presto.inspect_rule(engine, :adult_rule)
+
+# Comprehensive engine diagnostics
+diagnostics = Presto.diagnostics(engine)
+
+# Performance profiling
+profile = Presto.profile_execution(engine, rules: [:rule1, :rule2])
+
+# Fact execution tracing
+trace = Presto.trace_fact(engine, {:person, "John", 25})
+
+# Network visualization for debugging
+network = Presto.visualize_network(engine)
+
+# Performance recommendations
+recommendations = Presto.performance_recommendations(engine)
+```
+
 ## Future Considerations
 
-The following features are planned for future versions but not currently implemented:
+The following features may be considered for future versions:
 
-- **Pattern-based fact queries**: Query facts by partial patterns
 - **Rule enable/disable**: Temporarily enable or disable specific rules
 - **Event subscription**: Subscribe to rule firing and fact assertion events
-- **Network introspection**: Examine internal RETE network structure for debugging
-- **Health checks**: Engine health monitoring and diagnostics
 - **Hot rule updates**: Modify rule definitions without engine restart
 - **Complex pattern matching**: Nested patterns and advanced guards
 - **Rule templates**: Reusable rule generation patterns
-- **Additional aggregation functions**: Custom aggregate functions and windowing
+- **Time-based windowing**: Advanced temporal aggregation patterns

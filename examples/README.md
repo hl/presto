@@ -10,11 +10,17 @@ All examples can be run directly with mix:
 # Basic introduction to Presto
 mix run examples/basic_example.exs
 
-# Learn about aggregations
+# Learn about RETE-native aggregations
 mix run examples/aggregation_example.exs
 
 # See batch processing in action
 mix run examples/batch_processing_example.exs
+
+# Explore query interface
+mix run examples/query_example.exs
+
+# Learn debugging and introspection
+mix run examples/debugging_example.exs
 
 # Explore domain-specific rules (payroll)
 mix run -e "Examples.PayrollExample.run_demo()"
@@ -40,26 +46,26 @@ A gentle introduction to Presto's v0.2 API in ~50 lines. Perfect for beginners.
 
 ### 2. Aggregation Example (`aggregation_example.exs`)
 
-Shows how to implement aggregation-like behavior and previews RETE-native aggregations coming in future updates.
+Shows how to use RETE-native aggregations for efficient data grouping and computation.
 
 **Demonstrates:**
-- Grouping and counting patterns
-- Simulating aggregation operations
-- Business rule logic
-- Performance analysis
-
-**Future Features Previewed:**
-- `Presto.Rule.aggregation/6` API design
-- `:sum`, `:count`, `:avg` operations
+- RETE-native aggregation rules with `Presto.Rule.aggregation/6`
+- Built-in functions: `:sum`, `:count`, `:avg`, `:min`, `:max`, `:collect`
+- Custom aggregation functions
 - Multi-field grouping
+- Windowed aggregations for streaming data
+- Performance benefits of incremental updates
 
 ### 3. Batch Processing Example (`batch_processing_example.exs`)
 
-Efficient processing of large datasets using Presto's batch APIs.
+Efficient processing of large datasets using Presto's enhanced batch APIs.
 
 **Demonstrates:**
-- Bulk fact assertion
-- Performance measurement
+- Bulk fact assertion with `assert_facts/2`
+- Bulk fact retraction with `retract_facts/2`
+- Complete batch operations with `execute_batch/2`
+- Create-and-execute pattern with `create_and_execute/1`
+- Performance measurement and optimization
 - Concurrent rule processing
 - Result analysis and reporting
 
@@ -68,7 +74,31 @@ Efficient processing of large datasets using Presto's batch APIs.
 - Transaction processing
 - Data migration and validation
 
-### 4. Payroll Example (`payroll_example.ex`)
+### 4. Query Example (`query_example.exs`)
+
+Demonstrates the new query interface for ad-hoc fact exploration without rule execution.
+
+**Demonstrates:**
+- Pattern-based fact queries with `query/3`
+- Conditional queries with filters
+- Multi-table joins with `query_join/3`
+- Fact counting with `count_facts/3`
+- Fact explanation with `explain_fact/2`
+- Query performance measurement
+
+### 5. Debugging Example (`debugging_example.exs`) 
+
+Shows comprehensive debugging and introspection tools for system analysis.
+
+**Demonstrates:**
+- Rule inspection with `inspect_rule/2`
+- Engine diagnostics with `diagnostics/1`
+- Performance profiling with `profile_execution/2`
+- Fact tracing with `trace_fact/2`
+- Network visualization with `visualize_network/1`
+- Performance recommendations
+
+### 6. Payroll Example (`payroll_example.ex`)
 
 Domain-specific example showing real-world business rules for payroll processing.
 
@@ -87,9 +117,11 @@ Domain-specific example showing real-world business rules for payroll processing
 ## Learning Progression
 
 1. **Start with `basic_example.exs`** - Learn fundamental concepts
-2. **Try `aggregation_example.exs`** - Understand data grouping and analysis
+2. **Try `aggregation_example.exs`** - Understand RETE-native aggregations
 3. **Run `batch_processing_example.exs`** - See performance and scale
-4. **Explore `payroll_example.ex`** - Apply to real-world scenarios
+4. **Explore `query_example.exs`** - Learn ad-hoc fact querying
+5. **Try `debugging_example.exs`** - Master debugging and introspection
+6. **Apply `payroll_example.ex`** - See real-world scenarios
 
 ## Performance Notes
 
@@ -107,20 +139,32 @@ All examples use the simplified v0.2 API:
 ### Core Functions
 ```elixir
 # Engine management
-{:ok, engine} = Presto.RuleEngine.start_link()
+{:ok, engine} = Presto.start_engine()
 
 # Rule creation
 rule = Presto.Rule.new(id, conditions, action)
+agg_rule = Presto.Rule.aggregation(id, conditions, group_by, func, field)
 
 # Batch operations
-:ok = Presto.RuleEngine.add_rules(engine, rules)
-:ok = Presto.RuleEngine.assert_facts(engine, facts)
+:ok = Presto.add_rules(engine, rules)
+:ok = Presto.assert_facts(engine, facts)
+:ok = Presto.retract_facts(engine, facts)
+
+# Complete batch operations
+results = Presto.execute_batch(engine, rules: rules, facts: facts)
+{:ok, engine, results} = Presto.create_and_execute(rules: rules, facts: facts)
 
 # Execution
-results = Presto.RuleEngine.fire_rules(engine)
+results = Presto.fire_rules(engine)
 
-# Monitoring
-stats = Presto.RuleEngine.get_rule_statistics(engine)
+# Query interface
+people = Presto.query(engine, {:person, :_, :_})
+count = Presto.count_facts(engine, {:person, :_, :_})
+
+# Monitoring and debugging
+stats = Presto.get_rule_statistics(engine)
+diagnostics = Presto.diagnostics(engine)
+profile = Presto.profile_execution(engine)
 ```
 
 ### Rule Conditions
@@ -133,10 +177,25 @@ Presto.Rule.test(:variable, :>, value)
 Presto.Rule.test(:variable, :==, value)
 ```
 
-### Future Aggregations (Preview)
+### Aggregations
 ```elixir
-# Coming in future updates
-Presto.Rule.aggregation(id, patterns, group_by, function, field)
+# Built-in aggregation functions
+sum_rule = Presto.Rule.aggregation(id, patterns, group_by, :sum, field)
+count_rule = Presto.Rule.aggregation(id, patterns, group_by, :count, nil)
+avg_rule = Presto.Rule.aggregation(id, patterns, group_by, :avg, field)
+
+# Custom aggregation functions
+custom_rule = Presto.Rule.aggregation(
+  id, patterns, group_by, 
+  fn values -> Enum.max(values) - Enum.min(values) end, 
+  field
+)
+
+# Windowed aggregations
+windowed_rule = Presto.Rule.aggregation(
+  id, patterns, group_by, :avg, field,
+  window_size: 100
+)
 ```
 
 ## Simplified Architecture

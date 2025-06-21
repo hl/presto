@@ -258,12 +258,21 @@ defmodule Presto.RuleEngine.State do
       :public,
       {:read_concurrency, true},
       {:write_concurrency, true},
+      # Better concurrent performance
+      {:decentralized_counters, true},
+      # Memory optimization
+      :compressed,
       {:heir, self(), nil}
     ])
   end
 
   defp create_changes_table do
-    :ets.new(:changes, [:ordered_set, :private])
+    :ets.new(:changes, [
+      :ordered_set,
+      :private,
+      # Memory optimization for change tracking
+      :compressed
+    ])
   end
 
   defp create_alpha_memories_table do
@@ -272,6 +281,10 @@ defmodule Presto.RuleEngine.State do
       :public,
       {:read_concurrency, true},
       {:write_concurrency, true},
+      # Better concurrent performance
+      {:decentralized_counters, true},
+      # Memory optimization
+      :compressed,
       {:heir, self(), nil}
     ])
   end
@@ -281,6 +294,8 @@ defmodule Presto.RuleEngine.State do
       :set,
       :public,
       {:read_concurrency, true},
+      # Memory optimization for pattern cache
+      :compressed,
       {:heir, self(), nil}
     ])
   end
@@ -290,7 +305,11 @@ defmodule Presto.RuleEngine.State do
       :set,
       :public,
       {:read_concurrency, true},
-      {:write_concurrency, true}
+      {:write_concurrency, true},
+      # Better concurrent performance for statistics updates
+      {:decentralized_counters, true},
+      # Memory optimization
+      :compressed
     ])
   end
 end

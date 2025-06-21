@@ -261,8 +261,26 @@ defmodule Presto do
   """
   @spec assert_facts(GenServer.server(), [fact()]) :: :ok
   def assert_facts(engine, facts) when is_list(facts) do
-    Enum.each(facts, &assert_fact(engine, &1))
-    :ok
+    RuleEngine.assert_facts_bulk(engine, facts)
+  end
+
+  @doc """
+  Retracts multiple facts at once.
+
+  More efficient than retracting facts one by one when dealing with large datasets.
+
+  ## Examples
+
+      facts_to_remove = [
+        {:person, "Alice", 25},
+        {:employment, "Alice", "TechCorp"}
+      ]
+      
+      :ok = Presto.retract_facts(engine, facts_to_remove)
+  """
+  @spec retract_facts(GenServer.server(), [fact()]) :: :ok
+  def retract_facts(engine, facts) when is_list(facts) do
+    RuleEngine.retract_facts_bulk(engine, facts)
   end
 
   @doc """
@@ -285,5 +303,204 @@ defmodule Presto do
       nil -> :ok
       error -> error
     end
+  end
+
+  @doc """
+  Executes a complete batch operation with rules, facts, and execution in one call.
+
+  This is the most efficient way to set up and execute a rule engine scenario.
+
+  ## Examples
+
+      result = Presto.execute_batch(engine,
+        rules: [rule1, rule2],
+        facts: [fact1, fact2, fact3],
+        opts: [concurrent: true]
+      )
+  """
+  @spec execute_batch(GenServer.server(), keyword()) :: [rule_result()]
+  def execute_batch(engine, opts) do
+    rules = Keyword.get(opts, :rules, [])
+    facts = Keyword.get(opts, :facts, [])
+    execution_opts = Keyword.get(opts, :opts, [])
+
+    # Add rules if provided
+    unless Enum.empty?(rules) do
+      :ok = add_rules(engine, rules)
+    end
+
+    # Add facts if provided  
+    unless Enum.empty?(facts) do
+      :ok = assert_facts(engine, facts)
+    end
+
+    # Execute rules
+    fire_rules(engine, execution_opts)
+  end
+
+  @doc """
+  Creates and configures a new engine with rules and facts in one operation.
+
+  ## Examples
+
+      {:ok, engine, results} = Presto.create_and_execute(
+        rules: [rule1, rule2],
+        facts: [fact1, fact2],
+        opts: [concurrent: true]
+      )
+  """
+  @spec create_and_execute(keyword()) :: {:ok, pid(), [rule_result()]}
+  def create_and_execute(opts) do
+    {:ok, engine} = start_engine()
+    results = execute_batch(engine, opts)
+    {:ok, engine, results}
+  end
+
+  # Query Interface
+
+  @doc """
+  Queries facts using pattern matching without executing rules.
+
+  This provides an ad-hoc query interface for examining the current state
+  of working memory.
+
+  ## Examples
+
+      # Query all person facts
+      people = Presto.query(engine, {:person, :_, :_})
+
+      # Query people over 18
+      adults = Presto.query(engine, {:person, :name, :age}, age: {:>, 18})
+
+      # Query with multiple conditions
+      results = Presto.query(engine, {:employment, :name, :company}, 
+        name: "Alice", 
+        company: {:match, ~r/Tech/}
+      )
+  """
+  @spec query(GenServer.server(), tuple(), keyword()) :: [map()]
+  def query(engine, pattern, conditions \\ []) do
+    RuleEngine.query_facts(engine, pattern, conditions)
+  end
+
+  @doc """
+  Executes a complex query with joins across multiple fact types.
+
+  ## Examples
+
+      # Find people and their employment information
+      results = Presto.query_join(engine, [
+        {:person, :name, :age},
+        {:employment, :name, :company}
+      ], join_on: [:name])
+  """
+  @spec query_join(GenServer.server(), [tuple()], keyword()) :: [map()]
+  def query_join(engine, patterns, opts \\ []) do
+    RuleEngine.query_facts_join(engine, patterns, opts)
+  end
+
+  @doc """
+  Counts facts matching a pattern.
+
+  ## Examples
+
+      count = Presto.count_facts(engine, {:person, :_, :_})
+      adult_count = Presto.count_facts(engine, {:person, :name, :age}, age: {:>, 18})
+  """
+  @spec count_facts(GenServer.server(), tuple(), keyword()) :: non_neg_integer()
+  def count_facts(engine, pattern, conditions \\ []) do
+    RuleEngine.count_facts(engine, pattern, conditions)
+  end
+
+  @doc """
+  Explains how a fact would match against current rules.
+
+  Useful for debugging rule behavior.
+
+  ## Examples
+
+      explanation = Presto.explain_fact(engine, {:person, "John", 25})
+  """
+  @spec explain_fact(GenServer.server(), tuple()) :: map()
+  def explain_fact(engine, fact) do
+    RuleEngine.explain_fact(engine, fact)
+  end
+
+  # Introspection and Debugging Tools
+
+  @doc """
+  Gets detailed information about a specific rule including execution statistics
+  and network structure.
+
+  ## Examples
+
+      info = Presto.inspect_rule(engine, :adult_rule)
+  """
+  @spec inspect_rule(GenServer.server(), atom()) :: map()
+  def inspect_rule(engine, rule_id) do
+    RuleEngine.inspect_rule(engine, rule_id)
+  end
+
+  @doc """
+  Gets comprehensive engine diagnostics including memory usage, performance
+  metrics, and system health indicators.
+
+  ## Examples
+
+      diagnostics = Presto.diagnostics(engine)
+  """
+  @spec diagnostics(GenServer.server()) :: map()
+  def diagnostics(engine) do
+    RuleEngine.get_diagnostics(engine)
+  end
+
+  @doc """
+  Profiles rule execution and returns detailed performance breakdown.
+
+  ## Examples
+
+      profile = Presto.profile_execution(engine, rules: [:rule1, :rule2])
+  """
+  @spec profile_execution(GenServer.server(), keyword()) :: map()
+  def profile_execution(engine, opts \\ []) do
+    RuleEngine.profile_execution(engine, opts)
+  end
+
+  @doc """
+  Traces the execution path of facts through the RETE network.
+
+  ## Examples
+
+      trace = Presto.trace_fact(engine, {:person, "John", 25})
+  """
+  @spec trace_fact(GenServer.server(), tuple()) :: map()
+  def trace_fact(engine, fact) do
+    RuleEngine.trace_fact_execution(engine, fact)
+  end
+
+  @doc """
+  Visualizes the current RETE network structure for debugging.
+
+  Returns a map suitable for rendering network diagrams.
+
+  ## Examples
+
+      network = Presto.visualize_network(engine)
+  """
+  @spec visualize_network(GenServer.server()) :: map()
+  def visualize_network(engine) do
+    RuleEngine.get_network_visualization(engine)
+  end
+
+  @doc """
+  Gets performance recommendations based on current usage patterns.
+
+  ## Examples
+
+      recommendations = Presto.performance_recommendations(engine)
+  """
+  @spec performance_recommendations(GenServer.server()) :: [map()]
+  def performance_recommendations(engine) do
+    RuleEngine.analyze_performance_recommendations(engine)
   end
 end

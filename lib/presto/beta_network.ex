@@ -631,8 +631,17 @@ defmodule Presto.BetaNetwork do
     Enum.map(rows, &Map.get(&1, field))
   end
 
+  # Custom aggregation function support
+  defp apply_aggregate_fn(rows, custom_fn, field) when is_function(custom_fn, 1) do
+    values = Enum.map(rows, &Map.get(&1, field))
+    custom_fn.(values)
+  end
+
   defp aggregate_result_key(:count, _field), do: :count
-  defp aggregate_result_key(agg_fn, field), do: :"#{agg_fn}_#{field}"
+  defp aggregate_result_key(agg_fn, field) when is_atom(agg_fn), do: :"#{agg_fn}_#{field}"
+
+  defp aggregate_result_key(custom_fn, field) when is_function(custom_fn, 1),
+    do: :"custom_#{field}"
 
   defp get_node_processing_priority(node) do
     case Map.get(node, :type) do

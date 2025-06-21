@@ -41,7 +41,8 @@
       "Bash(true)",
       "mcp__filesystem__get_file_info",
       "Bash(python3:*)",
-      "Bash(yq eval:*)"
+      "Bash(yq eval:*)",
+      "mcp__filesystem__move_file"
     ],
     "deny": []
   }

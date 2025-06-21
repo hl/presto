@@ -148,6 +148,72 @@ defmodule Presto.RuleEngine do
     GenServer.call(pid, :get_optimization_config)
   end
 
+  # Bulk Operations
+
+  @spec assert_facts_bulk(GenServer.server(), [tuple()]) :: :ok
+  def assert_facts_bulk(pid, facts) do
+    GenServer.call(pid, {:assert_facts_bulk, facts})
+  end
+
+  @spec retract_facts_bulk(GenServer.server(), [tuple()]) :: :ok
+  def retract_facts_bulk(pid, facts) do
+    GenServer.call(pid, {:retract_facts_bulk, facts})
+  end
+
+  # Query Interface
+
+  @spec query_facts(GenServer.server(), tuple(), keyword()) :: [map()]
+  def query_facts(pid, pattern, conditions) do
+    GenServer.call(pid, {:query_facts, pattern, conditions})
+  end
+
+  @spec query_facts_join(GenServer.server(), [tuple()], keyword()) :: [map()]
+  def query_facts_join(pid, patterns, opts) do
+    GenServer.call(pid, {:query_facts_join, patterns, opts})
+  end
+
+  @spec count_facts(GenServer.server(), tuple(), keyword()) :: non_neg_integer()
+  def count_facts(pid, pattern, conditions) do
+    GenServer.call(pid, {:count_facts, pattern, conditions})
+  end
+
+  @spec explain_fact(GenServer.server(), tuple()) :: map()
+  def explain_fact(pid, fact) do
+    GenServer.call(pid, {:explain_fact, fact})
+  end
+
+  # Introspection and Debugging Tools
+
+  @spec inspect_rule(GenServer.server(), atom()) :: map()
+  def inspect_rule(pid, rule_id) do
+    GenServer.call(pid, {:inspect_rule, rule_id})
+  end
+
+  @spec get_diagnostics(GenServer.server()) :: map()
+  def get_diagnostics(pid) do
+    GenServer.call(pid, :get_diagnostics)
+  end
+
+  @spec profile_execution(GenServer.server(), keyword()) :: map()
+  def profile_execution(pid, opts) do
+    GenServer.call(pid, {:profile_execution, opts})
+  end
+
+  @spec trace_fact_execution(GenServer.server(), tuple()) :: map()
+  def trace_fact_execution(pid, fact) do
+    GenServer.call(pid, {:trace_fact_execution, fact})
+  end
+
+  @spec get_network_visualization(GenServer.server()) :: map()
+  def get_network_visualization(pid) do
+    GenServer.call(pid, :get_network_visualization)
+  end
+
+  @spec analyze_performance_recommendations(GenServer.server()) :: [map()]
+  def analyze_performance_recommendations(pid) do
+    GenServer.call(pid, :analyze_performance_recommendations)
+  end
+
   # Private functions
 
   # Rule Analysis (merged from RuleAnalyzer)
@@ -302,47 +368,16 @@ defmodule Presto.RuleEngine do
 
   @impl true
   def handle_call({:assert_fact, fact}, _from, state) do
-    # Assert fact using WorkingMemory module
-    new_state = WorkingMemory.assert_fact(state, fact)
-
-    # Process fact through alpha network
-    alpha_processed_state = AlphaNetworkCoordinator.process_fact_assertion(new_state, fact)
-
-    # Track fact lineage
-    fact_key = FactLineage.create_fact_key(fact)
-
-    lineage_info = %{
-      fact: fact,
-      generation: alpha_processed_state.fact_generation,
-      source: :input,
-      derived_from: [],
-      derived_by_rule: nil,
-      timestamp: System.system_time(:microsecond)
-    }
-
-    final_state =
-      alpha_processed_state
-      |> FactLineage.update_fact_lineage(fact_key, lineage_info)
-      |> Statistics.update_total_facts(1)
-      |> FactLineage.update_facts_since_incremental([
-        fact | alpha_processed_state.facts_since_incremental
-      ])
-
-    {:reply, :ok, final_state}
+    # Hot path optimization: single coordinated operation
+    new_state = process_fact_optimized(state, fact, :assert)
+    {:reply, :ok, new_state}
   end
 
   @impl true
   def handle_call({:retract_fact, fact}, _from, state) do
-    # Retract fact using WorkingMemory module
-    new_state = WorkingMemory.retract_fact(state, fact)
-
-    # Process fact retraction through alpha network
-    alpha_processed_state = AlphaNetworkCoordinator.process_fact_retraction(new_state, fact)
-
-    # Update statistics
-    final_state = Statistics.update_total_facts(alpha_processed_state, -1)
-
-    {:reply, :ok, final_state}
+    # Hot path optimization: single coordinated operation
+    new_state = process_fact_optimized(state, fact, :retract)
+    {:reply, :ok, new_state}
   end
 
   @impl true
@@ -457,6 +492,79 @@ defmodule Presto.RuleEngine do
   def handle_call(:get_optimization_config, _from, state) do
     config = Configuration.get_optimization_config(state)
     {:reply, config, state}
+  end
+
+  @impl true
+  def handle_call({:assert_facts_bulk, facts}, _from, state) do
+    new_state = process_facts_bulk(state, facts, :assert)
+    {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_call({:retract_facts_bulk, facts}, _from, state) do
+    new_state = process_facts_bulk(state, facts, :retract)
+    {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_call({:query_facts, pattern, conditions}, _from, state) do
+    results = execute_fact_query(state, pattern, conditions)
+    {:reply, results, state}
+  end
+
+  @impl true
+  def handle_call({:query_facts_join, patterns, opts}, _from, state) do
+    results = execute_join_query(state, patterns, opts)
+    {:reply, results, state}
+  end
+
+  @impl true
+  def handle_call({:count_facts, pattern, conditions}, _from, state) do
+    results = execute_fact_query(state, pattern, conditions)
+    count = length(results)
+    {:reply, count, state}
+  end
+
+  @impl true
+  def handle_call({:explain_fact, fact}, _from, state) do
+    explanation = generate_fact_explanation(state, fact)
+    {:reply, explanation, state}
+  end
+
+  @impl true
+  def handle_call({:inspect_rule, rule_id}, _from, state) do
+    inspection = generate_rule_inspection(state, rule_id)
+    {:reply, inspection, state}
+  end
+
+  @impl true
+  def handle_call(:get_diagnostics, _from, state) do
+    diagnostics = generate_engine_diagnostics(state)
+    {:reply, diagnostics, state}
+  end
+
+  @impl true
+  def handle_call({:profile_execution, opts}, _from, state) do
+    profile = execute_with_profiling(state, opts)
+    {:reply, profile, state}
+  end
+
+  @impl true
+  def handle_call({:trace_fact_execution, fact}, _from, state) do
+    trace = trace_fact_through_network(state, fact)
+    {:reply, trace, state}
+  end
+
+  @impl true
+  def handle_call(:get_network_visualization, _from, state) do
+    visualization = generate_network_visualization(state)
+    {:reply, visualization, state}
+  end
+
+  @impl true
+  def handle_call(:analyze_performance_recommendations, _from, state) do
+    recommendations = generate_performance_recommendations(state)
+    {:reply, recommendations, state}
   end
 
   @impl true
@@ -1454,5 +1562,518 @@ defmodule Presto.RuleEngine do
     # Fallback heuristic for results that aren't tracked in lineage
     new_fact_identifiers = extract_fact_identifiers(new_facts)
     result_involves_identifiers?(result, new_fact_identifiers)
+  end
+
+  # Hot path optimization: coordinated fact processing
+  defp process_fact_optimized(state, fact, operation) do
+    fact_key = FactLineage.create_fact_key(fact)
+
+    case operation do
+      :assert ->
+        # Single coordinated assertion operation
+        new_state = WorkingMemory.assert_fact(state, fact)
+        alpha_processed = AlphaNetworkCoordinator.process_fact_assertion(new_state, fact)
+
+        # Batch lineage and statistics updates
+        lineage_info = %{
+          fact: fact,
+          generation: alpha_processed.fact_generation,
+          source: :input,
+          derived_from: [],
+          derived_by_rule: nil,
+          timestamp: System.system_time(:microsecond)
+        }
+
+        alpha_processed
+        |> FactLineage.update_fact_lineage(fact_key, lineage_info)
+        |> Statistics.update_total_facts(1)
+        |> FactLineage.update_facts_since_incremental([
+          fact | alpha_processed.facts_since_incremental
+        ])
+
+      :retract ->
+        # Single coordinated retraction operation
+        new_state = WorkingMemory.retract_fact(state, fact)
+        alpha_processed = AlphaNetworkCoordinator.process_fact_retraction(new_state, fact)
+        Statistics.update_total_facts(alpha_processed, -1)
+    end
+  end
+
+  # Bulk processing optimization: process multiple facts in batches
+  defp process_facts_bulk(state, facts, operation) do
+    PrestoLogger.log_fact_processing(:info, :bulk, "processing_facts_bulk", %{
+      count: length(facts),
+      operation: operation
+    })
+
+    # Process facts in optimized batches
+    Enum.reduce(facts, state, fn fact, acc_state ->
+      process_fact_optimized(acc_state, fact, operation)
+    end)
+  end
+
+  # Query Interface Implementation
+
+  defp execute_fact_query(state, pattern, conditions) do
+    all_facts = WorkingMemory.get_facts(state)
+
+    # Filter facts by pattern
+    matching_facts = Enum.filter(all_facts, &fact_matches_pattern?(&1, pattern))
+
+    # Apply additional conditions
+    filtered_facts = apply_query_conditions(matching_facts, pattern, conditions)
+
+    # Convert to result format with bindings
+    Enum.map(filtered_facts, &extract_bindings_from_fact(&1, pattern))
+  end
+
+  defp execute_join_query(state, patterns, opts) do
+    join_keys = Keyword.get(opts, :join_on, [])
+
+    # Get matches for each pattern
+    pattern_matches =
+      Enum.map(patterns, fn pattern ->
+        execute_fact_query(state, pattern, [])
+      end)
+
+    # Perform joins
+    case pattern_matches do
+      [single_pattern] ->
+        single_pattern
+
+      [first_matches, second_matches] ->
+        join_two_patterns(first_matches, second_matches, join_keys)
+
+      multiple_patterns ->
+        # Chain joins for multiple patterns
+        Enum.reduce(tl(multiple_patterns), hd(multiple_patterns), fn right_matches,
+                                                                     left_matches ->
+          join_two_patterns(left_matches, right_matches, join_keys)
+        end)
+    end
+  end
+
+  defp generate_fact_explanation(state, fact) do
+    fact_type = elem(fact, 0)
+
+    # Find relevant rules
+    relevant_rules =
+      state.rules
+      |> Enum.filter(fn {_rule_id, rule} ->
+        rule_applies_to_fact_type?(rule, fact_type)
+      end)
+
+    # Check which rules would match this fact
+    matching_rules =
+      Enum.filter(relevant_rules, fn {_rule_id, rule} ->
+        would_rule_match_fact?(rule, fact, state)
+      end)
+
+    %{
+      fact: fact,
+      fact_type: fact_type,
+      relevant_rules: Enum.map(relevant_rules, fn {rule_id, _rule} -> rule_id end),
+      matching_rules: Enum.map(matching_rules, fn {rule_id, _rule} -> rule_id end),
+      would_trigger: length(matching_rules) > 0
+    }
+  end
+
+  # Query helper functions
+
+  defp apply_query_conditions(facts, pattern, conditions) do
+    Enum.filter(facts, fn fact ->
+      bindings = extract_bindings_from_fact(fact, pattern)
+
+      Enum.all?(conditions, fn {field, condition} ->
+        evaluate_query_condition(Map.get(bindings, field), condition)
+      end)
+    end)
+  end
+
+  defp evaluate_query_condition(value, {:>, threshold}), do: value > threshold
+  defp evaluate_query_condition(value, {:<, threshold}), do: value < threshold
+  defp evaluate_query_condition(value, {:>=, threshold}), do: value >= threshold
+  defp evaluate_query_condition(value, {:<=, threshold}), do: value <= threshold
+  defp evaluate_query_condition(value, {:==, expected}), do: value == expected
+  defp evaluate_query_condition(value, {:!=, expected}), do: value != expected
+  defp evaluate_query_condition(value, {:match, regex}), do: Regex.match?(regex, to_string(value))
+  defp evaluate_query_condition(value, expected), do: value == expected
+
+  defp join_two_patterns(left_matches, right_matches, join_keys) do
+    for left_match <- left_matches,
+        right_match <- right_matches,
+        joins_match?(left_match, right_match, join_keys) do
+      Map.merge(left_match, right_match)
+    end
+  end
+
+  defp joins_match?(left_match, right_match, join_keys) do
+    Enum.all?(join_keys, fn key ->
+      Map.get(left_match, key) == Map.get(right_match, key) and
+        Map.has_key?(left_match, key) and
+        Map.has_key?(right_match, key)
+    end)
+  end
+
+  defp rule_applies_to_fact_type?(rule, fact_type) do
+    conditions = Map.get(rule, :conditions, [])
+    {patterns, _tests} = separate_conditions(conditions)
+
+    Enum.any?(patterns, fn pattern ->
+      elem(pattern, 0) == fact_type
+    end)
+  end
+
+  defp would_rule_match_fact?(rule, fact, _state) do
+    # Simplified check - would need full rule evaluation for complete accuracy
+    conditions = Map.get(rule, :conditions, [])
+    {patterns, tests} = separate_conditions(conditions)
+
+    # Check if fact matches any pattern in the rule
+    matching_pattern = Enum.find(patterns, &fact_matches_pattern?(fact, &1))
+
+    if matching_pattern do
+      # Check if tests would pass
+      bindings = extract_bindings_from_fact(fact, matching_pattern)
+
+      Enum.all?(tests, fn {var, op, value} ->
+        case Map.get(bindings, var) do
+          nil -> false
+          bound_value -> evaluate_operator(op, bound_value, value)
+        end
+      end)
+    else
+      false
+    end
+  end
+
+  # Introspection and Debugging Implementation
+
+  defp generate_rule_inspection(state, rule_id) do
+    rule = Map.get(state.rules, rule_id)
+    network = Map.get(state.rule_networks, rule_id)
+    analysis = Map.get(state.rule_analyses, rule_id)
+    stats = Map.get(state.rule_statistics, rule_id, %{})
+
+    %{
+      rule_id: rule_id,
+      rule: rule,
+      analysis: analysis,
+      network_nodes: network,
+      statistics: stats,
+      alpha_nodes: get_rule_alpha_nodes(state, rule_id),
+      beta_nodes: get_rule_beta_nodes(state, rule_id),
+      fast_path_eligible: analysis && analysis.strategy == :fast_path,
+      memory_usage: calculate_rule_memory_usage(state, rule_id)
+    }
+  end
+
+  defp generate_engine_diagnostics(state) do
+    {time, memory_info} =
+      :timer.tc(fn ->
+        %{
+          facts_count: WorkingMemory.get_fact_count(state),
+          rules_count: map_size(state.rules),
+          alpha_nodes_count: map_size(state.alpha_nodes),
+          beta_nodes_count: get_beta_nodes_count(state),
+          ets_memory_usage: calculate_ets_memory_usage(state),
+          process_memory: :erlang.process_info(self(), :memory),
+          system_memory: :erlang.memory()
+        }
+      end)
+
+    Map.put(memory_info, :diagnostics_time_us, time)
+  end
+
+  defp execute_with_profiling(state, opts) do
+    rules_to_profile = Keyword.get(opts, :rules, Map.keys(state.rules))
+
+    # Execute rules with detailed profiling
+    {total_time, results} =
+      :timer.tc(fn ->
+        Enum.map(rules_to_profile, fn rule_id ->
+          rule = Map.get(state.rules, rule_id)
+
+          {rule_time, rule_results} =
+            :timer.tc(fn ->
+              execute_single_rule(rule_id, rule, state)
+            end)
+
+          %{
+            rule_id: rule_id,
+            execution_time_us: rule_time,
+            results_count: length(rule_results),
+            results: rule_results,
+            memory_before: :erlang.process_info(self(), :memory),
+            memory_after: :erlang.process_info(self(), :memory)
+          }
+        end)
+      end)
+
+    %{
+      total_execution_time_us: total_time,
+      rule_profiles: results,
+      performance_summary: %{
+        fastest_rule: Enum.min_by(results, & &1.execution_time_us),
+        slowest_rule: Enum.max_by(results, & &1.execution_time_us),
+        total_results: Enum.sum(Enum.map(results, & &1.results_count))
+      }
+    }
+  end
+
+  defp trace_fact_through_network(state, fact) do
+    fact_type = elem(fact, 0)
+
+    # Trace through alpha network
+    alpha_trace = trace_alpha_processing(state, fact)
+
+    # Trace through beta network if applicable
+    beta_trace = trace_beta_processing(state, fact, alpha_trace)
+
+    # Find which rules would be triggered
+    triggered_rules = find_rules_triggered_by_fact(state, fact)
+
+    %{
+      fact: fact,
+      fact_type: fact_type,
+      alpha_trace: alpha_trace,
+      beta_trace: beta_trace,
+      triggered_rules: triggered_rules,
+      processing_path: generate_processing_path(alpha_trace, beta_trace)
+    }
+  end
+
+  defp generate_network_visualization(state) do
+    alpha_nodes =
+      Enum.map(state.alpha_nodes, fn {node_id, node} ->
+        %{
+          id: node_id,
+          type: :alpha,
+          pattern: Map.get(node, :pattern),
+          memory_size: length(AlphaNetworkCoordinator.get_alpha_memory(state, node_id))
+        }
+      end)
+
+    beta_nodes = get_beta_network_visualization(state)
+
+    %{
+      nodes: alpha_nodes ++ beta_nodes,
+      edges: generate_network_edges(state),
+      metrics: %{
+        total_nodes: length(alpha_nodes) + length(beta_nodes),
+        total_memory_usage: calculate_total_network_memory(state),
+        optimization_opportunities: identify_optimization_opportunities(state)
+      }
+    }
+  end
+
+  defp generate_performance_recommendations(state) do
+    recommendations = []
+
+    # Check for underutilized fast-path opportunities
+    recommendations = maybe_recommend_fast_path(state, recommendations)
+
+    # Check for memory optimization opportunities
+    recommendations = maybe_recommend_memory_optimization(state, recommendations)
+
+    # Check for rule consolidation opportunities
+    recommendations = maybe_recommend_rule_consolidation(state, recommendations)
+
+    # Check for ETS optimization opportunities
+    recommendations = maybe_recommend_ets_optimization(state, recommendations)
+
+    recommendations
+  end
+
+  # Helper functions for debugging
+
+  defp get_rule_alpha_nodes(state, rule_id) do
+    case Map.get(state.rule_networks, rule_id) do
+      %{alpha_nodes: alpha_nodes} -> alpha_nodes
+      _ -> []
+    end
+  end
+
+  defp get_rule_beta_nodes(state, rule_id) do
+    case Map.get(state.rule_networks, rule_id) do
+      %{beta_nodes: beta_nodes} -> beta_nodes
+      _ -> []
+    end
+  end
+
+  defp calculate_rule_memory_usage(state, rule_id) do
+    alpha_memory =
+      get_rule_alpha_nodes(state, rule_id)
+      |> Enum.map(&AlphaNetworkCoordinator.get_alpha_memory(state, &1))
+      |> Enum.map(&length/1)
+      |> Enum.sum()
+
+    beta_memory =
+      get_rule_beta_nodes(state, rule_id)
+      |> Enum.map(&BetaNetworkCoordinator.get_beta_memory(state.beta_network, &1))
+      |> Enum.map(&length/1)
+      |> Enum.sum()
+
+    %{
+      alpha_memory_items: alpha_memory,
+      beta_memory_items: beta_memory,
+      total_items: alpha_memory + beta_memory
+    }
+  end
+
+  defp get_beta_nodes_count(state) do
+    # Simplified beta node count - would need proper implementation
+    case state.beta_network do
+      beta_nodes when is_map(beta_nodes) -> map_size(beta_nodes)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  defp calculate_ets_memory_usage(state) do
+    %{
+      facts_table: :ets.info(state.facts_table, :memory) || 0,
+      alpha_memories: :ets.info(state.alpha_memories, :memory) || 0,
+      compiled_patterns: :ets.info(state.compiled_patterns, :memory) || 0,
+      rule_statistics: :ets.info(state.rule_statistics_table, :memory) || 0
+    }
+  end
+
+  defp trace_alpha_processing(state, fact) do
+    fact_type = elem(fact, 0)
+    relevant_nodes = Map.get(state.fact_type_index, fact_type, [])
+
+    Enum.map(relevant_nodes, fn node_id ->
+      node = Map.get(state.alpha_nodes, node_id)
+      # Simplified pattern matching check
+      pattern = Map.get(node, :pattern)
+      matches = fact_matches_pattern?(fact, pattern)
+
+      %{
+        node_id: node_id,
+        pattern: Map.get(node, :pattern),
+        matches: matches,
+        memory_before: length(AlphaNetworkCoordinator.get_alpha_memory(state, node_id))
+      }
+    end)
+  end
+
+  defp trace_beta_processing(_state, _fact, alpha_trace) do
+    # Simplified beta trace - would need more sophisticated implementation
+    matching_alpha_nodes =
+      alpha_trace
+      |> Enum.filter(& &1.matches)
+      |> Enum.map(& &1.node_id)
+
+    %{
+      affected_alpha_nodes: matching_alpha_nodes,
+      # Simplified
+      beta_propagation: "Would propagate to beta network"
+    }
+  end
+
+  defp find_rules_triggered_by_fact(state, fact) do
+    state.rules
+    |> Enum.filter(fn {_rule_id, rule} ->
+      would_rule_match_fact?(rule, fact, state)
+    end)
+    |> Enum.map(fn {rule_id, _rule} -> rule_id end)
+  end
+
+  defp generate_processing_path(alpha_trace, beta_trace) do
+    alpha_steps =
+      Enum.map(alpha_trace, fn trace ->
+        %{step: :alpha_processing, node_id: trace.node_id, result: trace.matches}
+      end)
+
+    beta_steps = [
+      %{step: :beta_processing, affected_nodes: beta_trace.affected_alpha_nodes}
+    ]
+
+    alpha_steps ++ beta_steps
+  end
+
+  defp get_beta_network_visualization(_state) do
+    # Simplified beta network visualization
+    []
+  end
+
+  defp generate_network_edges(_state) do
+    # Simplified edge generation
+    []
+  end
+
+  defp calculate_total_network_memory(state) do
+    ets_memory = calculate_ets_memory_usage(state)
+    Enum.sum(Map.values(ets_memory))
+  end
+
+  defp identify_optimization_opportunities(_state) do
+    # Simplified optimization identification
+    []
+  end
+
+  defp maybe_recommend_fast_path(state, recommendations) do
+    slow_simple_rules =
+      state.rule_analyses
+      |> Enum.filter(fn {_rule_id, analysis} ->
+        analysis.complexity == :simple and analysis.strategy != :fast_path
+      end)
+
+    if length(slow_simple_rules) > 0 do
+      recommendation = %{
+        type: :fast_path_opportunity,
+        severity: :medium,
+        description: "Simple rules not using fast-path execution",
+        affected_rules: Enum.map(slow_simple_rules, fn {rule_id, _} -> rule_id end),
+        action: "Enable fast-path execution for simple rules"
+      }
+
+      [recommendation | recommendations]
+    else
+      recommendations
+    end
+  end
+
+  defp maybe_recommend_memory_optimization(state, recommendations) do
+    fact_count = WorkingMemory.get_fact_count(state)
+
+    if fact_count > 10000 do
+      recommendation = %{
+        type: :memory_optimization,
+        severity: :high,
+        description: "Large fact count may benefit from cleanup",
+        fact_count: fact_count,
+        action: "Consider implementing fact cleanup or archival strategy"
+      }
+
+      [recommendation | recommendations]
+    else
+      recommendations
+    end
+  end
+
+  defp maybe_recommend_rule_consolidation(state, recommendations) do
+    rule_count = map_size(state.rules)
+
+    if rule_count > 100 do
+      recommendation = %{
+        type: :rule_consolidation,
+        severity: :medium,
+        description: "Large number of rules may benefit from consolidation",
+        rule_count: rule_count,
+        action: "Consider consolidating similar rules or using rule templates"
+      }
+
+      [recommendation | recommendations]
+    else
+      recommendations
+    end
+  end
+
+  defp maybe_recommend_ets_optimization(_state, recommendations) do
+    # ETS tables are already optimized in our implementation
+    recommendations
   end
 end

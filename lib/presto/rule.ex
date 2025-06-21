@@ -74,6 +74,8 @@ defmodule Presto.Rule do
 
     * `:priority` - Rule execution priority. Default: 0
     * `:output` - Output fact pattern. Default: `{:aggregate_result, {group_fields...}, value}`
+    * `:window_size` - For windowed aggregations (time-based). Default: nil
+    * `:incremental` - Enable incremental updates. Default: true
     
   ## Examples
 
@@ -95,6 +97,25 @@ defmodule Presto.Rule do
         nil,
         output: {:dept_shifts, :department, :count}
       )
+
+      # Custom aggregation function
+      rule = Presto.Rule.aggregation(
+        :custom_metric,
+        conditions,
+        [:group_field],
+        fn values -> Enum.max(values) - Enum.min(values) end,
+        :value_field
+      )
+
+      # Windowed aggregation (moving average)
+      rule = Presto.Rule.aggregation(
+        :moving_average,
+        conditions,
+        [:sensor_id],
+        :avg,
+        :reading,
+        window_size: 100  # Last 100 readings
+      )
   """
   def aggregation(id, conditions, group_by, aggregate_fn, field, opts \\ []) do
     output_pattern = Keyword.get(opts, :output, default_output_pattern(group_by))
@@ -107,7 +128,9 @@ defmodule Presto.Rule do
       aggregate: aggregate_fn,
       field: field,
       output: output_pattern,
-      priority: Keyword.get(opts, :priority, 0)
+      priority: Keyword.get(opts, :priority, 0),
+      window_size: Keyword.get(opts, :window_size),
+      incremental: Keyword.get(opts, :incremental, true)
     }
   end
 
@@ -212,8 +235,13 @@ defmodule Presto.Rule do
   defp validate_aggregate_function(func) when func in [:sum, :count, :avg, :min, :max, :collect],
     do: :ok
 
+  defp validate_aggregate_function(func) when is_function(func, 1),
+    do: :ok
+
   defp validate_aggregate_function(func),
-    do: {:error, "Unknown aggregate function: #{inspect(func)}"}
+    do:
+      {:error,
+       "Invalid aggregate function: #{inspect(func)}. Must be atom (:sum, :count, :avg, :min, :max, :collect) or function/1"}
 
   defp default_output_pattern(group_by) do
     group_key = List.to_tuple(group_by)
