@@ -8,13 +8,13 @@ defmodule Presto.RuleEngine.AlphaMemoryManager do
   Single Responsibility: Alpha memory operations and storage
   """
 
-  alias Presto.RuleEngine.State
   alias Presto.RuleEngine.PatternMatcher
+  alias Presto.RuleEngine.State
 
   @doc """
   Initializes empty memory for an alpha node.
   """
-  @spec initialize_alpha_memory(State.t(), String.t()) :: :ok
+  @spec initialize_alpha_memory(State.t(), String.t()) :: true
   def initialize_alpha_memory(%State{} = state, node_id) do
     :ets.insert(State.get_alpha_memories(state), {node_id, []})
   end
@@ -92,7 +92,7 @@ defmodule Presto.RuleEngine.AlphaMemoryManager do
   @doc """
   Clears all memory for an alpha node.
   """
-  @spec clear_memory(State.t(), String.t()) :: :ok
+  @spec clear_memory(State.t(), String.t()) :: true
   def clear_memory(%State{} = state, node_id) do
     :ets.insert(State.get_alpha_memories(state), {node_id, []})
   end
@@ -100,7 +100,7 @@ defmodule Presto.RuleEngine.AlphaMemoryManager do
   @doc """
   Removes alpha memory when node is deleted.
   """
-  @spec delete_memory(State.t(), String.t()) :: :ok
+  @spec delete_memory(State.t(), String.t()) :: true
   def delete_memory(%State{} = state, node_id) do
     :ets.delete(State.get_alpha_memories(state), node_id)
   end

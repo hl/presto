@@ -13,8 +13,8 @@ defmodule Presto.RuleEngine.WorkingMemory do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Asserts a fact into the working memory.

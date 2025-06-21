@@ -9,8 +9,8 @@ defmodule Presto.RuleEngine.RuleMetadata do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Updates rule networks in the state.

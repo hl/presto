@@ -15,9 +15,9 @@ defmodule Presto.RuleEngine.AlphaNetwork do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
-  alias Presto.PatternMatching
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.PatternMatching
+  alias Presto.RuleEngine.State
 
   @doc """
   Processes a fact assertion through the alpha network.

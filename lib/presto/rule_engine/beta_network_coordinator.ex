@@ -16,8 +16,8 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
 
   require Logger
   alias Presto.BetaNetwork
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Starts a beta network for the given state.
@@ -242,7 +242,7 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
   This function sets up monitoring for the beta network and provides
   a callback for handling failures.
   """
-  @spec monitor_beta_network(State.t(), function()) :: {:ok, reference()} | {:error, term()}
+  @spec monitor_beta_network(State.t(), function() | nil) :: {:ok, reference()} | {:error, term()}
   def monitor_beta_network(%State{} = state, failure_callback \\ nil) do
     case State.get_beta_network(state) do
       nil ->
@@ -250,18 +250,19 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
 
       beta_network_pid ->
         monitor_ref = Process.monitor(beta_network_pid)
-
-        # Set up a task to handle DOWN messages if callback provided
-        if failure_callback do
-          spawn_link(fn ->
-            receive do
-              {:DOWN, ^monitor_ref, :process, ^beta_network_pid, reason} ->
-                failure_callback.(reason)
-            end
-          end)
-        end
-
+        maybe_setup_failure_handler(monitor_ref, beta_network_pid, failure_callback)
         {:ok, monitor_ref}
     end
+  end
+
+  defp maybe_setup_failure_handler(_monitor_ref, _beta_network_pid, nil), do: :ok
+
+  defp maybe_setup_failure_handler(monitor_ref, beta_network_pid, failure_callback) do
+    spawn_link(fn ->
+      receive do
+        {:DOWN, ^monitor_ref, :process, ^beta_network_pid, reason} ->
+          failure_callback.(reason)
+      end
+    end)
   end
 end

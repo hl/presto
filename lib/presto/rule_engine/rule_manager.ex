@@ -14,8 +14,8 @@ defmodule Presto.RuleEngine.RuleManager do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Adds a rule to the state.

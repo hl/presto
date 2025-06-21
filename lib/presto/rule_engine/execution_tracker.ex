@@ -9,8 +9,8 @@ defmodule Presto.RuleEngine.ExecutionTracker do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Records rule execution in the state.

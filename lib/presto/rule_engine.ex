@@ -11,6 +11,7 @@ defmodule Presto.RuleEngine do
 
   alias Presto.BetaNetwork
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.PatternMatching
   alias Presto.Rule
   alias Presto.RuleEngine.AlphaNetworkCoordinator
   alias Presto.RuleEngine.BetaNetworkCoordinator
@@ -22,7 +23,6 @@ defmodule Presto.RuleEngine do
   alias Presto.RuleEngine.State
   alias Presto.RuleEngine.Statistics
   alias Presto.RuleEngine.WorkingMemory
-  alias Presto.PatternMatching
 
   @type rule :: %{
           id: atom(),

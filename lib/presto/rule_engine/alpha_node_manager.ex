@@ -9,8 +9,8 @@ defmodule Presto.RuleEngine.AlphaNodeManager do
   """
 
   require Logger
-  alias Presto.RuleEngine.State
   alias Presto.Logger, as: PrestoLogger
+  alias Presto.RuleEngine.State
 
   @doc """
   Creates a new alpha node in the state.

@@ -10,11 +10,11 @@ defmodule Presto.RuleEngine.AlphaNetworkCoordinator do
   """
 
   require Logger
+  alias Presto.Logger, as: PrestoLogger
   alias Presto.RuleEngine.AlphaMemoryManager
   alias Presto.RuleEngine.AlphaNodeManager
   alias Presto.RuleEngine.PatternMatcher
   alias Presto.RuleEngine.State
-  alias Presto.Logger, as: PrestoLogger
 
   @doc """
   Processes a fact assertion through the alpha network.

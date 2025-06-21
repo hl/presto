@@ -199,7 +199,7 @@ defmodule Presto.RuleEngine.State do
   @doc """
   Updates the beta network pid in the state.
   """
-  @spec set_beta_network(t(), pid()) :: t()
+  @spec set_beta_network(t(), pid() | nil) :: t()
   def set_beta_network(%__MODULE__{} = state, beta_network_pid) do
     %{state | beta_network: beta_network_pid}
   end
