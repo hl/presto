@@ -391,27 +391,7 @@ defmodule Presto.BetaNetwork do
   defp order_beta_nodes_by_dependencies(beta_nodes) do
     # Sort nodes so that those with alpha inputs come before those with beta inputs
     Enum.sort_by(beta_nodes, fn {_node_id, node} ->
-      case Map.get(node, :type) do
-        :aggregation ->
-          # Aggregation nodes should be processed after their inputs
-          # but we treat them like alpha-input nodes for now
-          0
-
-        _ ->
-          # Join nodes
-          case {node.left_type, node.right_type} do
-            # Both inputs are alpha nodes - process first
-            {:alpha, :alpha} -> 0
-            # One input is beta - process later
-            {:alpha, :beta} -> 1
-            # One input is beta - process later
-            {:beta, :alpha} -> 1
-            # Both inputs are beta - process last
-            {:beta, :beta} -> 2
-            # Handle nil case (shouldn't happen but let's be safe)
-            _ -> 0
-          end
-      end
+      get_node_processing_priority(node)
     end)
   end
 
@@ -583,21 +563,7 @@ defmodule Presto.BetaNetwork do
     # For now, use the same ordering as process_all_joins
     # In a more advanced implementation, we could do topological sorting
     Enum.sort_by(affected_nodes, fn {_node_id, node} ->
-      case Map.get(node, :type) do
-        :aggregation ->
-          # Aggregation nodes should be processed after their inputs
-          0
-
-        _ ->
-          # Join nodes
-          case {node.left_type, node.right_type} do
-            {:alpha, :alpha} -> 0
-            {:alpha, :beta} -> 1
-            {:beta, :alpha} -> 1
-            {:beta, :beta} -> 2
-            _ -> 0
-          end
-      end
+      get_node_processing_priority(node)
     end)
   end
 
@@ -667,4 +633,32 @@ defmodule Presto.BetaNetwork do
 
   defp aggregate_result_key(:count, _field), do: :count
   defp aggregate_result_key(agg_fn, field), do: :"#{agg_fn}_#{field}"
+
+  defp get_node_processing_priority(node) do
+    case Map.get(node, :type) do
+      :aggregation ->
+        # Aggregation nodes should be processed after their inputs
+        # but we treat them like alpha-input nodes for now
+        0
+
+      _ ->
+        # Join nodes - prioritize by input types
+        get_join_node_priority(node.left_type, node.right_type)
+    end
+  end
+
+  defp get_join_node_priority(left_type, right_type) do
+    case {left_type, right_type} do
+      # Both inputs are alpha nodes - process first
+      {:alpha, :alpha} -> 0
+      # One input is beta - process later
+      {:alpha, :beta} -> 1
+      # One input is beta - process later
+      {:beta, :alpha} -> 1
+      # Both inputs are beta - process last
+      {:beta, :beta} -> 2
+      # Handle nil case (shouldn't happen but let's be safe)
+      _ -> 0
+    end
+  end
 end

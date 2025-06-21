@@ -1158,19 +1158,7 @@ defmodule Presto.RuleEngine do
     agg_node_id = Map.get(network_nodes, :aggregation_node)
 
     {time, results} =
-      :timer.tc(fn ->
-        if agg_node_id do
-          # Get aggregation results from beta memory
-          agg_results = BetaNetwork.get_beta_memory(state.beta_network, agg_node_id)
-
-          # Transform aggregation results to output facts
-          Enum.map(agg_results, fn result ->
-            transform_aggregation_result(result, rule.output)
-          end)
-        else
-          []
-        end
-      end)
+      :timer.tc(fn -> get_and_transform_aggregation_results(agg_node_id, rule.output, state) end)
 
     # Update rule statistics
     update_rule_statistics(rule_id, time, length(results), state)
@@ -1325,7 +1313,7 @@ defmodule Presto.RuleEngine do
         [
           # increment executions
           {2, 1},
-          # add to total_time  
+          # add to total_time
           {3, execution_time},
           # add to facts_processed
           {4, facts_processed}
@@ -1345,27 +1333,45 @@ defmodule Presto.RuleEngine do
     # Performance optimization: Build rule statistics from ETS table
     updated_rule_stats =
       Enum.reduce(sorted_rules, state.rule_statistics, fn {rule_id, _rule}, acc_stats ->
-        case :ets.lookup(state.rule_statistics_table, rule_id) do
-          [] ->
-            # No stats for this rule yet
-            acc_stats
-
-          [{^rule_id, executions, total_time, facts_processed}] ->
-            # Calculate average time from ETS counters
-            average_time = if executions > 0, do: div(total_time, executions), else: 0
-
-            updated_stats = %{
-              executions: executions,
-              total_time: total_time,
-              average_time: average_time,
-              facts_processed: facts_processed
-            }
-
-            Map.put(acc_stats, rule_id, updated_stats)
-        end
+        build_rule_stats_from_ets(rule_id, state.rule_statistics_table, acc_stats)
       end)
 
     %{state | rule_statistics: updated_rule_stats}
+  end
+
+  defp get_and_transform_aggregation_results(agg_node_id, output, state) do
+    if agg_node_id do
+      # Get aggregation results from beta memory
+      agg_results = BetaNetwork.get_beta_memory(state.beta_network, agg_node_id)
+
+      # Transform aggregation results to output facts
+      Enum.map(agg_results, fn result ->
+        transform_aggregation_result(result, output)
+      end)
+    else
+      []
+    end
+  end
+
+  defp build_rule_stats_from_ets(rule_id, stats_table, acc_stats) do
+    case :ets.lookup(stats_table, rule_id) do
+      [] ->
+        # No stats for this rule yet
+        acc_stats
+
+      [{^rule_id, executions, total_time, facts_processed}] ->
+        # Calculate average time from ETS counters
+        average_time = if executions > 0, do: div(total_time, executions), else: 0
+
+        updated_stats = %{
+          executions: executions,
+          total_time: total_time,
+          average_time: average_time,
+          facts_processed: facts_processed
+        }
+
+        Map.put(acc_stats, rule_id, updated_stats)
+    end
   end
 
   defp filter_incremental_results(all_results, new_facts, state) do

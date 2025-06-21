@@ -96,7 +96,6 @@ defmodule Presto.Rule do
         output: {:dept_shifts, :department, :count}
       )
   """
-  @spec aggregation(atom(), [pattern()], [atom()], atom(), atom() | nil, keyword()) :: rule()
   def aggregation(id, conditions, group_by, aggregate_fn, field, opts \\ []) do
     output_pattern = Keyword.get(opts, :output, default_output_pattern(group_by))
 
@@ -163,9 +162,8 @@ defmodule Presto.Rule do
          :ok <- validate_id(rule),
          :ok <- validate_conditions(rule),
          :ok <- validate_action(rule),
-         :ok <- validate_priority(rule),
-         :ok <- validate_type_specific(rule) do
-      :ok
+         :ok <- validate_priority(rule) do
+      validate_type_specific(rule)
     end
   end
 
@@ -194,9 +192,7 @@ defmodule Presto.Rule do
   defp validate_priority(_), do: :ok
 
   defp validate_type_specific(%{type: :aggregation} = rule) do
-    with :ok <- validate_aggregation_fields(rule) do
-      :ok
-    end
+    validate_aggregation_fields(rule)
   end
 
   defp validate_type_specific(_), do: :ok
