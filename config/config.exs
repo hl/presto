@@ -1,8 +1,32 @@
 import Config
 
 # Configure Logger metadata for Presto
+# Note: As a library, Presto does not set the global logger level
+# The host application should configure logging as needed
 config :logger, :console,
   metadata: [:error_type, :error_message, :context, :component, :timestamp, :stacktrace]
+
+# Presto-specific logging configuration
+# The host application can override these settings
+config :presto, :logging,
+  # Enable/disable Presto's internal logging (default: false for libraries)
+  # Note: Examples will enable logging via environment variables
+  enabled: false,
+  # Minimum level for Presto logging when enabled (default: :info)
+  level: :info
+
+# Enable logging for examples by default (when running mix directly)
+if Mix.env() == :dev and Code.ensure_loaded?(Mix.Project) do
+  case Mix.Project.get() do
+    Presto.MixProject ->
+      # Running examples directly - enable logging
+      config :presto, :logging, enabled: true, level: :info
+
+    _ ->
+      # Used as dependency - keep disabled
+      :ok
+  end
+end
 
 # Example configuration for Presto Rule Registry
 # 
@@ -11,18 +35,20 @@ config :logger, :console,
 # and modify it to use your own rule modules.
 
 # Simple configuration format - map rule names to modules
-config :presto, :rule_registry,
-  rules: %{
-    # Payroll processing rules
-    "time_calculation" => Presto.Examples.PayrollRules,
-    "overtime_check" => Presto.Examples.PayrollRules,
-
-    # Compliance checking rules  
-    "weekly_compliance" => Presto.Examples.ComplianceRules,
-
-    # Jurisdiction-specific rules
-    "spike_break_compliance" => Presto.Examples.CaliforniaSpikeBreakRules
-  }
+# NOTE: Example rule modules have been converted to standalone scripts
+# Uncomment and update with your own rule modules that implement Presto.RuleBehaviour
+# config :presto, :rule_registry,
+#   rules: %{
+#     # Payroll processing rules
+#     "time_calculation" => MyApp.PayrollRules,
+#     "overtime_check" => MyApp.PayrollRules,
+#
+#     # Compliance checking rules  
+#     "weekly_compliance" => MyApp.ComplianceRules,
+#
+#     # Jurisdiction-specific rules
+#     "spike_break_compliance" => MyApp.CaliforniaSpikeBreakRules
+#   }
 
 # Alternative advanced configuration format - group rules by module
 # config :presto, :rule_registry,

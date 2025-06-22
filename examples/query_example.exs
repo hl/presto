@@ -5,11 +5,8 @@
 # This example demonstrates the new query interface features added to Presto,
 # including pattern-based fact queries, joins, and fact explanation.
 
-# Start dependencies
-Mix.install([])
-
-# Add lib to path for running as script
-Code.append_path("lib")
+# Start the application
+Application.ensure_all_started(:presto)
 
 defmodule Examples.QueryExample do
   @moduledoc """
@@ -23,7 +20,7 @@ defmodule Examples.QueryExample do
     IO.puts("\n=== Presto Query Interface Demo ===")
 
     # Start the engine
-    {:ok, engine} = Presto.start_engine()
+    {:ok, engine} = Presto.RuleEngine.start_link()
 
     # Set up sample data
     setup_sample_data(engine)
@@ -38,7 +35,7 @@ defmodule Examples.QueryExample do
     # Performance comparison
     demonstrate_query_performance(engine)
 
-    Presto.stop_engine(engine)
+    GenServer.stop(engine)
     IO.puts("\n=== Query Demo Complete ===")
   end
 
@@ -76,7 +73,7 @@ defmodule Examples.QueryExample do
       {:project, "Dave", "ProjectY"}
     ]
 
-    :ok = Presto.assert_facts(engine, facts)
+    :ok = Presto.RuleEngine.assert_facts_bulk(engine, facts)
     IO.puts("Added #{length(facts)} facts to working memory")
   end
 
@@ -84,7 +81,7 @@ defmodule Examples.QueryExample do
     IO.puts("\n--- Basic Pattern Queries ---")
 
     # Query all people
-    people = Presto.query(engine, {:person, :_, :_, :_})
+    people = Presto.RuleEngine.query_facts(engine, {:person, :name, :age, :department}, [])
     IO.puts("All people (#{length(people)}):")
 
     Enum.each(people, fn person ->
@@ -92,7 +89,9 @@ defmodule Examples.QueryExample do
     end)
 
     # Query all employment records
-    employment = Presto.query(engine, {:employment, :_, :_, :_})
+    employment =
+      Presto.RuleEngine.query_facts(engine, {:employment, :name, :company, :salary}, [])
+
     IO.puts("\nAll employment records (#{length(employment)}):")
 
     Enum.each(employment, fn emp ->
@@ -104,7 +103,9 @@ defmodule Examples.QueryExample do
     IO.puts("\n--- Conditional Queries ---")
 
     # Query people over 30
-    seniors = Presto.query(engine, {:person, :name, :age, :department}, age: {:>, 30})
+    seniors =
+      Presto.RuleEngine.query_facts(engine, {:person, :name, :age, :department}, age: {:>, 30})
+
     IO.puts("People over 30 (#{length(seniors)}):")
 
     Enum.each(seniors, fn person ->
@@ -113,7 +114,9 @@ defmodule Examples.QueryExample do
 
     # Query engineering department
     engineers =
-      Presto.query(engine, {:person, :name, :age, :department}, department: "Engineering")
+      Presto.RuleEngine.query_facts(engine, {:person, :name, :age, :department},
+        department: "Engineering"
+      )
 
     IO.puts("\nEngineering department (#{length(engineers)}):")
 
@@ -123,7 +126,9 @@ defmodule Examples.QueryExample do
 
     # Query high earners
     high_earners =
-      Presto.query(engine, {:employment, :name, :company, :salary}, salary: {:>, 70000})
+      Presto.RuleEngine.query_facts(engine, {:employment, :name, :company, :salary},
+        salary: {:>, 70000}
+      )
 
     IO.puts("\nHigh earners (salary > 70k) (#{length(high_earners)}):")
 
@@ -133,7 +138,9 @@ defmodule Examples.QueryExample do
 
     # Query high performers
     high_performers =
-      Presto.query(engine, {:performance, :name, :year, :rating}, rating: {:>, 4.0})
+      Presto.RuleEngine.query_facts(engine, {:performance, :name, :year, :rating},
+        rating: {:>, 4.0}
+      )
 
     IO.puts("\nHigh performers (rating > 4.0) (#{length(high_performers)}):")
 
@@ -147,7 +154,7 @@ defmodule Examples.QueryExample do
 
     # Join people with their employment information
     people_employment =
-      Presto.query_join(
+      Presto.RuleEngine.query_facts_join(
         engine,
         [
           {:person, :name, :age, :department},
@@ -166,7 +173,7 @@ defmodule Examples.QueryExample do
 
     # Join people with performance ratings
     people_performance =
-      Presto.query_join(
+      Presto.RuleEngine.query_facts_join(
         engine,
         [
           {:person, :name, :age, :department},
@@ -183,7 +190,7 @@ defmodule Examples.QueryExample do
 
     # Three-way join: people, employment, and performance
     complete_profile =
-      Presto.query_join(
+      Presto.RuleEngine.query_facts_join(
         engine,
         [
           {:person, :name, :age, :department},
@@ -208,23 +215,27 @@ defmodule Examples.QueryExample do
     IO.puts("\n--- Counting Queries ---")
 
     # Count all people
-    person_count = Presto.count_facts(engine, {:person, :_, :_, :_})
+    person_count = Presto.RuleEngine.count_facts(engine, {:person, :name, :age, :department}, [])
     IO.puts("Total people: #{person_count}")
 
     # Count engineers
     engineer_count =
-      Presto.count_facts(engine, {:person, :name, :age, :department}, department: "Engineering")
+      Presto.RuleEngine.count_facts(engine, {:person, :name, :age, :department},
+        department: "Engineering"
+      )
 
     IO.puts("Engineers: #{engineer_count}")
 
     # Count high earners
     high_earner_count =
-      Presto.count_facts(engine, {:employment, :name, :company, :salary}, salary: {:>, 70000})
+      Presto.RuleEngine.count_facts(engine, {:employment, :name, :company, :salary},
+        salary: {:>, 70000}
+      )
 
     IO.puts("High earners (>70k): #{high_earner_count}")
 
     # Count project assignments
-    project_count = Presto.count_facts(engine, {:project, :_, :_})
+    project_count = Presto.RuleEngine.count_facts(engine, {:project, :name, :project}, [])
     IO.puts("Project assignments: #{project_count}")
   end
 
@@ -245,18 +256,20 @@ defmodule Examples.QueryExample do
         end
       )
 
-    :ok = Presto.add_rule(engine, rule)
+    :ok = Presto.RuleEngine.add_rule(engine, rule)
 
     # Explain how facts would match
-    alice_explanation = Presto.explain_fact(engine, {:person, "Alice", 28, "Engineering"})
+    alice_explanation =
+      Presto.RuleEngine.explain_fact(engine, {:person, "Alice", 28, "Engineering"})
+
     IO.puts("Explanation for Alice (28, Engineering):")
     IO.puts("  #{inspect(alice_explanation)}")
 
-    eve_explanation = Presto.explain_fact(engine, {:person, "Eve", 31, "Engineering"})
+    eve_explanation = Presto.RuleEngine.explain_fact(engine, {:person, "Eve", 31, "Engineering"})
     IO.puts("\nExplanation for Eve (31, Engineering):")
     IO.puts("  #{inspect(eve_explanation)}")
 
-    bob_explanation = Presto.explain_fact(engine, {:person, "Bob", 35, "Marketing"})
+    bob_explanation = Presto.RuleEngine.explain_fact(engine, {:person, "Bob", 35, "Marketing"})
     IO.puts("\nExplanation for Bob (35, Marketing):")
     IO.puts("  #{inspect(bob_explanation)}")
   end
@@ -267,17 +280,17 @@ defmodule Examples.QueryExample do
     # Measure query performance
     {time_basic, _result} =
       :timer.tc(fn ->
-        Presto.query(engine, {:person, :_, :_, :_})
+        Presto.RuleEngine.query_facts(engine, {:person, :name, :age, :department}, [])
       end)
 
     {time_conditional, _result} =
       :timer.tc(fn ->
-        Presto.query(engine, {:person, :name, :age, :department}, age: {:>, 30})
+        Presto.RuleEngine.query_facts(engine, {:person, :name, :age, :department}, age: {:>, 30})
       end)
 
     {time_join, _result} =
       :timer.tc(fn ->
-        Presto.query_join(
+        Presto.RuleEngine.query_facts_join(
           engine,
           [
             {:person, :name, :age, :department},
@@ -289,7 +302,7 @@ defmodule Examples.QueryExample do
 
     {time_count, _result} =
       :timer.tc(fn ->
-        Presto.count_facts(engine, {:person, :_, :_, :_})
+        Presto.RuleEngine.count_facts(engine, {:person, :name, :age, :department}, [])
       end)
 
     IO.puts("Query performance (microseconds):")

@@ -25,7 +25,8 @@ defmodule Presto.RuleEngine.WorkingMemory do
   @spec assert_fact(State.t(), tuple()) :: State.t()
   def assert_fact(%State{} = state, fact) do
     PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "asserting_fact_to_memory", %{
-      fact: fact
+      fact_type: elem(fact, 0),
+      fact_size: tuple_size(fact)
     })
 
     fact_key = make_fact_key(fact)
@@ -35,7 +36,7 @@ defmodule Presto.RuleEngine.WorkingMemory do
     new_state = maybe_track_change({:assert, fact}, state)
 
     PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "fact_asserted_to_memory", %{
-      fact: fact,
+      fact_type: elem(fact, 0),
       change_tracked: new_state.tracking_changes
     })
 
@@ -51,7 +52,8 @@ defmodule Presto.RuleEngine.WorkingMemory do
   @spec retract_fact(State.t(), tuple()) :: State.t()
   def retract_fact(%State{} = state, fact) do
     PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "retracting_fact_from_memory", %{
-      fact: fact
+      fact_type: elem(fact, 0),
+      fact_size: tuple_size(fact)
     })
 
     fact_key = make_fact_key(fact)
@@ -61,7 +63,7 @@ defmodule Presto.RuleEngine.WorkingMemory do
     new_state = maybe_track_change({:retract, fact}, state)
 
     PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "fact_retracted_from_memory", %{
-      fact: fact,
+      fact_type: elem(fact, 0),
       change_tracked: new_state.tracking_changes
     })
 

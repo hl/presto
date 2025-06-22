@@ -56,7 +56,15 @@ defmodule Presto.RuleEngine do
   @spec add_rule(GenServer.server(), rule()) :: :ok | {:error, term()}
   def add_rule(pid, rule) do
     rule_id = if is_map(rule) and Map.has_key?(rule, :id), do: rule.id, else: :unknown
-    PrestoLogger.log_rule_compilation(:info, rule_id, "adding_rule", %{rule: rule})
+    conditions = Map.get(rule, :conditions, [])
+    conditions_count = if is_list(conditions), do: length(conditions), else: 0
+
+    PrestoLogger.log_rule_compilation(:info, rule_id, "adding_rule", %{
+      rule_id: rule_id,
+      conditions_count: conditions_count,
+      priority: Map.get(rule, :priority, 0)
+    })
+
     GenServer.call(pid, {:add_rule, rule})
   end
 
@@ -72,7 +80,11 @@ defmodule Presto.RuleEngine do
 
   @spec assert_fact(GenServer.server(), tuple()) :: :ok
   def assert_fact(pid, fact) do
-    PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "asserting_fact", %{fact: fact})
+    PrestoLogger.log_fact_processing(:debug, elem(fact, 0), "asserting_fact", %{
+      fact_type: elem(fact, 0),
+      fact_size: tuple_size(fact)
+    })
+
     GenServer.call(pid, {:assert_fact, fact})
   end
 

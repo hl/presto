@@ -12,37 +12,41 @@ Application.ensure_all_started(:presto)
 {:ok, engine} = Presto.RuleEngine.start_link()
 
 # 2. Define rules using the new explicit API
-adult_rule = Presto.Rule.new(
-  :adult_rule,
-  [
-    Presto.Rule.pattern(:person, [:name, :age]),
-    Presto.Rule.test(:age, :>, 18)
-  ],
-  fn facts -> 
-    IO.puts("  ✓ #{facts[:name]} is an adult (#{facts[:age]} years old)")
-    [{:adult, facts[:name]}] 
-  end
-)
+adult_rule =
+  Presto.Rule.new(
+    :adult_rule,
+    [
+      Presto.Rule.pattern(:person, [:name, :age]),
+      Presto.Rule.test(:age, :>, 18)
+    ],
+    fn facts ->
+      IO.puts("  ✓ #{facts[:name]} is an adult (#{facts[:age]} years old)")
+      [{:adult, facts[:name]}]
+    end
+  )
 
-employee_rule = Presto.Rule.new(
-  :employee_rule,
-  [
-    Presto.Rule.pattern(:person, [:name, :age]),
-    Presto.Rule.pattern(:employment, [:name, :company]),
-    Presto.Rule.test(:age, :>=, 16)
-  ],
-  fn facts ->
-    IO.puts("  ✓ #{facts[:name]} works at #{facts[:company]}")
-    [{:employee, facts[:name], facts[:company]}]
-  end
-)
+employee_rule =
+  Presto.Rule.new(
+    :employee_rule,
+    [
+      Presto.Rule.pattern(:person, [:name, :age]),
+      Presto.Rule.pattern(:employment, [:name, :company]),
+      Presto.Rule.test(:age, :>=, 16)
+    ],
+    fn facts ->
+      IO.puts("  ✓ #{facts[:name]} works at #{facts[:company]}")
+      [{:employee, facts[:name], facts[:company]}]
+    end
+  )
 
-# 3. Add rules using batch API
+# 3. Add rules individually
 IO.puts("Adding rules...")
-:ok = Presto.RuleEngine.add_rules(engine, [adult_rule, employee_rule])
+:ok = Presto.RuleEngine.add_rule(engine, adult_rule)
+:ok = Presto.RuleEngine.add_rule(engine, employee_rule)
 
-# 4. Assert facts using batch API  
+# 4. Assert facts individually
 IO.puts("\nAsserting facts...")
+
 facts = [
   {:person, "Alice", 25},
   {:person, "Bob", 17},
@@ -51,19 +55,22 @@ facts = [
   {:employment, "Carol", "StartupInc"}
 ]
 
-:ok = Presto.RuleEngine.assert_facts(engine, facts)
+Enum.each(facts, fn fact ->
+  :ok = Presto.RuleEngine.assert_fact(engine, fact)
+end)
 
 # 5. Fire rules and see results
 IO.puts("\nFiring rules:")
 results = Presto.RuleEngine.fire_rules(engine)
 
 IO.puts("\nResults:")
+
 Enum.each(results, fn result ->
   IO.puts("  → #{inspect(result)}")
 end)
 
 # 6. Check some statistics
-stats = Presto.RuleEngine.get_rule_statistics(engine)
+_stats = Presto.RuleEngine.get_rule_statistics(engine)
 engine_stats = Presto.RuleEngine.get_engine_statistics(engine)
 
 IO.puts("\nEngine Statistics:")

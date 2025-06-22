@@ -18,8 +18,7 @@ defmodule Presto.RuleEngine.ExecutionTracker do
   @spec record_execution(State.t(), atom()) :: State.t()
   def record_execution(%State{} = state, rule_id) do
     PrestoLogger.log_rule_execution(:debug, rule_id, "recording_execution", %{
-      rule_id: rule_id,
-      current_order_length: length(state.last_execution_order)
+      execution_order_count: length(state.last_execution_order)
     })
 
     new_execution_order = [rule_id | state.last_execution_order]

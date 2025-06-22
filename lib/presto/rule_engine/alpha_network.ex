@@ -35,7 +35,8 @@ defmodule Presto.RuleEngine.AlphaNetwork do
       fact_type,
       "processing_fact_through_alpha_network",
       %{
-        fact: fact,
+        fact_type: fact_type,
+        fact_size: tuple_size(fact),
         relevant_nodes_count: length(relevant_nodes)
       }
     )
@@ -60,7 +61,8 @@ defmodule Presto.RuleEngine.AlphaNetwork do
       fact_type,
       "processing_fact_retraction_through_alpha_network",
       %{
-        fact: fact,
+        fact_type: fact_type,
+        fact_size: tuple_size(fact),
         relevant_nodes_count: length(relevant_nodes)
       }
     )

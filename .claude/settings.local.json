@@ -42,7 +42,22 @@
       "mcp__filesystem__get_file_info",
       "Bash(python3:*)",
       "Bash(yq eval:*)",
-      "mcp__filesystem__move_file"
+      "mcp__filesystem__move_file",
+      "Bash(git reset:*)",
+      "Bash(for:*)",
+      "Bash(do echo \"Testing $file...\")",
+      "Bash(timeout 30s mix run \"$file\")",
+      "Bash(/dev/null)",
+      "Bash(done)",
+      "Bash(EMPLOYEE_COUNT=10 mix run examples/batch_processing_example.exs)",
+      "Bash(EMPLOYEE_COUNT=100 mix run examples/batch_processing_example.exs)",
+      "Bash(PRESTO_LOG_LEVEL=none mix run examples/aggregation_example.exs)",
+      "Bash(PRESTO_LOG_LEVEL=error mix run examples/basic_example.exs)",
+      "Bash(EMPLOYEE_COUNT=5000 mix run examples/batch_processing_example.exs 2 > /dev/null)",
+      "Bash(LOGGER_LEVEL=warn mix run examples/batch_processing_example.exs 2 > /dev/null)",
+      "Bash(PRESTO_LOGGING_ENABLED=true PRESTO_LOGGING_LEVEL=info mix run examples/basic_example.exs 2 > /dev/null)",
+      "Bash(PRESTO_LOGGING_ENABLED=false mix run examples/basic_example.exs 2 > /dev/null)",
+      "Bash(PRESTO_LOGGING_ENABLED=false mix run examples/batch_processing_example.exs 2 > /dev/null)"
     ],
     "deny": []
   }

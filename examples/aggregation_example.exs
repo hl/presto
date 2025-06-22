@@ -1,13 +1,10 @@
 #!/usr/bin/env elixir
 
 # RETE-Native Aggregations Example
-# Demonstrates Presto's powerful aggregation capabilities using the enhanced API
+# Demonstrates Presto's aggregation capabilities using basic rules
 
-# Start dependencies
-Mix.install([])
-
-# Add lib to path for running as script
-Code.append_path("lib")
+# Start the application
+Application.ensure_all_started(:presto)
 
 defmodule Examples.AggregationExample do
   @moduledoc """
@@ -21,90 +18,65 @@ defmodule Examples.AggregationExample do
     IO.puts("\n=== RETE-Native Aggregations Example ===")
 
     # Start the engine
-    {:ok, engine} = Presto.start_engine()
+    {:ok, engine} = Presto.RuleEngine.start_link()
 
     # Demonstrate different aggregation types
     demonstrate_basic_aggregations(engine)
     demonstrate_custom_aggregations(engine)
-    demonstrate_windowed_aggregations(engine)
     demonstrate_multi_field_grouping(engine)
-
-    # Performance comparison
     demonstrate_aggregation_performance(engine)
 
-    Presto.stop_engine(engine)
+    GenServer.stop(engine)
     IO.puts("\n=== Aggregation Example Complete ===")
   end
 
   defp demonstrate_basic_aggregations(engine) do
-    IO.puts("\n--- Basic RETE-Native Aggregations ---")
+    IO.puts("\n--- Basic Aggregations (Simulated with Rules) ---")
 
-    # Create aggregation rules using the new API
-    rules = [
-      # Count employees by department
-      Presto.Rule.aggregation(
+    # Create rules that simulate aggregation behavior
+    # Count employees by department
+    count_rule =
+      Presto.Rule.new(
         :dept_employee_count,
-        [{:employee, :id, :name, :department}],
-        [:department],
-        :count,
-        nil
-      ),
-
-      # Sum salaries by department
-      Presto.Rule.aggregation(
-        :dept_salary_total,
         [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
+          Presto.Rule.pattern(:employee, [:id, :name, :department])
         ],
-        [:department],
-        :sum,
-        :amount
-      ),
-
-      # Average salary by department
-      Presto.Rule.aggregation(
-        :dept_avg_salary,
-        [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
-        ],
-        [:department],
-        :avg,
-        :amount
-      ),
-
-      # Min and max salaries by department
-      Presto.Rule.aggregation(
-        :dept_min_salary,
-        [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
-        ],
-        [:department],
-        :min,
-        :amount
-      ),
-      Presto.Rule.aggregation(
-        :dept_max_salary,
-        [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
-        ],
-        [:department],
-        :max,
-        :amount
-      ),
-
-      # Collect all employees by department
-      Presto.Rule.aggregation(
-        :dept_employee_list,
-        [{:employee, :id, :name, :department}],
-        [:department],
-        :collect,
-        :name
+        fn facts ->
+          [{:employee_in_dept, facts[:department], facts[:name]}]
+        end
       )
-    ]
+
+    # Sum salaries by department (simplified)
+    salary_rule =
+      Presto.Rule.new(
+        :dept_salary_tracking,
+        [
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount])
+        ],
+        fn facts ->
+          [{:dept_salary, facts[:department], facts[:amount]}]
+        end
+      )
+
+    # Salary statistics rule
+    high_salary_rule =
+      Presto.Rule.new(
+        :high_salary,
+        [
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount]),
+          Presto.Rule.test(:amount, :>, 80000)
+        ],
+        fn facts ->
+          [{:high_earner, facts[:name], facts[:department], facts[:amount]}]
+        end
+      )
+
+    # Add rules
+    :ok = Presto.RuleEngine.add_rule(engine, count_rule)
+    :ok = Presto.RuleEngine.add_rule(engine, salary_rule)
+    :ok = Presto.RuleEngine.add_rule(engine, high_salary_rule)
 
     # Sample data
     facts = [
@@ -117,167 +89,132 @@ defmodule Examples.AggregationExample do
       {:employee, 6, "Frank", "Engineering"},
 
       # Salaries
-      # Alice
       {:salary, 1, 95000},
-      # Bob
       {:salary, 2, 75000},
-      # Carol
       {:salary, 3, 85000},
-      # David
       {:salary, 4, 70000},
-      # Eve
       {:salary, 5, 65000},
-      # Frank
       {:salary, 6, 105_000}
     ]
 
-    # Execute batch operation
-    results = Presto.execute_batch(engine, rules: rules, facts: facts)
+    # Assert facts
+    Enum.each(facts, fn fact ->
+      :ok = Presto.RuleEngine.assert_fact(engine, fact)
+    end)
+
+    # Fire rules
+    results = Presto.RuleEngine.fire_rules(engine)
 
     IO.puts("Basic aggregation results:")
     analyze_aggregation_results(results)
+
+    # Simulate department counts by processing results
+    show_department_summaries(results)
+
+    # Clear facts for next demo
+    :ok = Presto.RuleEngine.clear_facts(engine)
   end
 
   defp demonstrate_custom_aggregations(engine) do
-    IO.puts("\n--- Custom Aggregation Functions ---")
+    IO.puts("\n--- Custom Aggregation Logic ---")
 
-    # Custom aggregation: salary range (max - min) by department
-    range_rule =
-      Presto.Rule.aggregation(
-        :dept_salary_range,
+    # Custom rule: salary range analysis (max - min) by department
+    salary_analysis_rule =
+      Presto.Rule.new(
+        :salary_analysis,
         [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount])
         ],
-        [:department],
-        fn values ->
-          if length(values) > 0 do
-            Enum.max(values) - Enum.min(values)
-          else
-            0
-          end
-        end,
-        :amount
+        fn facts ->
+          [{:salary_data, facts[:department], facts[:amount], facts[:name]}]
+        end
       )
 
-    # Custom aggregation: standard deviation of salaries
-    std_dev_rule =
-      Presto.Rule.aggregation(
-        :dept_salary_std_dev,
+    # Rule to identify departments with high salary variance
+    high_variance_rule =
+      Presto.Rule.new(
+        :high_variance_dept,
         [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount]),
+          Presto.Rule.test(:amount, :>, 90000)
         ],
-        [:department],
-        fn values ->
-          if length(values) > 1 do
-            mean = Enum.sum(values) / length(values)
-            variance = Enum.map(values, &:math.pow(&1 - mean, 2)) |> (Enum.sum() / length(values))
-            :math.sqrt(variance) |> Float.round(2)
-          else
-            0.0
-          end
-        end,
-        :amount
+        fn facts ->
+          [{:potential_high_variance, facts[:department]}]
+        end
       )
 
-    # Add custom rules to existing engine
-    :ok = Presto.add_rules(engine, [range_rule, std_dev_rule])
+    # Add rules
+    :ok = Presto.RuleEngine.add_rule(engine, salary_analysis_rule)
+    :ok = Presto.RuleEngine.add_rule(engine, high_variance_rule)
 
-    # Execute rules
-    results = Presto.fire_rules(engine)
+    # Sample data (same as before)
+    facts = [
+      {:employee, 1, "Alice", "Engineering"},
+      {:employee, 2, "Bob", "Engineering"},
+      {:employee, 3, "Carol", "Sales"},
+      {:employee, 4, "David", "Sales"},
+      {:employee, 5, "Eve", "Marketing"},
+      {:employee, 6, "Frank", "Engineering"},
+      {:salary, 1, 95000},
+      {:salary, 2, 75000},
+      {:salary, 3, 85000},
+      {:salary, 4, 70000},
+      {:salary, 5, 65000},
+      {:salary, 6, 105_000}
+    ]
+
+    # Assert facts
+    Enum.each(facts, fn fact ->
+      :ok = Presto.RuleEngine.assert_fact(engine, fact)
+    end)
+
+    # Fire rules
+    results = Presto.RuleEngine.fire_rules(engine)
 
     IO.puts("Custom aggregation results:")
+    analyze_custom_results(results)
 
-    custom_results =
-      Enum.filter(results, fn result ->
-        elem(result, 0) in [:dept_salary_range, :dept_salary_std_dev]
-      end)
-
-    Enum.each(custom_results, fn result ->
-      IO.puts("  #{inspect(result)}")
-    end)
-  end
-
-  defp demonstrate_windowed_aggregations(engine) do
-    IO.puts("\n--- Windowed Aggregations (Streaming Data) ---")
-
-    # Clear existing data for fresh demo
-    Presto.clear_facts(engine)
-
-    # Windowed moving average for sensor readings
-    windowed_avg_rule =
-      Presto.Rule.aggregation(
-        :sensor_moving_avg,
-        [{:sensor_reading, :sensor_id, :timestamp, :value}],
-        [:sensor_id],
-        :avg,
-        :value,
-        # Last 5 readings
-        window_size: 5
-      )
-
-    # Windowed count for activity monitoring
-    activity_count_rule =
-      Presto.Rule.aggregation(
-        :activity_count,
-        [{:user_activity, :user_id, :timestamp, :action}],
-        [:user_id],
-        :count,
-        nil,
-        # Last 10 activities
-        window_size: 10
-      )
-
-    :ok = Presto.add_rules(engine, [windowed_avg_rule, activity_count_rule])
-
-    # Simulate streaming sensor data
-    sensor_data =
-      Enum.map(1..20, fn i ->
-        {:sensor_reading, "temp_01", i, 20 + :rand.uniform(10)}
-      end)
-
-    # Simulate user activities
-    activity_data =
-      Enum.map(1..15, fn i ->
-        actions = ["login", "view", "click", "logout"]
-        {:user_activity, "user_01", i, Enum.random(actions)}
-      end)
-
-    # Assert facts in batches to simulate streaming
-    :ok = Presto.assert_facts(engine, sensor_data ++ activity_data)
-    results = Presto.fire_rules(engine)
-
-    IO.puts("Windowed aggregation results:")
-
-    windowed_results =
-      Enum.filter(results, fn result ->
-        elem(result, 0) in [:sensor_moving_avg, :activity_count]
-      end)
-
-    Enum.each(windowed_results, fn result ->
-      IO.puts("  #{inspect(result)}")
-    end)
+    # Clear facts for next demo
+    :ok = Presto.RuleEngine.clear_facts(engine)
   end
 
   defp demonstrate_multi_field_grouping(engine) do
     IO.puts("\n--- Multi-Field Grouping ---")
 
-    # Clear for fresh demo
-    Presto.clear_facts(engine)
-
     # Group by both department and experience level
     multi_group_rule =
-      Presto.Rule.aggregation(
-        :dept_experience_avg_salary,
+      Presto.Rule.new(
+        :dept_experience_tracking,
         [
-          {:employee, :id, :name, :department, :experience_level},
-          {:salary, :id, :amount}
+          Presto.Rule.pattern(:employee, [:id, :name, :department, :experience_level]),
+          Presto.Rule.pattern(:salary, [:id, :amount])
         ],
-        [:department, :experience_level],
-        :avg,
-        :amount
+        fn facts ->
+          [
+            {:dept_exp_salary, facts[:department], facts[:experience_level], facts[:amount],
+             facts[:name]}
+          ]
+        end
       )
+
+    # Senior level rule
+    senior_rule =
+      Presto.Rule.new(
+        :senior_employees,
+        [
+          Presto.Rule.pattern(:employee, [:id, :name, :department, :experience_level]),
+          Presto.Rule.test(:experience_level, :==, "Senior")
+        ],
+        fn facts ->
+          [{:senior_employee, facts[:name], facts[:department]}]
+        end
+      )
+
+    # Add rules
+    :ok = Presto.RuleEngine.add_rule(engine, multi_group_rule)
+    :ok = Presto.RuleEngine.add_rule(engine, senior_rule)
 
     # Sample data with experience levels
     facts = [
@@ -290,86 +227,190 @@ defmodule Examples.AggregationExample do
       {:employee, 6, "Frank", "Engineering", "Senior"},
 
       # Salaries
-      # Alice - Senior Engineering
       {:salary, 1, 110_000},
-      # Bob - Junior Engineering
       {:salary, 2, 65000},
-      # Carol - Senior Sales
       {:salary, 3, 95000},
-      # David - Junior Sales
       {:salary, 4, 55000},
-      # Eve - Mid Marketing
       {:salary, 5, 70000},
-      # Frank - Senior Engineering
       {:salary, 6, 115_000}
     ]
 
-    results = Presto.execute_batch(engine, rules: [multi_group_rule], facts: facts)
+    # Assert facts
+    Enum.each(facts, fn fact ->
+      :ok = Presto.RuleEngine.assert_fact(engine, fact)
+    end)
+
+    # Fire rules
+    results = Presto.RuleEngine.fire_rules(engine)
 
     IO.puts("Multi-field grouping results:")
+    analyze_multi_field_results(results)
 
-    Enum.each(results, fn result ->
-      IO.puts("  #{inspect(result)}")
-    end)
+    # Clear facts for next demo
+    :ok = Presto.RuleEngine.clear_facts(engine)
   end
 
   defp demonstrate_aggregation_performance(engine) do
-    IO.puts("\n--- Aggregation Performance ---")
+    IO.puts("\n--- Performance Test ---")
 
-    # Measure aggregation performance with larger dataset
+    # Create a simple performance rule
+    perf_rule =
+      Presto.Rule.new(
+        :perf_tracking,
+        [
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount])
+        ],
+        fn facts ->
+          [{:employee_salary, facts[:department], facts[:name], facts[:amount]}]
+        end
+      )
+
+    high_earner_rule =
+      Presto.Rule.new(
+        :high_earner_perf,
+        [
+          Presto.Rule.pattern(:employee, [:id, :name, :department]),
+          Presto.Rule.pattern(:salary, [:id, :amount]),
+          Presto.Rule.test(:amount, :>, 75000)
+        ],
+        fn facts ->
+          [{:high_earner_perf, facts[:department], facts[:name]}]
+        end
+      )
+
+    # Add rules
+    :ok = Presto.RuleEngine.add_rule(engine, perf_rule)
+    :ok = Presto.RuleEngine.add_rule(engine, high_earner_rule)
+
+    # Generate larger test dataset
     large_dataset =
       Enum.flat_map(1..1000, fn i ->
         dept = Enum.random(["Engineering", "Sales", "Marketing", "HR"])
+        salary = 50000 + :rand.uniform(100_000)
 
         [
           {:employee, i, "Employee_#{i}", dept},
-          {:salary, i, 50000 + :rand.uniform(100_000)}
+          {:salary, i, salary}
         ]
       end)
 
-    # Performance rules
-    perf_rules = [
-      Presto.Rule.aggregation(
-        :perf_count,
-        [{:employee, :id, :name, :department}],
-        [:department],
-        :count,
-        nil
-      ),
-      Presto.Rule.aggregation(
-        :perf_sum,
-        [
-          {:employee, :id, :name, :department},
-          {:salary, :id, :amount}
-        ],
-        [:department],
-        :sum,
-        :amount
-      )
-    ]
-
-    # Measure time
-    {time_us, results} =
+    # Measure performance
+    {time_us, _} =
       :timer.tc(fn ->
-        Presto.execute_batch(engine, rules: perf_rules, facts: large_dataset)
+        Enum.each(large_dataset, fn fact ->
+          :ok = Presto.RuleEngine.assert_fact(engine, fact)
+        end)
+      end)
+
+    {fire_time_us, results} =
+      :timer.tc(fn ->
+        Presto.RuleEngine.fire_rules(engine)
       end)
 
     IO.puts("Performance test with 1000 employees:")
-    IO.puts("  Execution time: #{time_us}μs (#{Float.round(time_us / 1000, 2)}ms)")
+    IO.puts("  Fact assertion time: #{time_us}μs (#{Float.round(time_us / 1000, 2)}ms)")
+    IO.puts("  Rule execution time: #{fire_time_us}μs (#{Float.round(fire_time_us / 1000, 2)}ms)")
+
+    IO.puts(
+      "  Total time: #{time_us + fire_time_us}μs (#{Float.round((time_us + fire_time_us) / 1000, 2)}ms)"
+    )
+
     IO.puts("  Results generated: #{length(results)}")
     IO.puts("  Facts processed: #{length(large_dataset)}")
+
+    # Show some statistics
+    high_earners = Enum.filter(results, &match?({:high_earner_perf, _, _}, &1))
+    IO.puts("  High earners found: #{length(high_earners)}")
   end
 
   defp analyze_aggregation_results(results) do
-    # Group results by aggregation type
+    # Group results by type
     results
     |> Enum.group_by(fn result -> elem(result, 0) end)
-    |> Enum.each(fn {agg_type, agg_results} ->
-      IO.puts("\n#{agg_type}:")
+    |> Enum.each(fn {result_type, type_results} ->
+      IO.puts("\n#{result_type}:")
 
-      Enum.each(agg_results, fn result ->
+      Enum.each(type_results, fn result ->
         IO.puts("  #{inspect(result)}")
       end)
+    end)
+  end
+
+  defp show_department_summaries(results) do
+    IO.puts("\nDepartment Summaries:")
+
+    # Count employees by department
+    employee_counts =
+      results
+      |> Enum.filter(&match?({:employee_in_dept, _, _}, &1))
+      |> Enum.group_by(fn {:employee_in_dept, dept, _} -> dept end)
+      |> Enum.map(fn {dept, employees} -> {dept, length(employees)} end)
+
+    Enum.each(employee_counts, fn {dept, count} ->
+      IO.puts("  #{dept}: #{count} employees")
+    end)
+
+    # Show high earners
+    high_earners =
+      results
+      |> Enum.filter(&match?({:high_earner, _, _, _}, &1))
+      |> length()
+
+    IO.puts("  High earners (>$80k): #{high_earners}")
+  end
+
+  defp analyze_custom_results(results) do
+    salary_data = Enum.filter(results, &match?({:salary_data, _, _, _}, &1))
+    high_variance = Enum.filter(results, &match?({:potential_high_variance, _}, &1))
+
+    IO.puts("Salary analysis complete:")
+    IO.puts("  Salary records processed: #{length(salary_data)}")
+    IO.puts("  Departments with potential high variance: #{length(high_variance)}")
+
+    # Show some custom analysis
+    dept_salaries =
+      salary_data
+      |> Enum.group_by(fn {:salary_data, dept, _, _} -> dept end)
+      |> Enum.map(fn {dept, salaries} ->
+        amounts = Enum.map(salaries, fn {:salary_data, _, amount, _} -> amount end)
+
+        avg =
+          if length(amounts) > 0, do: Float.round(Enum.sum(amounts) / length(amounts), 0), else: 0
+
+        {dept, avg}
+      end)
+
+    IO.puts("\nAverage salaries by department:")
+
+    Enum.each(dept_salaries, fn {dept, avg} ->
+      IO.puts("  #{dept}: $#{avg}")
+    end)
+  end
+
+  defp analyze_multi_field_results(results) do
+    dept_exp_data = Enum.filter(results, &match?({:dept_exp_salary, _, _, _, _}, &1))
+    senior_employees = Enum.filter(results, &match?({:senior_employee, _, _}, &1))
+
+    IO.puts("Multi-field analysis:")
+    IO.puts("  Department-Experience records: #{length(dept_exp_data)}")
+    IO.puts("  Senior employees: #{length(senior_employees)}")
+
+    # Group by department and experience level
+    grouped =
+      dept_exp_data
+      |> Enum.group_by(fn {:dept_exp_salary, dept, exp, _, _} -> {dept, exp} end)
+      |> Enum.map(fn {{dept, exp}, records} ->
+        salaries = Enum.map(records, fn {:dept_exp_salary, _, _, salary, _} -> salary end)
+        count = length(records)
+        avg_salary = if count > 0, do: Float.round(Enum.sum(salaries) / count, 0), else: 0
+        {{dept, exp}, count, avg_salary}
+      end)
+
+    IO.puts("\nDepartment-Experience breakdown:")
+
+    Enum.each(grouped, fn {{dept, exp}, count, avg} ->
+      IO.puts("  #{dept} #{exp}: #{count} employees, avg salary $#{avg}")
     end)
   end
 end

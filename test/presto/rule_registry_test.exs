@@ -14,11 +14,9 @@ defmodule Presto.RuleRegistryTest do
       # This will use the default configuration from config/config.exs
       rules = RuleRegistry.get_available_rules()
 
-      # Should have the example rules configured
-      assert Map.has_key?(rules, "time_calculation")
-      assert Map.has_key?(rules, "overtime_check")
-      assert Map.has_key?(rules, "weekly_compliance")
-      assert Map.has_key?(rules, "spike_break_compliance")
+      # Configuration might be empty if no rules are configured
+      # This is expected since example modules were converted to standalone scripts
+      assert is_map(rules)
     end
 
     test "validates configuration" do
@@ -34,11 +32,11 @@ defmodule Presto.RuleRegistryTest do
     end
 
     test "gets rule modules for configured rules" do
-      assert {:ok, module} = RuleRegistry.get_rule_module("time_calculation")
-      assert module == Presto.Examples.PayrollRules
+      # Register a test rule first since config is now empty
+      :ok = RuleRegistry.register_rule("test_rule", Presto.TestRuleModule)
 
-      assert {:ok, module} = RuleRegistry.get_rule_module("weekly_compliance")
-      assert module == Presto.Examples.ComplianceRules
+      assert {:ok, module} = RuleRegistry.get_rule_module("test_rule")
+      assert module == Presto.TestRuleModule
     end
 
     test "returns error for unknown rules" do
@@ -46,18 +44,22 @@ defmodule Presto.RuleRegistryTest do
     end
 
     test "lists all rule names" do
-      rule_names = RuleRegistry.list_rule_names()
+      # Register a test rule first since config is now empty
+      :ok = RuleRegistry.register_rule("test_rule", Presto.TestRuleModule)
 
+      rule_names = RuleRegistry.list_rule_names()
       assert is_list(rule_names)
-      assert "time_calculation" in rule_names
-      assert "weekly_compliance" in rule_names
+      assert "test_rule" in rule_names
     end
 
     test "validates rule specifications" do
+      # Register a test rule first
+      :ok = RuleRegistry.register_rule("test_rule", Presto.TestRuleModule)
+
       # Test valid spec
       valid_spec = %{
-        "rules_to_run" => ["time_calculation", "overtime_check"],
-        "variables" => %{"overtime_threshold" => 40.0}
+        "rules_to_run" => ["test_rule"],
+        "variables" => %{"test_var" => 42}
       }
 
       assert RuleRegistry.valid_rule_spec?(valid_spec) == true
@@ -73,14 +75,14 @@ defmodule Presto.RuleRegistryTest do
 
     test "supports dynamic rule registration" do
       # Register a test rule
-      assert :ok = RuleRegistry.register_rule("test_rule", Presto.Examples.PayrollRules)
+      assert :ok = RuleRegistry.register_rule("dynamic_test_rule", Presto.TestRuleModule)
 
       # Should now be available
-      assert {:ok, module} = RuleRegistry.get_rule_module("test_rule")
-      assert module == Presto.Examples.PayrollRules
+      assert {:ok, module} = RuleRegistry.get_rule_module("dynamic_test_rule")
+      assert module == Presto.TestRuleModule
 
       # Should be in the list
-      assert "test_rule" in RuleRegistry.list_rule_names()
+      assert "dynamic_test_rule" in RuleRegistry.list_rule_names()
     end
   end
 

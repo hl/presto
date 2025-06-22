@@ -22,9 +22,38 @@ mix run examples/query_example.exs
 # Learn debugging and introspection
 mix run examples/debugging_example.exs
 
-# Explore domain-specific rules (payroll)
-mix run -e "Examples.PayrollExample.run_demo()"
+# Advanced payroll processing with overtime
+mix run examples/payroll_rules_example.exs
+
+# Overtime calculation rules
+mix run examples/overtime_rules_example.exs
+
+# Regulatory compliance monitoring
+mix run examples/compliance_rules_example.exs
+
+# California spike break compliance
+mix run examples/california_spike_break_example.exs
+
+# TRONC tip pooling system
+mix run examples/tronc_rules_example.exs
 ```
+
+## Logging Control
+
+Examples show Presto's internal logging by default. You can control this:
+
+```bash
+# Disable logging for performance testing
+PRESTO_LOGGING_ENABLED=false mix run examples/batch_processing_example.exs
+
+# Enable debug logging for detailed output
+PRESTO_LOGGING_ENABLED=true PRESTO_LOGGING_LEVEL=debug mix run examples/basic_example.exs
+
+# Show only errors
+PRESTO_LOGGING_ENABLED=true PRESTO_LOGGING_LEVEL=error mix run examples/basic_example.exs
+```
+
+**Note:** When using Presto as a library in your application, logging is disabled by default.
 
 ## Example Overview
 
@@ -98,22 +127,6 @@ Shows comprehensive debugging and introspection tools for system analysis.
 - Network visualization with `visualize_network/1`
 - Performance recommendations
 
-### 6. Payroll Example (`payroll_example.ex`)
-
-Domain-specific example showing real-world business rules for payroll processing.
-
-**Demonstrates:**
-- Complex business logic
-- Multiple rule interactions
-- Practical calculation patterns
-- Performance metrics
-
-**Business Rules:**
-- Overtime calculations
-- Performance bonuses
-- Tax deductions
-- Holiday pay
-
 ## Learning Progression
 
 1. **Start with `basic_example.exs`** - Learn fundamental concepts
@@ -121,7 +134,63 @@ Domain-specific example showing real-world business rules for payroll processing
 3. **Run `batch_processing_example.exs`** - See performance and scale
 4. **Explore `query_example.exs`** - Learn ad-hoc fact querying
 5. **Try `debugging_example.exs`** - Master debugging and introspection
-6. **Apply `payroll_example.ex`** - See real-world scenarios
+6. **Explore advanced examples** - Production-ready demonstration scripts
+
+## Advanced Examples
+
+The following comprehensive examples demonstrate production-ready business rule implementations:
+
+### 6. Payroll Rules Example (`payroll_rules_example.exs`)
+
+Comprehensive payroll processing with time calculation and overtime rules.
+
+**Demonstrates:**
+- Complex payroll calculations
+- Time duration processing
+- Overtime detection and generation
+- Multi-stage rule workflows
+
+### 7. Overtime Rules Example (`overtime_rules_example.exs`)
+
+Specialized overtime calculation system with thresholds and pay code filters.
+
+**Demonstrates:**
+- Multi-stage overtime processing
+- Pay code aggregation
+- Priority-based rule execution
+- State management with paid/unpaid tracking
+
+### 8. Compliance Rules Example (`compliance_rules_example.exs`)
+
+Regulatory compliance monitoring for weekly working hour limits.
+
+**Demonstrates:**
+- Weekly aggregation by Monday-Sunday weeks
+- Compliance threshold checking
+- Violation detection and reporting
+- Multi-jurisdictional compliance workflows
+
+### 9. California Spike Break Example (`california_spike_break_example.exs`)
+
+California-specific compliance for spike break requirements across jurisdictions.
+
+**Demonstrates:**
+- Jurisdictional compliance rules
+- Multi-level threshold checking (state, regional, city)
+- Industry-specific break requirements
+- Complex penalty calculation systems
+
+### 10. TRONC Rules Example (`tronc_rules_example.exs`)
+
+Tips, gratuities and service charges distribution system compliant with UK legislation.
+
+**Demonstrates:**
+- Revenue collection and pooling
+- Administration cost deduction
+- Role-weighted fair distribution
+- Multi-stage financial processing
+
+All advanced examples demonstrate production-ready patterns for complex business rule systems using the Presto RETE engine.
 
 ## Performance Notes
 
@@ -214,13 +283,32 @@ These examples demonstrate Presto's BSSN-simplified architecture:
 3. **Explicit APIs**: No DSLs or magic - just Elixir functions
 4. **Focused Modules**: Each example has a single, clear purpose
 
-## Previous Examples (Removed)
+## Project Structure
 
-The following over-engineered examples were removed to align with BSSN principles:
+```
+examples/
+├── README.md                           # This file - learning-focused examples
+├── basic_example.exs                   # Start here - fundamental concepts
+├── aggregation_example.exs             # RETE-native aggregations
+├── batch_processing_example.exs        # Performance and scale
+├── query_example.exs                   # Ad-hoc fact querying
+├── debugging_example.exs               # Debugging and introspection
+├── payroll_rules_example.exs           # Complete payroll system
+├── overtime_rules_example.exs          # Overtime calculations
+├── compliance_rules_example.exs        # Regulatory compliance
+├── california_spike_break_example.exs  # CA-specific compliance
+└── tronc_rules_example.exs             # Tip pooling system
+```
 
-- `enhanced_payroll_demo.exs` - Duplicated functionality
-- `payroll_aggregator.ex` - Manual aggregations (superseded by native)
-- `massive_scale_payroll/` - 8-file abstraction not needed for demonstration
+## Testing
+
+All examples include embedded validation and can be run directly:
+
+```bash
+# Run any example to see it in action
+mix run examples/payroll_rules_example.exs
+# → Runs complete demonstration with sample data
+```
 
 ## Performance Benchmarks
 

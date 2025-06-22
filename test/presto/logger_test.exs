@@ -4,6 +4,16 @@ defmodule Presto.LoggerTest do
 
   alias Presto.Logger, as: PrestoLogger
 
+  setup do
+    # Enable Presto logging for tests
+    original_config = Application.get_env(:presto, :logging, [])
+    Application.put_env(:presto, :logging, enabled: true, level: :debug)
+
+    on_exit(fn ->
+      Application.put_env(:presto, :logging, original_config)
+    end)
+  end
+
   describe "log_rule_execution/4" do
     test "logs rule execution with structured metadata" do
       log =
