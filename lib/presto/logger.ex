@@ -29,44 +29,60 @@ defmodule Presto.Logger do
   """
   @spec logging_enabled?(atom()) :: boolean()
   def logging_enabled?(level) do
-    # Check environment variables first
+    {enabled, min_level} = get_logging_config()
+    enabled and Logger.compare_levels(level, min_level) != :lt
+  end
+
+  # Extract configuration logic to reduce cyclomatic complexity
+  defp get_logging_config do
+    case get_env_config() do
+      {enabled, min_level} when not is_nil(enabled) ->
+        {enabled, min_level}
+
+      _ ->
+        get_app_config()
+    end
+  end
+
+  defp get_env_config do
     env_enabled = System.get_env("PRESTO_LOGGING_ENABLED")
     env_level = System.get_env("PRESTO_LOGGING_LEVEL")
 
-    {enabled, min_level} =
-      case {env_enabled, env_level} do
-        {enabled_str, level_str} when is_binary(enabled_str) ->
-          enabled = enabled_str in ["true", "1", "yes"]
+    case {env_enabled, env_level} do
+      {enabled_str, level_str} when is_binary(enabled_str) ->
+        enabled = enabled_str in ["true", "1", "yes"]
+        level = parse_log_level(level_str)
+        {enabled, level}
 
-          level =
-            case level_str do
-              "debug" -> :debug
-              "info" -> :info
-              "warn" -> :warn
-              "error" -> :error
-              _ -> :info
-            end
+      _ ->
+        {nil, nil}
+    end
+  end
 
-          {enabled, level}
+  defp get_app_config do
+    case Application.get_env(:presto, :logging, enabled: false) do
+      config when is_list(config) ->
+        enabled = Keyword.get(config, :enabled, false)
+        min_level = Keyword.get(config, :level, :info)
+        {enabled, min_level}
 
-        {nil, nil} ->
-          # Fall back to application config
-          case Application.get_env(:presto, :logging, enabled: false) do
-            config when is_list(config) ->
-              enabled = Keyword.get(config, :enabled, false)
-              min_level = Keyword.get(config, :level, :info)
-              {enabled, min_level}
+      # Backward compatibility
+      true ->
+        {true, :info}
 
-            # Backward compatibility
-            true ->
-              {true, :info}
+      false ->
+        {false, :info}
+    end
+  end
 
-            false ->
-              {false, :info}
-          end
-      end
-
-    enabled and Logger.compare_levels(level, min_level) != :lt
+  defp parse_log_level(level_str) do
+    case level_str do
+      "debug" -> :debug
+      "info" -> :info
+      "warn" -> :warn
+      "error" -> :error
+      _ -> :info
+    end
   end
 
   @doc """
