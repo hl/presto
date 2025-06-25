@@ -176,7 +176,9 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
               {:error, reason}
           end
         rescue
-          _error ->
+          error ->
+            Logger.debug("Beta network snapshot fallback due to: #{inspect(error)}")
+
             # Fallback to basic snapshot if get_state is not implemented
             {:ok,
              %{
@@ -224,7 +226,9 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
                       {:error, reason} -> {:error, reason}
                     end
                   rescue
-                    _error ->
+                    error ->
+                      Logger.debug("Beta network restore fallback due to: #{inspect(error)}")
+
                       # If restore_state is not implemented, just use the restarted network
                       {:ok, new_state}
                   end

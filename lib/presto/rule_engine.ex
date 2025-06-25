@@ -160,6 +160,40 @@ defmodule Presto.RuleEngine do
     GenServer.call(pid, {:configure_optimization, opts})
   end
 
+  @spec get_rule_statistics(GenServer.server(), atom()) :: map() | nil
+  def get_rule_statistics(pid, rule_id) do
+    GenServer.call(pid, {:get_rule_statistics, rule_id})
+  end
+
+  @spec get_rule_performance_metrics(GenServer.server(), atom()) ::
+          {:ok, map()} | {:error, term()}
+  def get_rule_performance_metrics(pid, rule_id) do
+    case get_rule_statistics(pid, rule_id) do
+      nil -> {:error, :rule_not_found}
+      stats -> {:ok, stats}
+    end
+  end
+
+  @spec get_execution_metrics(GenServer.server()) :: map()
+  def get_execution_metrics(pid) do
+    get_engine_statistics(pid)
+  end
+
+  @spec get_fact_statistics(GenServer.server()) :: map()
+  def get_fact_statistics(pid) do
+    facts = get_facts(pid)
+
+    %{
+      total_facts: length(facts),
+      fact_types: facts |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length(),
+      facts_by_type:
+        facts
+        |> Enum.group_by(&elem(&1, 0))
+        |> Enum.map(fn {type, facts} -> {type, length(facts)} end)
+        |> Enum.into(%{})
+    }
+  end
+
   @spec get_optimization_config(GenServer.server()) :: map()
   def get_optimization_config(pid) do
     GenServer.call(pid, :get_optimization_config)
@@ -508,6 +542,12 @@ defmodule Presto.RuleEngine do
   def handle_call(:get_engine_statistics, _from, state) do
     statistics = Statistics.get_engine_statistics(state)
     {:reply, statistics, state}
+  end
+
+  @impl true
+  def handle_call({:get_rule_statistics, rule_id}, _from, state) do
+    stats = Statistics.get_rule_statistics(state, rule_id)
+    {:reply, stats, state}
   end
 
   @impl true
@@ -1182,7 +1222,8 @@ defmodule Presto.RuleEngine do
           try do
             rule.action.(fact_bindings)
           rescue
-            _error ->
+            error ->
+              Logger.debug("Rule action error: #{inspect(error)}")
               []
           end
         end)
@@ -2520,14 +2561,20 @@ defmodule Presto.RuleEngine do
 
       Enum.reduce(alpha_memories, %{}, fn {node_id, table}, acc ->
         case Presto.Persistence.snapshot(table) do
-          {:ok, snapshot} -> Map.put(acc, node_id, snapshot)
+          {:ok, snapshot} ->
+            Map.put(acc, node_id, snapshot)
+
           # Skip failed snapshots
-          {:error, _reason} -> acc
+          {:error, reason} ->
+            Logger.debug("Snapshot error for alpha node: #{inspect(reason)}")
+            acc
         end
       end)
     rescue
       # Return empty map on error
-      _error -> %{}
+      error ->
+        Logger.debug("Alpha network snapshot error: #{inspect(error)}")
+        %{}
     end
   end
 
@@ -2548,7 +2595,9 @@ defmodule Presto.RuleEngine do
       state
     rescue
       # Return original state on error
-      _error -> state
+      error ->
+        Logger.debug("Alpha network restore error: #{inspect(error)}")
+        state
     end
   end
 
