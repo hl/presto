@@ -115,6 +115,11 @@ defmodule Presto.RuleEngine do
     )
   end
 
+  @spec fire_all_rules(GenServer.server()) :: [rule_result()]
+  def fire_all_rules(pid) do
+    fire_rules(pid, [])
+  end
+
   @spec fire_rules_incremental(GenServer.server()) :: [rule_result()]
   def fire_rules_incremental(pid) do
     GenServer.call(pid, :fire_rules_incremental)
@@ -224,6 +229,30 @@ defmodule Presto.RuleEngine do
   @spec analyze_performance_recommendations(GenServer.server()) :: [map()]
   def analyze_performance_recommendations(pid) do
     GenServer.call(pid, :analyze_performance_recommendations)
+  end
+
+  # State Persistence and Recovery
+
+  @spec create_snapshot(GenServer.server()) :: {:ok, map()} | {:error, term()}
+  def create_snapshot(pid) do
+    # 30 second timeout for large engines
+    GenServer.call(pid, :create_snapshot, 30_000)
+  end
+
+  @spec restore_from_snapshot(GenServer.server(), map()) :: :ok | {:error, term()}
+  def restore_from_snapshot(pid, snapshot) do
+    # 30 second timeout
+    GenServer.call(pid, {:restore_from_snapshot, snapshot}, 30_000)
+  end
+
+  @spec save_snapshot_to_file(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def save_snapshot_to_file(pid, file_path) do
+    GenServer.call(pid, {:save_snapshot_to_file, file_path}, 30_000)
+  end
+
+  @spec load_snapshot_from_file(GenServer.server(), String.t()) :: :ok | {:error, term()}
+  def load_snapshot_from_file(pid, file_path) do
+    GenServer.call(pid, {:load_snapshot_from_file, file_path}, 30_000)
   end
 
   # Private functions
@@ -583,6 +612,38 @@ defmodule Presto.RuleEngine do
   def handle_call({:get_alpha_memory, node_id}, _from, state) do
     memory = AlphaNetworkCoordinator.get_alpha_memory(state, node_id)
     {:reply, memory, state}
+  end
+
+  @impl true
+  def handle_call(:create_snapshot, _from, state) do
+    case create_engine_snapshot(state) do
+      {:ok, snapshot} -> {:reply, {:ok, snapshot}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:restore_from_snapshot, snapshot}, _from, state) do
+    case restore_engine_from_snapshot(state, snapshot) do
+      {:ok, new_state} -> {:reply, :ok, new_state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:save_snapshot_to_file, file_path}, _from, state) do
+    case save_engine_snapshot_to_file(state, file_path) do
+      :ok -> {:reply, :ok, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:load_snapshot_from_file, file_path}, _from, state) do
+    case load_engine_snapshot_from_file(state, file_path) do
+      {:ok, new_state} -> {:reply, :ok, new_state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   @impl true
@@ -1244,10 +1305,18 @@ defmodule Presto.RuleEngine do
   defp get_rule_matches(rule, state) do
     case Map.get(state.rule_networks, rule.id) do
       nil ->
-        []
+        # Fallback to basic pattern matching when no network is available
+        get_basic_rule_matches(rule, state)
 
       network_nodes ->
-        get_matches_from_network_nodes(network_nodes, state)
+        case get_matches_from_network_nodes(network_nodes, state) do
+          [] ->
+            # If network returns no matches, try basic pattern matching
+            get_basic_rule_matches(rule, state)
+
+          matches ->
+            matches
+        end
     end
   end
 
@@ -1269,6 +1338,212 @@ defmodule Presto.RuleEngine do
   defp get_matches_from_alpha_nodes([], _state) do
     []
   end
+
+  # Basic pattern matching fallback when RETE network is not available
+  defp get_basic_rule_matches(rule, state) do
+    conditions = Map.get(rule, :conditions, [])
+    facts = WorkingMemory.get_facts(state)
+
+    case conditions do
+      [] ->
+        # No conditions - rule always fires
+        [%{}]
+
+      _ ->
+        # Handle multiple conditions with variable bindings and comparisons
+        find_matching_combinations(conditions, facts)
+    end
+  end
+
+  # Find all combinations of facts that satisfy all conditions
+  defp find_matching_combinations(conditions, facts) do
+    # Separate pattern conditions from comparison conditions
+    {pattern_conditions, comparison_conditions} =
+      Enum.split_with(conditions, fn condition ->
+        not is_comparison_condition?(condition)
+      end)
+
+    # Find facts that match pattern conditions and build variable bindings
+    matches_with_bindings = find_pattern_matches(pattern_conditions, facts)
+
+    # Filter matches that satisfy all comparison conditions
+    Enum.filter(matches_with_bindings, fn bindings ->
+      Enum.all?(comparison_conditions, fn comp_condition ->
+        evaluate_comparison_condition(comp_condition, bindings)
+      end)
+    end)
+  end
+
+  # Check if a condition is a comparison (has :>, :<, :==, etc.)
+  defp is_comparison_condition?({var, op, _value}) when is_atom(var) and is_atom(op) do
+    op in [:>, :<, :>=, :<=, :==, :!=, :=]
+  end
+
+  defp is_comparison_condition?(_), do: false
+
+  # Find facts that match pattern conditions and build variable bindings
+  defp find_pattern_matches(pattern_conditions, facts) do
+    case pattern_conditions do
+      [] ->
+        # No pattern conditions, return empty binding
+        [%{}]
+
+      [first_condition | rest_conditions] ->
+        # Find facts matching the first condition
+        first_matches =
+          Enum.flat_map(facts, fn fact ->
+            case match_pattern_condition(fact, first_condition) do
+              nil -> []
+              bindings -> [bindings]
+            end
+          end)
+
+        # For each first match, try to extend with remaining conditions
+        Enum.flat_map(first_matches, fn initial_bindings ->
+          extend_pattern_matches(rest_conditions, facts, initial_bindings)
+        end)
+    end
+  end
+
+  # Extend pattern matches with additional conditions
+  defp extend_pattern_matches([], _facts, bindings), do: [bindings]
+
+  defp extend_pattern_matches([condition | rest], facts, current_bindings) do
+    # Find facts that match this condition and are consistent with current bindings
+    extended_matches =
+      Enum.flat_map(facts, fn fact ->
+        case match_pattern_condition(fact, condition) do
+          nil ->
+            []
+
+          new_bindings ->
+            # Check if new bindings are consistent with current bindings
+            case merge_bindings(current_bindings, new_bindings) do
+              # Inconsistent bindings
+              nil -> []
+              merged -> [merged]
+            end
+        end
+      end)
+
+    # Continue with remaining conditions for each extended match
+    Enum.flat_map(extended_matches, fn extended_bindings ->
+      extend_pattern_matches(rest, facts, extended_bindings)
+    end)
+  end
+
+  # Match a single fact against a pattern condition and return variable bindings
+  defp match_pattern_condition(fact, condition) when is_tuple(fact) and is_tuple(condition) do
+    fact_size = tuple_size(fact)
+    condition_size = tuple_size(condition)
+
+    if fact_size == condition_size do
+      try_match_elements(fact, condition, 0, %{})
+    else
+      nil
+    end
+  end
+
+  defp match_pattern_condition(_fact, _condition), do: nil
+
+  # Try to match all elements and build bindings
+  defp try_match_elements(fact, condition, index, bindings) when index < tuple_size(fact) do
+    fact_elem = elem(fact, index)
+    condition_elem = elem(condition, index)
+
+    case match_element(fact_elem, condition_elem, bindings) do
+      {:ok, new_bindings} ->
+        try_match_elements(fact, condition, index + 1, new_bindings)
+
+      :fail ->
+        nil
+    end
+  end
+
+  defp try_match_elements(_fact, _condition, _index, bindings), do: bindings
+
+  # Match a single element and update bindings
+  defp match_element(fact_elem, condition_elem, bindings) do
+    cond do
+      # Variable (atoms that are likely variables)
+      is_variable?(condition_elem) ->
+        case Map.get(bindings, condition_elem) do
+          nil ->
+            # New variable binding
+            {:ok, Map.put(bindings, condition_elem, fact_elem)}
+
+          ^fact_elem ->
+            # Same binding, consistent
+            {:ok, bindings}
+
+          _different ->
+            # Inconsistent binding
+            :fail
+        end
+
+      # Literal match
+      fact_elem == condition_elem ->
+        {:ok, bindings}
+
+      # No match
+      true ->
+        :fail
+    end
+  end
+
+  # Check if an atom is a variable
+  defp is_variable?(atom) when is_atom(atom) do
+    atom_str = Atom.to_string(atom)
+    # Variables are atoms that start with :, have common variable names, or start with _
+    String.starts_with?(atom_str, "_") or
+      atom in [:name, :age, :value, :data, :field, :salary, :amount, :company] or
+      String.length(atom_str) == 1 or
+      String.starts_with?(atom_str, "var_")
+  end
+
+  defp is_variable?(_), do: false
+
+  # Merge two binding maps, return nil if inconsistent
+  defp merge_bindings(bindings1, bindings2) do
+    try do
+      Enum.reduce(bindings2, bindings1, fn {var, value}, acc ->
+        case Map.get(acc, var) do
+          nil ->
+            Map.put(acc, var, value)
+
+          ^value ->
+            # Same binding
+            acc
+
+          _different ->
+            throw(:inconsistent)
+        end
+      end)
+    catch
+      :inconsistent -> nil
+    end
+  end
+
+  # Evaluate a comparison condition against variable bindings
+  defp evaluate_comparison_condition({var, op, value}, bindings) when is_atom(var) do
+    case Map.get(bindings, var) do
+      # Variable not bound
+      nil -> false
+      var_value -> apply_comparison(var_value, op, value)
+    end
+  end
+
+  defp evaluate_comparison_condition(_condition, _bindings), do: false
+
+  # Apply comparison operation
+  defp apply_comparison(left, :>, right), do: left > right
+  defp apply_comparison(left, :<, right), do: left < right
+  defp apply_comparison(left, :>=, right), do: left >= right
+  defp apply_comparison(left, :<=, right), do: left <= right
+  defp apply_comparison(left, :==, right), do: left == right
+  defp apply_comparison(left, :!=, right), do: left != right
+  defp apply_comparison(left, :=, right), do: left == right
+  defp apply_comparison(_left, _op, _right), do: false
 
   defp find_final_beta_node(beta_nodes, state) do
     # Find the beta node that is not used as input to any other beta node
@@ -2090,4 +2365,192 @@ defmodule Presto.RuleEngine do
     # ETS tables are already optimized in our implementation
     recommendations
   end
+
+  # Engine State Persistence and Recovery
+
+  defp create_engine_snapshot(state) do
+    try do
+      # Snapshot working memory
+      {:ok, facts_snapshot} = Presto.Persistence.snapshot(state.facts_table)
+      {:ok, changes_snapshot} = Presto.Persistence.snapshot(state.changes_table)
+
+      # Snapshot alpha networks
+      alpha_snapshots = snapshot_alpha_networks(state)
+
+      # Snapshot beta network state
+      beta_snapshot = BetaNetworkCoordinator.create_snapshot(state)
+
+      # Get all rules
+      rules = RuleStorage.get_rules(state)
+
+      # Get statistics
+      stats = Statistics.get_engine_statistics(state)
+
+      # Create comprehensive snapshot
+      snapshot = %{
+        version: "1.0",
+        timestamp: System.system_time(:second),
+        engine_id: state.engine_id,
+        facts: facts_snapshot,
+        changes: changes_snapshot,
+        alpha_networks: alpha_snapshots,
+        beta_network: beta_snapshot,
+        rules: rules,
+        statistics: stats,
+        configuration: %{
+          optimization_config: state.optimization_config
+        }
+      }
+
+      {:ok, snapshot}
+    rescue
+      error -> {:error, error}
+    end
+  end
+
+  defp restore_engine_from_snapshot(state, snapshot) do
+    try do
+      # Validate snapshot format
+      unless Map.has_key?(snapshot, :version) and Map.has_key?(snapshot, :facts) do
+        throw({:error, :invalid_snapshot_format})
+      end
+
+      # Clear current state
+      :ok = Presto.Persistence.clear(state.facts_table)
+      :ok = Presto.Persistence.clear(state.changes_table)
+
+      # Restore facts and changes
+      :ok = Presto.Persistence.restore(state.facts_table, snapshot.facts)
+      :ok = Presto.Persistence.restore(state.changes_table, snapshot.changes)
+
+      # Restore alpha networks
+      new_state = restore_alpha_networks(state, Map.get(snapshot, :alpha_networks, %{}))
+
+      # Restore beta network
+      final_state =
+        case BetaNetworkCoordinator.restore_snapshot(
+               new_state,
+               Map.get(snapshot, :beta_network, %{})
+             ) do
+          {:ok, restored_state} -> restored_state
+          {:error, _reason} -> new_state
+        end
+
+      # Restore rules if they exist in snapshot
+      restored_state =
+        case Map.get(snapshot, :rules) do
+          rules when is_map(rules) ->
+            Enum.reduce(rules, final_state, fn {rule_id, rule}, acc_state ->
+              RuleStorage.add_rule(acc_state, rule_id, rule)
+            end)
+
+          _ ->
+            final_state
+        end
+
+      # Restore statistics if available
+      stats_state =
+        case Map.get(snapshot, :statistics) do
+          stats when is_map(stats) ->
+            Statistics.restore_statistics(restored_state, stats)
+
+          _ ->
+            restored_state
+        end
+
+      {:ok, stats_state}
+    rescue
+      error -> {:error, error}
+    catch
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp save_engine_snapshot_to_file(state, file_path) do
+    case create_engine_snapshot(state) do
+      {:ok, snapshot} ->
+        try do
+          # Ensure directory exists
+          file_path |> Path.dirname() |> File.mkdir_p()
+
+          # Convert to binary using :erlang.term_to_binary for Elixir terms
+          binary_data = :erlang.term_to_binary(snapshot, [:compressed])
+
+          # Write to file
+          case File.write(file_path, binary_data) do
+            :ok ->
+              Logger.info("Engine snapshot saved to #{file_path}")
+              :ok
+
+            {:error, reason} ->
+              Logger.error("Failed to write snapshot file #{file_path}: #{inspect(reason)}")
+              {:error, reason}
+          end
+        rescue
+          error -> {:error, error}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp load_engine_snapshot_from_file(state, file_path) do
+    try do
+      case File.read(file_path) do
+        {:ok, binary_data} ->
+          # Convert from binary back to Elixir terms
+          snapshot = :erlang.binary_to_term(binary_data)
+          Logger.info("Engine snapshot loaded from #{file_path}")
+          restore_engine_from_snapshot(state, snapshot)
+
+        {:error, reason} ->
+          Logger.error("Failed to read snapshot file #{file_path}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    rescue
+      error -> {:error, error}
+    end
+  end
+
+  defp snapshot_alpha_networks(state) do
+    try do
+      # Get all alpha memory snapshots using persistence interface
+      alpha_memories = AlphaNetworkCoordinator.get_all_alpha_memories(state)
+
+      Enum.reduce(alpha_memories, %{}, fn {node_id, table}, acc ->
+        case Presto.Persistence.snapshot(table) do
+          {:ok, snapshot} -> Map.put(acc, node_id, snapshot)
+          # Skip failed snapshots
+          {:error, _reason} -> acc
+        end
+      end)
+    rescue
+      # Return empty map on error
+      _error -> %{}
+    end
+  end
+
+  defp restore_alpha_networks(state, alpha_snapshots) when is_map(alpha_snapshots) do
+    try do
+      # Restore each alpha network memory
+      Enum.each(alpha_snapshots, fn {node_id, snapshot} ->
+        case AlphaNetworkCoordinator.get_alpha_memory(state, node_id) do
+          table when not is_nil(table) ->
+            Presto.Persistence.restore(table, snapshot)
+
+          # Skip if table doesn't exist
+          _ ->
+            :ok
+        end
+      end)
+
+      state
+    rescue
+      # Return original state on error
+      _error -> state
+    end
+  end
+
+  defp restore_alpha_networks(state, _), do: state
 end

@@ -105,7 +105,9 @@ defmodule Presto.RuleEngine.Statistics do
   Gets engine statistics from the state.
   """
   @spec get_engine_statistics(State.t()) :: map()
-  def get_engine_statistics(%State{} = state), do: state.engine_statistics
+  def get_engine_statistics(%State{} = state) do
+    Map.put(state.engine_statistics, :engine_id, state.engine_id)
+  end
 
   @doc """
   Updates the total facts count in engine statistics.
@@ -308,6 +310,52 @@ defmodule Presto.RuleEngine.Statistics do
     # Remove from in-memory statistics
     updated_rule_statistics = Map.delete(state.rule_statistics, rule_id)
     %{state | rule_statistics: updated_rule_statistics}
+  end
+
+  @doc """
+  Restores statistics from a snapshot.
+  """
+  @spec restore_statistics(State.t(), map()) :: State.t()
+  def restore_statistics(%State{} = state, statistics_data) do
+    try do
+      # Restore engine statistics
+      updated_state =
+        case Map.get(statistics_data, :engine_statistics) do
+          engine_stats when is_map(engine_stats) ->
+            %{state | engine_statistics: engine_stats}
+
+          _ ->
+            state
+        end
+
+      # Restore rule statistics
+      final_state =
+        case Map.get(statistics_data, :rule_statistics) do
+          rule_stats when is_map(rule_stats) ->
+            # Clear existing rule statistics
+            stats_table = State.get_rule_statistics_table(updated_state)
+            :ets.delete_all_objects(stats_table)
+
+            # Restore rule statistics to ETS and in-memory
+            Enum.reduce(rule_stats, updated_state, fn {rule_id, stats}, acc_state ->
+              # Add to ETS table
+              :ets.insert(stats_table, {rule_id, stats})
+
+              # Add to in-memory statistics
+              updated_rule_stats = Map.put(acc_state.rule_statistics, rule_id, stats)
+              %{acc_state | rule_statistics: updated_rule_stats}
+            end)
+
+          _ ->
+            updated_state
+        end
+
+      final_state
+    rescue
+      _error ->
+        # If restoration fails, return the original state
+        state
+    end
   end
 
   # Private functions

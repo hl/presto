@@ -39,9 +39,12 @@ defmodule Presto.Rule do
   @doc """
   Creates a new rule with the given id, conditions, and action function.
 
+  The rule is validated at creation time to ensure it follows proper structure.
+
   ## Options
 
     * `:priority` - Rule execution priority (higher numbers execute first). Default: 0
+    * `:validate` - Whether to validate the rule structure. Default: true
     
   ## Examples
 
@@ -56,12 +59,21 @@ defmodule Presto.Rule do
   """
   @spec new(atom(), [condition()], function(), keyword()) :: rule()
   def new(id, conditions, action_fn, opts \\ []) do
-    %{
+    rule = %{
       id: id,
       conditions: conditions,
       action: action_fn,
       priority: Keyword.get(opts, :priority, 0)
     }
+
+    if Keyword.get(opts, :validate, true) do
+      case Presto.Rule.Validator.validate(rule) do
+        :ok -> rule
+        {:error, message} -> raise ArgumentError, "Invalid rule: #{message}"
+      end
+    else
+      rule
+    end
   end
 
   @doc """
@@ -120,7 +132,7 @@ defmodule Presto.Rule do
   def aggregation(id, conditions, group_by, aggregate_fn, field, opts \\ []) do
     output_pattern = Keyword.get(opts, :output, default_output_pattern(group_by))
 
-    %{
+    rule = %{
       id: id,
       type: :aggregation,
       conditions: conditions,
@@ -132,6 +144,15 @@ defmodule Presto.Rule do
       window_size: Keyword.get(opts, :window_size),
       incremental: Keyword.get(opts, :incremental, true)
     }
+
+    if Keyword.get(opts, :validate, true) do
+      case Presto.Rule.Validator.validate(rule) do
+        :ok -> rule
+        {:error, message} -> raise ArgumentError, "Invalid aggregation rule: #{message}"
+      end
+    else
+      rule
+    end
   end
 
   @doc """
@@ -171,77 +192,23 @@ defmodule Presto.Rule do
   @doc """
   Validates a rule structure and returns :ok or an error with details.
 
+  Delegates to the comprehensive Presto.Rule.Validator module which provides
+  enhanced validation including variable binding analysis and compile-time checks.
+
   ## Examples
 
-      iex> Presto.Rule.validate(%{id: :test, conditions: [], action: fn _ -> [] end})
+      iex> Presto.Rule.validate(%{id: :test, conditions: [{:person, :name}], action: fn _ -> [] end})
       :ok
       
-      iex> Presto.Rule.validate(%{id: "not_atom", conditions: [], action: fn _ -> [] end})
+      iex> Presto.Rule.validate(%{id: "not_atom", conditions: []})
       {:error, "Rule 'not_atom': id must be an atom"}
   """
   @spec validate(map()) :: :ok | {:error, String.t()}
   def validate(rule) do
-    with :ok <- validate_structure(rule),
-         :ok <- validate_id(rule),
-         :ok <- validate_conditions(rule),
-         :ok <- validate_action(rule),
-         :ok <- validate_priority(rule) do
-      validate_type_specific(rule)
-    end
+    Presto.Rule.Validator.validate(rule)
   end
 
-  # Validation functions
-
-  defp validate_structure(rule) when is_map(rule), do: :ok
-  defp validate_structure(_), do: {:error, "Rule must be a map"}
-
-  defp validate_id(%{id: id}) when is_atom(id), do: :ok
-  defp validate_id(%{id: id}), do: {:error, "Rule '#{inspect(id)}': id must be an atom"}
-  defp validate_id(_), do: {:error, "Rule is missing required field: id"}
-
-  defp validate_conditions(%{conditions: conditions}) when is_list(conditions), do: :ok
-  defp validate_conditions(%{conditions: _}), do: {:error, "Rule conditions must be a list"}
-  defp validate_conditions(_), do: {:error, "Rule is missing required field: conditions"}
-
-  # Aggregation rules don't need action
-  defp validate_action(%{type: :aggregation}), do: :ok
-  defp validate_action(%{action: action}) when is_function(action), do: :ok
-  defp validate_action(%{action: _}), do: {:error, "Rule action must be a function"}
-  defp validate_action(_), do: {:error, "Rule is missing required field: action"}
-
-  defp validate_priority(%{priority: priority}) when is_integer(priority), do: :ok
-  defp validate_priority(%{priority: _}), do: {:error, "Rule priority must be an integer"}
-  # Priority is optional
-  defp validate_priority(_), do: :ok
-
-  defp validate_type_specific(%{type: :aggregation} = rule) do
-    validate_aggregation_fields(rule)
-  end
-
-  defp validate_type_specific(_), do: :ok
-
-  defp validate_aggregation_fields(rule) do
-    required_fields = [:group_by, :aggregate, :output]
-
-    missing_fields = Enum.filter(required_fields, &(not Map.has_key?(rule, &1)))
-
-    if Enum.empty?(missing_fields) do
-      validate_aggregate_function(rule.aggregate)
-    else
-      {:error, "Aggregation rule missing required fields: #{inspect(missing_fields)}"}
-    end
-  end
-
-  defp validate_aggregate_function(func) when func in [:sum, :count, :avg, :min, :max, :collect],
-    do: :ok
-
-  defp validate_aggregate_function(func) when is_function(func, 1),
-    do: :ok
-
-  defp validate_aggregate_function(func),
-    do:
-      {:error,
-       "Invalid aggregate function: #{inspect(func)}. Must be atom (:sum, :count, :avg, :min, :max, :collect) or function/1"}
+  # Private helper functions
 
   defp default_output_pattern(group_by) do
     group_key = List.to_tuple(group_by)

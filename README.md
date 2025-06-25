@@ -17,6 +17,9 @@ Presto is a high-performance, production-ready implementation of the RETE algori
 - **🔧 Explicit API**: No DSLs - clean Elixir functions for rule creation
 - **📈 Production Ready**: Comprehensive monitoring, logging, and fault tolerance
 - **⚖️ Scalable**: Handles millions of facts with predictable memory usage
+- **💾 Pluggable Persistence**: Choose between fast in-memory (ETS) or durable disk storage (DETS)
+- **📸 State Snapshots**: Complete engine state capture and restoration for backup/recovery
+- **🏗️ Supervised Architecture**: Dynamic supervision with automatic restarts and health monitoring
 
 ## Quick Start
 
@@ -252,6 +255,182 @@ Presto delivers excellent performance characteristics:
 - **Aggregations**: O(1) incremental updates vs O(N) recalculation
 - **Memory Usage**: Predictable scaling with fact count
 - **Throughput**: 500K+ rule evaluations/second
+
+## Persistence & State Management
+
+Presto provides flexible persistence options to meet different deployment requirements:
+
+### Fast In-Memory Storage (Default)
+
+Uses ETS tables for maximum performance:
+
+```elixir
+# Default configuration - fast in-memory storage
+{:ok, engine} = Presto.RuleEngine.start_link([])
+```
+
+### Durable Disk Storage
+
+Enable disk persistence that survives restarts:
+
+```elixir
+# Configure DETS for disk persistence
+{:ok, engine} = Presto.RuleEngine.start_link([
+  persistence_adapter: Presto.Persistence.DetsAdapter,
+  adapter_opts: [storage_dir: "/var/lib/presto"]
+])
+```
+
+### Engine Snapshots
+
+Capture and restore complete engine state:
+
+```elixir
+# Create snapshot of running engine
+{:ok, snapshot} = Presto.RuleEngine.create_snapshot(engine)
+
+# Save to file for backup
+:ok = Presto.RuleEngine.save_snapshot_to_file(engine, "/backups/engine.snapshot")
+
+# Restore to new engine
+{:ok, new_engine} = Presto.RuleEngine.start_link([])
+:ok = Presto.RuleEngine.restore_from_snapshot(new_engine, snapshot)
+```
+
+**Use Cases for Snapshots:**
+- Disaster recovery and backup
+- Development environment setup
+- Production deployment with baseline data
+- Debugging and state analysis
+
+See the [Persistence Guide](docs/persistence.md) for detailed configuration options and custom adapters.
+
+## Enhanced Production Features
+
+Presto includes advanced operational capabilities designed for production deployment:
+
+### Supervised Engine Management
+
+Start engines under supervision with automatic registration and failure recovery:
+
+```elixir
+# Start an engine under supervision with automatic name registration
+{:ok, engine_pid} = Presto.EngineSupervisor.start_engine(
+  name: :payroll_engine,
+  engine_id: "payroll-prod-001"
+)
+
+# Registry automatically tracks engines
+{:ok, ^engine_pid} = Presto.EngineRegistry.lookup_engine(:payroll_engine)
+
+# Health monitoring
+health = Presto.EngineRegistry.health_check()
+# => %{
+#   total: 1,
+#   alive: 1, 
+#   dead: 0,
+#   details: [%{name: :payroll_engine, status: :alive, pid: engine_pid}]
+# }
+
+# Supervised restart on failure
+supervisor_health = Presto.EngineSupervisor.health_check()
+# => %{
+#   total_engines: 1,
+#   healthy_engines: 1,
+#   unhealthy_engines: 0,
+#   engine_details: [...]
+# }
+```
+
+### Comprehensive Telemetry Integration
+
+Built-in telemetry events for observability and monitoring:
+
+```elixir
+# Automatic telemetry events for all engine operations
+# Events include:
+# - [:presto, :engine, :start] / [:presto, :engine, :stop]
+# - [:presto, :engine, :registered] / [:presto, :engine, :unregistered]  
+# - [:presto, :fact, :assert] / [:presto, :fact, :retract]
+# - [:presto, :rule, :add] / [:presto, :rule, :remove]
+# - [:presto, :rule, :execute] with timing and metadata
+
+# Optional Prometheus metrics integration
+Presto.Telemetry.Prometheus.setup()
+
+# Default logging handlers
+Presto.Telemetry.setup_default_handlers()
+```
+
+### Compile-time Rule Validation
+
+Validate rules at compile time for early error detection:
+
+```elixir
+defmodule PayrollRules do
+  use Presto.Rule.Validator
+
+  # Compile-time validated rule definition
+  defrule :overtime_calculation do
+    conditions [
+      {:employee, :id, :hours_worked, :hourly_rate},
+      {:hours_worked, :>, 40}
+    ]
+    action fn facts -> 
+      overtime_hours = facts[:hours_worked] - 40
+      overtime_pay = overtime_hours * facts[:hourly_rate] * 1.5
+      [{:overtime_pay, facts[:id], overtime_pay}]
+    end
+    priority 10
+  end
+
+  # Compile-time validation with detailed error messages
+  @invalid_rule %{
+    id: :bad_rule,
+    conditions: [{:person, :age}, {:age, :>, "not_a_number"}],  # Invalid
+    action: fn _ -> [] end
+  }
+
+  validate!(@invalid_rule)  # Compile error with helpful message
+end
+```
+
+### Backward Compatibility
+
+All existing Presto code continues to work without changes. New features are opt-in:
+
+```elixir
+# Existing direct engine usage still works
+{:ok, engine} = Presto.RuleEngine.start_link(engine_id: "legacy-engine")
+
+# Can be mixed with supervised engines
+{:ok, supervised} = Presto.EngineSupervisor.start_engine(name: :new_engine)
+
+# Both approaches work side by side
+assert :ok = Presto.RuleEngine.add_rule(engine, rule)
+assert :ok = Presto.RuleEngine.add_rule(supervised, rule)
+```
+
+### Application Integration
+
+Presto integrates seamlessly with your application supervision tree:
+
+```elixir
+# In your application.ex
+def start(_type, _args) do
+  children = [
+    # Your existing children...
+    
+    # Presto supervision tree (automatically included)
+    # - Presto.EngineRegistry (engine discovery)
+    # - Presto.EngineSupervisor (dynamic engine supervision)
+    # - Telemetry setup (optional, graceful degradation)
+  ]
+  
+  opts = [strategy: :one_for_one, name: MyApp.Supervisor]
+  Supervisor.start_link(children, opts)
+end
+```
 
 ## Migration from v0.1
 

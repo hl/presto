@@ -57,7 +57,16 @@
       "Bash(LOGGER_LEVEL=warn mix run examples/batch_processing_example.exs 2 > /dev/null)",
       "Bash(PRESTO_LOGGING_ENABLED=true PRESTO_LOGGING_LEVEL=info mix run examples/basic_example.exs 2 > /dev/null)",
       "Bash(PRESTO_LOGGING_ENABLED=false mix run examples/basic_example.exs 2 > /dev/null)",
-      "Bash(PRESTO_LOGGING_ENABLED=false mix run examples/batch_processing_example.exs 2 > /dev/null)"
+      "Bash(PRESTO_LOGGING_ENABLED=false mix run examples/batch_processing_example.exs 2 > /dev/null)",
+      "Bash(test -f mix.exs)",
+      "mcp__zen__analyze",
+      "Bash(echo \"Exit status: $?\")",
+      "Bash(echo \"Exit code: $?\")",
+      "mcp__zen__consensus",
+      "mcp__zen__chat",
+      "Bash(awk:*)",
+      "Bash(LOGGER_LEVEL=info mix test test/presto_test.exs:103)",
+      "Bash(ERL_FLAGS=\"+W w\" LOGGER_LEVEL=debug LOG_LEVEL=debug mix test test/presto_test.exs:103 --trace)"
     ],
     "deny": []
   }
