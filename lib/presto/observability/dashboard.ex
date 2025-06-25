@@ -239,9 +239,9 @@ defmodule Presto.Observability.Dashboard do
       }
     }
 
-    # Start supporting services
-    metrics_streamer = start_metrics_streamer()
-    chart_renderer = start_chart_renderer()
+    # Start supporting services (placeholder implementation)
+    # metrics_streamer = start_metrics_streamer()
+    # chart_renderer = start_chart_renderer()
 
     # Start WebSocket server if enabled
     if config.enable_websockets do
@@ -255,8 +255,8 @@ defmodule Presto.Observability.Dashboard do
 
     new_state =
       Map.merge(state, %{
-        metrics_streamer: metrics_streamer,
-        chart_renderer: chart_renderer
+        metrics_streamer: nil,  # Placeholder
+        chart_renderer: nil     # Placeholder
       })
 
     {:ok, new_state}

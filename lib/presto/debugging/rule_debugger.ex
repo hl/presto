@@ -55,7 +55,7 @@ defmodule Presto.Debugging.RuleDebugger do
   use GenServer
   require Logger
 
-  alias Presto.Debugging.{ExecutionTracer, BreakpointManager, WorkingMemoryInspector}
+  alias Presto.Debugging.{BreakpointManager, ExecutionTracer, WorkingMemoryInspector}
 
   @type debug_session :: %{
           id: String.t(),
@@ -215,7 +215,7 @@ defmodule Presto.Debugging.RuleDebugger do
     state = %{
       # Configuration
       max_sessions: Keyword.get(opts, :max_sessions, 10),
-      max_trace_events: Keyword.get(opts, :max_trace_events, 10000),
+      max_trace_events: Keyword.get(opts, :max_trace_events, 10_000),
       default_trace_level: Keyword.get(opts, :default_trace_level, :standard),
 
       # Active sessions

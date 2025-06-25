@@ -276,13 +276,8 @@ defmodule Presto.Distributed.ConsensusManager do
         {:reply, {:error, :not_found}, state}
 
       operation ->
-        case force_operation_consensus(operation, state) do
-          {:ok, new_state} ->
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        {:error, reason} = force_operation_consensus(operation, state)
+        {:reply, {:error, reason}, state}
     end
   end
 

@@ -2,7 +2,7 @@ defmodule Presto.Distributed.RuleCoordinatorTest do
   use ExUnit.Case, async: false
 
   alias Presto.Distributed.RuleCoordinator
-  alias Presto.{RuleEngine, EngineRegistry}
+  alias Presto.{EngineRegistry, RuleEngine}
 
   @moduletag :integration
 

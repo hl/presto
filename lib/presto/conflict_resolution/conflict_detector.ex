@@ -451,11 +451,9 @@ defmodule Presto.ConflictResolution.ConflictDetector do
     # Detect mutually exclusive conditions
     rule_pairs = for r1 <- rules, r2 <- rules, r1.id != r2.id, do: {r1, r2}
 
-    Enum.flat_map(rule_pairs, fn {rule1, rule2} ->
-      case analyze_condition_exclusivity(rule1, rule2) do
-        :not_exclusive ->
-          []
-      end
+    Enum.flat_map(rule_pairs, fn {_rule1, _rule2} ->
+      # Placeholder: condition exclusivity analysis not implemented
+      []
     end)
   end
 

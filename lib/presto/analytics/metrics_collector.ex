@@ -57,7 +57,7 @@ defmodule Presto.Analytics.MetricsCollector do
   use GenServer
   require Logger
 
-  alias Presto.Analytics.{MetricStorage, AlertManager, PerformanceAnalyzer}
+  alias Presto.Analytics.{AlertManager, MetricStorage, PerformanceAnalyzer}
 
   @type metric_type ::
           :rule_execution
@@ -693,7 +693,7 @@ defmodule Presto.Analytics.MetricsCollector do
 
       :last_day ->
         end_time = DateTime.utc_now()
-        start_time = DateTime.add(end_time, -86400, :second)
+        start_time = DateTime.add(end_time, -86_400, :second)
         {start_time, end_time}
 
       {start_time, end_time} ->

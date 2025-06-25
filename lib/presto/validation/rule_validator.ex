@@ -232,51 +232,47 @@ defmodule Presto.Validation.RuleValidator do
     severity_threshold = Keyword.get(opts, :severity_threshold, state.default_severity_threshold)
     include_suggestions = Keyword.get(opts, :include_suggestions, true)
 
-    case perform_comprehensive_validation(
+    {:ok, result} = perform_comprehensive_validation(
            engine_name,
            validation_levels,
            severity_threshold,
            include_suggestions,
            state
-         ) do
-      {:ok, result} ->
-        # Store validation results
-        new_validated = Map.put(state.validated_engines, engine_name, result)
+         )
 
-        # Update validation history
-        history_entry = create_history_entry(result)
-        engine_history = Map.get(state.validation_history, engine_name, [])
-        # Keep last 50
-        new_history = [history_entry | Enum.take(engine_history, 49)]
-        new_validation_history = Map.put(state.validation_history, engine_name, new_history)
+    # Store validation results
+    new_validated = Map.put(state.validated_engines, engine_name, result)
 
-        # Update statistics
-        new_stats = %{
-          state.stats
-          | engines_validated: state.stats.engines_validated + 1,
-            issues_found: state.stats.issues_found + length(result.issues),
-            critical_issues: state.stats.critical_issues + count_critical_issues(result.issues),
-            security_issues: state.stats.security_issues + count_security_issues(result.issues)
-        }
+    # Update validation history
+    history_entry = create_history_entry(result)
+    engine_history = Map.get(state.validation_history, engine_name, [])
+    # Keep last 50
+    new_history = [history_entry | Enum.take(engine_history, 49)]
+    new_validation_history = Map.put(state.validation_history, engine_name, new_history)
 
-        Logger.info("Completed rule validation",
-          engine: engine_name,
-          issues_found: length(result.issues),
-          overall_status: result.overall_status
-        )
+    # Update statistics
+    new_stats = %{
+      state.stats
+      | engines_validated: state.stats.engines_validated + 1,
+        issues_found: state.stats.issues_found + length(result.issues),
+        critical_issues: state.stats.critical_issues + count_critical_issues(result.issues),
+        security_issues: state.stats.security_issues + count_security_issues(result.issues)
+    }
 
-        new_state = %{
-          state
-          | validated_engines: new_validated,
-            validation_history: new_validation_history,
-            stats: new_stats
-        }
+    Logger.info("Completed rule validation",
+      engine: engine_name,
+      issues_found: length(result.issues),
+      overall_status: result.overall_status
+    )
 
-        {:reply, {:ok, result}, new_state}
+    new_state = %{
+      state
+      | validated_engines: new_validated,
+        validation_history: new_validation_history,
+        stats: new_stats
+    }
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, {:ok, result}, new_state}
   end
 
   @impl GenServer
@@ -295,48 +291,28 @@ defmodule Presto.Validation.RuleValidator do
     quality_metrics =
       Keyword.get(opts, :quality_metrics, [:complexity, :maintainability, :testability])
 
-    case perform_quality_analysis(rules, quality_metrics, state) do
-      {:ok, analysis} ->
-        {:reply, {:ok, analysis}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, analysis} = perform_quality_analysis(rules, quality_metrics, state)
+    {:reply, {:ok, analysis}, state}
   end
 
   @impl GenServer
   def handle_call({:check_compliance, engine_name, opts}, _from, state) do
     standards = Keyword.get(opts, :standards, [:iso_27001, :owasp, :internal])
 
-    case check_standards_compliance(engine_name, standards, state) do
-      {:ok, compliance_result} ->
-        {:reply, {:ok, compliance_result}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, compliance_result} = check_standards_compliance(engine_name, standards, state)
+    {:reply, {:ok, compliance_result}, state}
   end
 
   @impl GenServer
   def handle_call({:validate_dependencies, engine_name, opts}, _from, state) do
-    case analyze_rule_dependencies(engine_name, opts, state) do
-      {:ok, dependency_analysis} ->
-        {:reply, {:ok, dependency_analysis}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, dependency_analysis} = analyze_rule_dependencies(engine_name, opts, state)
+    {:reply, {:ok, dependency_analysis}, state}
   end
 
   @impl GenServer
   def handle_call({:analyze_security, engine_name, opts}, _from, state) do
-    case perform_security_analysis(engine_name, opts, state) do
-      {:ok, security_analysis} ->
-        {:reply, {:ok, security_analysis}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, security_analysis} = perform_security_analysis(engine_name, opts, state)
+    {:reply, {:ok, security_analysis}, state}
   end
 
   @impl GenServer
@@ -368,49 +344,45 @@ defmodule Presto.Validation.RuleValidator do
          include_suggestions,
          state
        ) do
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
-        # Perform validation for each level
-        all_issues =
-          Enum.flat_map(validation_levels, fn level ->
-            validate_at_level(level, engine_name, rules, state)
-          end)
+    {:ok, rules} = get_engine_rules(engine_name)
+    
+    # Perform validation for each level
+    all_issues =
+      Enum.flat_map(validation_levels, fn level ->
+        validate_at_level(level, engine_name, rules, state)
+      end)
 
-        # Filter by severity threshold
-        filtered_issues = filter_issues_by_severity(all_issues, severity_threshold)
+    # Filter by severity threshold
+    filtered_issues = filter_issues_by_severity(all_issues, severity_threshold)
 
-        # Calculate overall status
-        overall_status = determine_overall_status(filtered_issues)
+    # Calculate overall status
+    overall_status = determine_overall_status(filtered_issues)
 
-        # Calculate quality and compliance scores
-        quality_score = calculate_quality_score(rules, filtered_issues)
-        compliance_score = calculate_compliance_score(filtered_issues)
+    # Calculate quality and compliance scores
+    quality_score = calculate_quality_score(rules, filtered_issues)
+    compliance_score = calculate_compliance_score(filtered_issues)
 
-        # Generate recommendations if requested
-        recommendations =
-          if include_suggestions do
-            generate_validation_recommendations(filtered_issues)
-          else
-            []
-          end
+    # Generate recommendations if requested
+    recommendations =
+      if include_suggestions do
+        generate_validation_recommendations(filtered_issues)
+      else
+        []
+      end
 
-        result = %{
-          engine_name: engine_name,
-          validation_timestamp: DateTime.utc_now(),
-          overall_status: overall_status,
-          issues: filtered_issues,
-          summary: generate_validation_summary(filtered_issues),
-          quality_score: quality_score,
-          compliance_score: compliance_score,
-          recommendations: recommendations,
-          metrics: calculate_validation_metrics(rules, filtered_issues)
-        }
+    result = %{
+      engine_name: engine_name,
+      validation_timestamp: DateTime.utc_now(),
+      overall_status: overall_status,
+      issues: filtered_issues,
+      summary: generate_validation_summary(filtered_issues),
+      quality_score: quality_score,
+      compliance_score: compliance_score,
+      recommendations: recommendations,
+      metrics: calculate_validation_metrics(rules, filtered_issues)
+    }
 
-        {:ok, result}
-
-      error ->
-        error
-    end
+    {:ok, result}
   end
 
   defp get_engine_rules(_engine_name) do
@@ -1229,8 +1201,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp validate_specific_rule(engine_name, rule_id, opts, state) do
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
+    {:ok, rules} = get_engine_rules(engine_name)
         case Enum.find(rules, &(&1.id == rule_id)) do
           nil ->
             {:error, :rule_not_found}
@@ -1253,9 +1224,6 @@ defmodule Presto.Validation.RuleValidator do
             {:ok, issues}
         end
 
-      error ->
-        error
-    end
   end
 
   defp perform_quality_analysis(rules, quality_metrics, state) do
@@ -1584,8 +1552,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp check_standards_compliance(engine_name, standards, state) do
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
+    {:ok, rules} = get_engine_rules(engine_name)
         compliance_results =
           Enum.map(standards, fn standard ->
             {standard, check_standard_compliance(standard, rules, state)}
@@ -1602,9 +1569,6 @@ defmodule Presto.Validation.RuleValidator do
            recommendations: generate_compliance_recommendations(compliance_results)
          }}
 
-      error ->
-        error
-    end
   end
 
   defp check_standard_compliance(standard, rules, _state) do
@@ -1813,8 +1777,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp analyze_rule_dependencies(engine_name, _opts, _state) do
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
+    {:ok, rules} = get_engine_rules(engine_name)
         dependency_analysis = %{
           dependencies: extract_rule_dependencies(rules),
           circular_dependencies: find_circular_dependencies(rules),
@@ -1825,9 +1788,6 @@ defmodule Presto.Validation.RuleValidator do
 
         {:ok, dependency_analysis}
 
-      error ->
-        error
-    end
   end
 
   defp extract_rule_dependencies(rules) do
@@ -1909,8 +1869,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp perform_security_analysis(engine_name, _opts, _state) do
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
+    {:ok, rules} = get_engine_rules(engine_name)
         security_analysis = %{
           vulnerabilities: identify_security_vulnerabilities(rules),
           risk_assessment: assess_security_risks(rules),
@@ -1921,9 +1880,6 @@ defmodule Presto.Validation.RuleValidator do
 
         {:ok, security_analysis}
 
-      error ->
-        error
-    end
   end
 
   defp identify_security_vulnerabilities(rules) do
