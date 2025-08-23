@@ -281,13 +281,8 @@ defmodule Presto.Debugging.RuleDebugger do
       # Set initial breakpoints
       session_with_breakpoints =
         Enum.reduce(initial_breakpoints, session, fn target, acc_session ->
-          case create_breakpoint(target, []) do
-            {:ok, breakpoint} ->
-              %{acc_session | breakpoints: [breakpoint | acc_session.breakpoints]}
-
-            {:error, _reason} ->
-              acc_session
-          end
+          {:ok, breakpoint} = create_breakpoint(target, [])
+          %{acc_session | breakpoints: [breakpoint | acc_session.breakpoints]}
         end)
 
       new_sessions = Map.put(state.debug_sessions, session_id, session_with_breakpoints)
@@ -338,26 +333,21 @@ defmodule Presto.Debugging.RuleDebugger do
         {:reply, {:error, :session_not_found}, state}
 
       session ->
-        case create_breakpoint(target, opts) do
-          {:ok, breakpoint} ->
-            updated_session = %{session | breakpoints: [breakpoint | session.breakpoints]}
+        {:ok, breakpoint} = create_breakpoint(target, opts)
+        updated_session = %{session | breakpoints: [breakpoint | session.breakpoints]}
 
-            new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
-            new_stats = %{state.stats | total_breakpoints: state.stats.total_breakpoints + 1}
+        new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
+        new_stats = %{state.stats | total_breakpoints: state.stats.total_breakpoints + 1}
 
-            Logger.info("Set breakpoint",
-              session_id: session_id,
-              breakpoint_id: breakpoint.id,
-              target: target
-            )
+        Logger.info("Set breakpoint",
+          session_id: session_id,
+          breakpoint_id: breakpoint.id,
+          target: target
+        )
 
-            new_state = %{state | debug_sessions: new_sessions, stats: new_stats}
+        new_state = %{state | debug_sessions: new_sessions, stats: new_stats}
 
-            {:reply, {:ok, breakpoint.id}, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        {:reply, {:ok, breakpoint.id}, new_state}
     end
   end
 
@@ -389,28 +379,8 @@ defmodule Presto.Debugging.RuleDebugger do
   @impl GenServer
   def handle_call({:debug_execute, session_id, facts, opts}, _from, state) do
     case Map.get(state.debug_sessions, session_id) do
-      nil ->
-        {:reply, {:error, :session_not_found}, state}
-
-      session ->
-        case perform_debug_execution(session, facts, opts, state) do
-          {:ok, result, updated_session} ->
-            new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
-            new_stats = %{state.stats | debug_executions: state.stats.debug_executions + 1}
-
-            new_state = %{state | debug_sessions: new_sessions, stats: new_stats}
-
-            case updated_session.execution_state do
-              :paused -> {:reply, {:paused, result}, new_state}
-              :breakpoint -> {:reply, {:paused, result}, new_state}
-              :completed -> {:reply, {:ok, result}, new_state}
-              :error -> {:reply, {:error, result}, new_state}
-              _ -> {:reply, {:ok, result}, new_state}
-            end
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+      nil -> {:reply, {:error, :session_not_found}, state}
+      session -> execute_debug_session(session, session_id, facts, opts, state)
     end
   end
 
@@ -422,16 +392,11 @@ defmodule Presto.Debugging.RuleDebugger do
 
       session ->
         if session.execution_state in [:paused, :breakpoint] do
-          case perform_step_execution(session, step_type, state) do
-            {:ok, updated_session} ->
-              new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
+          {:ok, updated_session} = perform_step_execution(session, step_type, state)
+          new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
 
-              {:reply, {:ok, updated_session.execution_state},
-               %{state | debug_sessions: new_sessions}}
-
-            {:error, reason} ->
-              {:reply, {:error, reason}, state}
-          end
+          {:reply, {:ok, updated_session.execution_state},
+           %{state | debug_sessions: new_sessions}}
         else
           {:reply, {:error, :not_paused}, state}
         end
@@ -445,13 +410,8 @@ defmodule Presto.Debugging.RuleDebugger do
         {:reply, {:error, :session_not_found}, state}
 
       session ->
-        case get_current_working_memory(session, state) do
-          {:ok, working_memory} ->
-            {:reply, {:ok, working_memory}, state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
+        {:ok, working_memory} = get_current_working_memory(session, state)
+        {:reply, {:ok, working_memory}, state}
     end
   end
 
@@ -527,6 +487,37 @@ defmodule Presto.Debugging.RuleDebugger do
     {:reply, sessions, state}
   end
 
+  defp execute_debug_session(session, session_id, facts, opts, state) do
+    case perform_debug_execution(session, facts, opts, state) do
+      {:ok, result, updated_session} ->
+        handle_successful_debug_execution(session_id, result, updated_session, state)
+
+      {:error, reason, error_session} ->
+        handle_failed_debug_execution(session_id, reason, error_session, state)
+    end
+  end
+
+  defp handle_successful_debug_execution(session_id, result, updated_session, state) do
+    new_sessions = Map.put(state.debug_sessions, session_id, updated_session)
+    new_stats = %{state.stats | debug_executions: state.stats.debug_executions + 1}
+    new_state = %{state | debug_sessions: new_sessions, stats: new_stats}
+
+    reply =
+      case updated_session.execution_state do
+        state when state in [:paused, :breakpoint] -> {:paused, result}
+        :completed -> {:ok, result}
+        :error -> {:error, result}
+        _ -> {:ok, result}
+      end
+
+    {:reply, reply, new_state}
+  end
+
+  defp handle_failed_debug_execution(session_id, reason, error_session, state) do
+    new_sessions = Map.put(state.debug_sessions, session_id, error_session)
+    {:reply, {:error, reason}, %{state | debug_sessions: new_sessions}}
+  end
+
   ## Private functions
 
   defp generate_session_id do
@@ -595,9 +586,8 @@ defmodule Presto.Debugging.RuleDebugger do
         {:paused, execution_result, paused_session} ->
           {:ok, execution_result, paused_session}
 
-        {:error, reason} ->
-          error_session = %{session_with_initial_state | execution_state: :error}
-          {:error, reason, error_session}
+        {_other_state, execution_result, final_session} ->
+          {:ok, execution_result, final_session}
       end
     rescue
       error ->
@@ -721,10 +711,10 @@ defmodule Presto.Debugging.RuleDebugger do
   defp check_breakpoints_for_rule(rule, session) do
     # Check if any breakpoints match this rule
     Enum.find_value(session.breakpoints, :continue, fn breakpoint ->
-      if breakpoint.enabled and matches_breakpoint?(rule, breakpoint) do
+      if Map.get(breakpoint, :enabled, false) and matches_breakpoint?(rule, breakpoint) do
         # Check condition if specified
-        if breakpoint.condition == nil or
-             evaluate_breakpoint_condition(breakpoint.condition, rule) do
+        if Map.get(breakpoint, :condition) == nil or
+             evaluate_breakpoint_condition(Map.get(breakpoint, :condition), rule) do
           {:break, breakpoint}
         else
           :continue
@@ -819,28 +809,20 @@ defmodule Presto.Debugging.RuleDebugger do
     end
   end
 
-  defp get_engine_rules(_engine_name) do
-    # Placeholder - would integrate with actual engine
-    [
-      %{
-        id: :validation_rule,
-        conditions: ["order.total > 0"],
-        actions: ["assert valid_order"],
-        priority: 1
-      },
-      %{
-        id: :discount_rule,
-        conditions: ["customer.loyalty = gold"],
-        actions: ["add discount"],
-        priority: 2
-      },
-      %{
-        id: :total_rule,
-        conditions: ["valid_order", "discount"],
-        actions: ["calculate total"],
-        priority: 3
-      }
-    ]
+  defp get_engine_rules(engine_name) do
+    try do
+      case Presto.RuleEngine.get_rules(engine_name) do
+        rules when is_map(rules) ->
+          Map.values(rules)
+
+        _ ->
+          []
+      end
+    rescue
+      _ ->
+        # Fallback for non-existent engines
+        []
+    end
   end
 
   defp perform_step_execution(session, step_type, state) do
@@ -958,11 +940,164 @@ defmodule Presto.Debugging.RuleDebugger do
       _ ->
         # Try to evaluate as a simple expression
         try do
-          # This would use a proper expression evaluator
-          {:ok, "Expression evaluation not implemented: #{expression}"}
+          # Basic expression evaluator for debug expressions
+          case evaluate_simple_expression(expression) do
+            {:ok, result} -> {:ok, result}
+            {:error, reason} -> {:error, reason}
+          end
         rescue
           error ->
             {:error, {:evaluation_failed, error}}
+        end
+    end
+  end
+
+  defp evaluate_simple_expression(expression) do
+    # Basic expression evaluator for debug sessions
+    # Supports simple arithmetic and string operations
+
+    expr = String.downcase(String.trim(expression))
+
+    expression_patterns = [
+      # Arithmetic expressions
+      {"+", &evaluate_arithmetic_expression/2},
+      {"-", &evaluate_arithmetic_expression/2},
+      {"*", &evaluate_arithmetic_expression/2},
+      {"/", &evaluate_arithmetic_expression/2},
+
+      # Comparison expressions (order matters - check longer operators first)
+      {"==", &evaluate_comparison_expression/2},
+      {"!=", &evaluate_comparison_expression/2},
+      {">", &evaluate_comparison_expression/2},
+      {"<", &evaluate_comparison_expression/2},
+
+      # String functions
+      {"length(", &evaluate_string_function/2, "length"},
+      {"upper(", &evaluate_string_function/2, "upper"},
+      {"lower(", &evaluate_string_function/2, "lower"}
+    ]
+
+    case find_matching_pattern(expr, expression_patterns) do
+      {operator, evaluator} -> evaluator.(expr, operator)
+      {_operator, evaluator, function_name} -> evaluator.(expr, function_name)
+      nil -> parse_literal_value(expr)
+    end
+  rescue
+    error ->
+      {:error, {:parse_error, error}}
+  end
+
+  defp find_matching_pattern(expr, patterns) do
+    Enum.find_value(patterns, fn
+      {pattern, evaluator} when tuple_size({pattern, evaluator}) == 2 ->
+        if String.contains?(expr, pattern), do: {pattern, evaluator}, else: nil
+
+      {pattern, evaluator, function_name} ->
+        if String.contains?(expr, pattern), do: {pattern, evaluator, function_name}, else: nil
+    end)
+  end
+
+  defp parse_literal_value(expr) do
+    case Integer.parse(expr) do
+      {num, ""} ->
+        {:ok, num}
+
+      _ ->
+        case Float.parse(expr) do
+          {num, ""} -> {:ok, num}
+          # Return as string
+          _ -> {:ok, expr}
+        end
+    end
+  end
+
+  defp evaluate_arithmetic_expression(expr, operator) do
+    parts = String.split(expr, operator, parts: 2)
+
+    case parts do
+      [left, right] ->
+        with {:ok, left_val} <- parse_number(String.trim(left)),
+             {:ok, right_val} <- parse_number(String.trim(right)) do
+          apply_arithmetic_operator(left_val, right_val, operator)
+        else
+          _ -> {:error, :invalid_arithmetic}
+        end
+
+      _ ->
+        {:error, :invalid_expression}
+    end
+  end
+
+  defp apply_arithmetic_operator(left_val, right_val, operator) do
+    case operator do
+      "+" -> {:ok, left_val + right_val}
+      "-" -> {:ok, left_val - right_val}
+      "*" -> {:ok, left_val * right_val}
+      "/" when right_val != 0 -> {:ok, left_val / right_val}
+      "/" -> {:error, :division_by_zero}
+    end
+  end
+
+  defp evaluate_comparison_expression(expr, operator) do
+    parts = String.split(expr, operator, parts: 2)
+
+    case parts do
+      [left, right] ->
+        left_val = String.trim(left)
+        right_val = String.trim(right)
+
+        # Try numeric comparison first, fall back to string comparison
+        case {parse_number(left_val), parse_number(right_val)} do
+          {{:ok, l}, {:ok, r}} -> {:ok, apply_comparison_operator(l, r, operator)}
+          _ -> {:ok, apply_comparison_operator(left_val, right_val, operator)}
+        end
+
+      _ ->
+        {:error, :invalid_expression}
+    end
+  end
+
+  defp apply_comparison_operator(left_val, right_val, operator) do
+    case operator do
+      "==" -> left_val == right_val
+      "!=" -> left_val != right_val
+      ">" -> left_val > right_val
+      "<" -> left_val < right_val
+    end
+  end
+
+  defp evaluate_string_function(expr, function) do
+    # Try quoted string pattern first
+    case Regex.run(~r/#{function}\("([^"]*)"\)/, expr) do
+      [_, string_arg] -> {:ok, apply_string_function(function, string_arg)}
+      _ -> try_unquoted_string_function(expr, function)
+    end
+  end
+
+  defp try_unquoted_string_function(expr, function) do
+    case Regex.run(~r/#{function}\(([^)]*)\)/, expr) do
+      [_, arg] -> {:ok, apply_string_function(function, String.trim(arg))}
+      _ -> {:error, :invalid_function_call}
+    end
+  end
+
+  defp apply_string_function(function, string_arg) do
+    case function do
+      "length" -> String.length(string_arg)
+      "upper" -> String.upcase(string_arg)
+      "lower" -> String.downcase(string_arg)
+    end
+  end
+
+  defp parse_number(str) do
+    case Integer.parse(str) do
+      {num, ""} ->
+        {:ok, num}
+
+      _ ->
+        case Float.parse(str) do
+          {num, ""} -> {:ok, num}
+          _ -> {:error, :not_a_number}
         end
     end
   end

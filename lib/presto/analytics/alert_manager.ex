@@ -426,7 +426,7 @@ defmodule Presto.Analytics.AlertManager do
 
     if metric_value do
       # Check if alert should be suppressed
-      if is_suppressed?(engine_name, metric_type, state) do
+      if suppressed?(engine_name, metric_type, state) do
         state
       else
         # Evaluate threshold conditions
@@ -541,7 +541,7 @@ defmodule Presto.Analytics.AlertManager do
         state
 
       history ->
-        if is_suppressed?(engine_name, metric_type, state) do
+        if suppressed?(engine_name, metric_type, state) do
           state
         else
           case analyze_trend(history, config) do
@@ -649,7 +649,7 @@ defmodule Presto.Analytics.AlertManager do
     %{state | active_alerts: new_active, alert_history: new_history, stats: new_stats}
   end
 
-  defp is_suppressed?(engine_name, metric_type, state) do
+  defp suppressed?(engine_name, metric_type, state) do
     suppression_key = {engine_name, metric_type}
     global_key = {engine_name, :all}
 

@@ -199,48 +199,55 @@ defmodule Presto.RuleEngine.BetaNetworkCoordinator do
   def restore_snapshot(%State{} = state, snapshot) do
     try do
       case Map.get(snapshot, :beta_network) do
-        nil ->
-          # No beta network in snapshot, ensure current beta network is stopped
-          {:ok, stop_beta_network(state)}
-
-        %{basic_snapshot: true} ->
-          # Basic snapshot - just restart beta network
-          case restart_beta_network(state) do
-            {:ok, new_state} -> {:ok, new_state}
-            error -> error
-          end
-
-        beta_state ->
-          # Full beta network state - restart and restore
-          case restart_beta_network(state) do
-            {:ok, new_state} ->
-              case State.get_beta_network(new_state) do
-                nil ->
-                  {:error, :beta_network_not_started}
-
-                beta_network_pid ->
-                  try do
-                    # Attempt to restore state to beta network
-                    case BetaNetwork.restore_state(beta_network_pid, beta_state) do
-                      :ok -> {:ok, new_state}
-                      {:error, reason} -> {:error, reason}
-                    end
-                  rescue
-                    error ->
-                      Logger.debug("Beta network restore fallback due to: #{inspect(error)}")
-
-                      # If restore_state is not implemented, just use the restarted network
-                      {:ok, new_state}
-                  end
-              end
-
-            error ->
-              error
-          end
+        nil -> restore_empty_snapshot(state)
+        %{basic_snapshot: true} -> restore_basic_snapshot(state)
+        beta_state -> restore_full_snapshot(state, beta_state)
       end
     rescue
       error ->
         {:error, {:snapshot_restore_failed, error}}
+    end
+  end
+
+  defp restore_empty_snapshot(state) do
+    # No beta network in snapshot, ensure current beta network is stopped
+    {:ok, stop_beta_network(state)}
+  end
+
+  defp restore_basic_snapshot(state) do
+    # Basic snapshot - just restart beta network
+    restart_beta_network(state)
+  end
+
+  defp restore_full_snapshot(state, beta_state) do
+    # Full beta network state - restart and restore
+    case restart_beta_network(state) do
+      {:ok, new_state} -> restore_beta_network_state(new_state, beta_state)
+      error -> error
+    end
+  end
+
+  defp restore_beta_network_state(state, beta_state) do
+    case State.get_beta_network(state) do
+      nil ->
+        {:error, :beta_network_not_started}
+
+      beta_network_pid ->
+        attempt_state_restore(beta_network_pid, beta_state, state)
+    end
+  end
+
+  defp attempt_state_restore(beta_network_pid, beta_state, state) do
+    try do
+      case BetaNetwork.restore_state(beta_network_pid, beta_state) do
+        :ok -> {:ok, state}
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      error ->
+        Logger.debug("Beta network restore fallback due to: #{inspect(error)}")
+        # If restore_state is not implemented, just use the restarted network
+        {:ok, state}
     end
   end
 

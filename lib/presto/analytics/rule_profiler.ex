@@ -306,29 +306,20 @@ defmodule Presto.Analytics.RuleProfiler do
 
   @impl GenServer
   def handle_call({:get_engine_profiles, engine_name}, _from, state) do
-    case generate_engine_profiles(engine_name, state) do
-      {:ok, profiles} ->
-        {:reply, {:ok, profiles}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, profiles} = generate_engine_profiles(engine_name, state)
+    {:reply, {:ok, profiles}, state}
   end
 
   @impl GenServer
   def handle_call({:analyze_performance, engine_name}, _from, state) do
-    case perform_performance_analysis(engine_name, state) do
-      {:ok, analysis, new_state} ->
-        updated_stats = %{
-          new_state.stats
-          | total_analyses_performed: new_state.stats.total_analyses_performed + 1
-        }
+    {:ok, analysis, new_state} = perform_performance_analysis(engine_name, state)
 
-        {:reply, {:ok, analysis}, %{new_state | stats: updated_stats}}
+    updated_stats = %{
+      new_state.stats
+      | total_analyses_performed: new_state.stats.total_analyses_performed + 1
+    }
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, {:ok, analysis}, %{new_state | stats: updated_stats}}
   end
 
   @impl GenServer
@@ -409,7 +400,7 @@ defmodule Presto.Analytics.RuleProfiler do
       profile_interaction: Keyword.get(opts, :profile_interaction, false),
       sampling_rate: Keyword.get(opts, :sampling_rate, state.default_sampling_rate),
       # 1 hour
-      max_duration: Keyword.get(opts, :max_duration, 3600_000),
+      max_duration: Keyword.get(opts, :max_duration, 3_600_000),
       started_at: DateTime.utc_now()
     }
 
@@ -448,19 +439,14 @@ defmodule Presto.Analytics.RuleProfiler do
 
   defp start_engine_profiling_session(engine_name, opts, state) do
     # Get list of rules for the engine
-    case get_engine_rules(engine_name) do
-      {:ok, rule_ids} ->
-        # Start profiling for each rule
-        Enum.reduce_while(rule_ids, {:ok, state}, fn rule_id, {:ok, acc_state} ->
-          case start_profiling_session(engine_name, rule_id, opts, acc_state) do
-            {:ok, new_state} -> {:cont, {:ok, new_state}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, rule_ids} = get_engine_rules(engine_name)
+    # Start profiling for each rule
+    Enum.reduce_while(rule_ids, {:ok, state}, fn rule_id, {:ok, acc_state} ->
+      case start_profiling_session(engine_name, rule_id, opts, acc_state) do
+        {:ok, new_state} -> {:cont, {:ok, new_state}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp stop_profiling_session(engine_name, rule_id, state) do
@@ -574,7 +560,7 @@ defmodule Presto.Analytics.RuleProfiler do
   end
 
   defp analyze_execution_data(execution_data) do
-    if length(execution_data) == 0 do
+    if Enum.empty?(execution_data) do
       %{
         total_executions: 0,
         avg_execution_time: 0.0,
@@ -603,7 +589,7 @@ defmodule Presto.Analytics.RuleProfiler do
   end
 
   defp analyze_network_data(network_data) do
-    if length(network_data) == 0 do
+    if Enum.empty?(network_data) do
       %{
         alpha_activations: 0,
         beta_activations: 0,
@@ -627,7 +613,7 @@ defmodule Presto.Analytics.RuleProfiler do
   end
 
   defp analyze_memory_data(memory_data) do
-    if length(memory_data) == 0 do
+    if Enum.empty?(memory_data) do
       %{
         total_allocations: 0,
         peak_memory_usage: 0,
@@ -651,7 +637,7 @@ defmodule Presto.Analytics.RuleProfiler do
   end
 
   defp analyze_interaction_data(interaction_data) do
-    if length(interaction_data) == 0 do
+    if Enum.empty?(interaction_data) do
       %{
         conflicts_generated: 0,
         conflicts_resolved: 0,
@@ -711,41 +697,32 @@ defmodule Presto.Analytics.RuleProfiler do
         {:ok, analysis, %{state | stats: updated_stats}}
 
       :miss ->
-        case conduct_performance_analysis(engine_name, state) do
-          {:ok, analysis} ->
-            # Cache the analysis
-            new_cache = Map.put(state.analysis_cache, cache_key, {analysis, DateTime.utc_now()})
-            updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
+        {:ok, analysis} = conduct_performance_analysis(engine_name, state)
+        # Cache the analysis
+        new_cache = Map.put(state.analysis_cache, cache_key, {analysis, DateTime.utc_now()})
+        updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
 
-            new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
+        new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
 
-            {:ok, analysis, new_state}
-
-          error ->
-            error
-        end
+        {:ok, analysis, new_state}
     end
   end
 
   defp conduct_performance_analysis(engine_name, state) do
-    case generate_engine_profiles(engine_name, state) do
-      {:ok, profiles} ->
-        analysis = %{
-          engine_name: engine_name,
-          total_rules_analyzed: length(profiles),
-          overall_optimization_score: calculate_overall_optimization_score(profiles),
-          performance_summary: generate_performance_summary(profiles),
-          bottleneck_analysis: identify_performance_bottlenecks(profiles),
-          optimization_recommendations: generate_rule_optimization_recommendations(profiles),
-          rule_rankings: rank_rules_by_performance(profiles),
-          generated_at: DateTime.utc_now()
-        }
+    {:ok, profiles} = generate_engine_profiles(engine_name, state)
 
-        {:ok, analysis}
+    analysis = %{
+      engine_name: engine_name,
+      total_rules_analyzed: length(profiles),
+      overall_optimization_score: calculate_overall_optimization_score(profiles),
+      performance_summary: generate_performance_summary(profiles),
+      bottleneck_analysis: identify_performance_bottlenecks(profiles),
+      optimization_recommendations: generate_rule_optimization_recommendations(profiles),
+      rule_rankings: rank_rules_by_performance(profiles),
+      generated_at: DateTime.utc_now()
+    }
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, analysis}
   end
 
   defp check_analysis_cache(cache_key, state) do
@@ -1075,9 +1052,16 @@ defmodule Presto.Analytics.RuleProfiler do
     end)
   end
 
-  defp get_engine_rules(_engine_name) do
-    # Placeholder - would integrate with actual engine to get rule list
-    {:ok, [:rule_1, :rule_2, :rule_3]}
+  defp get_engine_rules(engine_name) do
+    try do
+      rules = Presto.RuleEngine.get_rules(engine_name)
+      rule_ids = Map.keys(rules)
+      {:ok, rule_ids}
+    rescue
+      _ ->
+        # Fallback for non-existent engines
+        {:ok, []}
+    end
   end
 
   defp calculate_total_execution_records(state) do

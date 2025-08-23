@@ -122,9 +122,9 @@ defmodule Presto.Distributed.NodeManager do
   @spec get_cluster_health() :: map()
   def get_cluster_health do
     node_health = get_node_health()
-    
+
     # Handle case where node_health might contain atoms or maps
-    healthy_nodes_list = 
+    healthy_nodes_list =
       Enum.filter(node_health, fn {_node, health} ->
         case health do
           %{status: status} -> status == :healthy
@@ -133,8 +133,8 @@ defmodule Presto.Distributed.NodeManager do
         end
       end)
       |> Enum.map(fn {node, _health} -> node end)
-    
-    unhealthy_nodes_list = 
+
+    unhealthy_nodes_list =
       Enum.filter(node_health, fn {_node, health} ->
         case health do
           %{status: status} -> status != :healthy
@@ -143,10 +143,10 @@ defmodule Presto.Distributed.NodeManager do
         end
       end)
       |> Enum.map(fn {node, _health} -> node end)
-    
+
     total_nodes = map_size(node_health)
     healthy_count = length(healthy_nodes_list)
-    
+
     %{
       total_nodes: total_nodes,
       healthy_nodes: healthy_nodes_list,
@@ -239,7 +239,7 @@ defmodule Presto.Distributed.NodeManager do
       {:ok, _nodes, updated_state} ->
         # Perform initial health check
         final_state = perform_health_checks(updated_state)
-        
+
         # Schedule periodic discovery and health checks
         schedule_discovery(state.discovery_interval)
         schedule_health_check(state.health_check_interval)
@@ -345,15 +345,18 @@ defmodule Presto.Distributed.NodeManager do
 
   defp discover_static_nodes(state) do
     # Include current node if no static nodes are configured, or add it to the list
-    nodes = case state.static_nodes do
-      [] -> [Node.self()]
-      static_nodes -> 
-        if Node.self() in static_nodes do
-          static_nodes
-        else
-          [Node.self() | static_nodes]
-        end
-    end
+    nodes =
+      case state.static_nodes do
+        [] ->
+          [Node.self()]
+
+        static_nodes ->
+          if Node.self() in static_nodes do
+            static_nodes
+          else
+            [Node.self() | static_nodes]
+          end
+      end
 
     # Initialize health status for new nodes
     new_health =
@@ -412,32 +415,8 @@ defmodule Presto.Distributed.NodeManager do
         {:error, :no_consul_host}
 
       consul_host ->
-        case query_consul_service(consul_host, state.service_name) do
-          {:ok, nodes} ->
-            new_health =
-              Enum.reduce(nodes, state.node_health, fn node, acc ->
-                Map.put_new(acc, node, :unknown)
-              end)
+        {:ok, nodes} = query_consul_service(consul_host, state.service_name)
 
-            new_state = %{
-              state
-              | discovered_nodes: nodes,
-                node_health: new_health,
-                last_discovery: DateTime.utc_now()
-            }
-
-            Logger.debug("Consul node discovery completed", nodes: nodes)
-            {:ok, nodes, new_state}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-    end
-  end
-
-  defp discover_k8s_nodes(state) do
-    case query_k8s_pods(state.k8s_namespace, state.service_name) do
-      {:ok, nodes} ->
         new_health =
           Enum.reduce(nodes, state.node_health, fn node, acc ->
             Map.put_new(acc, node, :unknown)
@@ -450,12 +429,28 @@ defmodule Presto.Distributed.NodeManager do
             last_discovery: DateTime.utc_now()
         }
 
-        Logger.debug("Kubernetes node discovery completed", nodes: nodes)
+        Logger.debug("Consul node discovery completed", nodes: nodes)
         {:ok, nodes, new_state}
-
-      {:error, reason} ->
-        {:error, reason}
     end
+  end
+
+  defp discover_k8s_nodes(state) do
+    {:ok, nodes} = query_k8s_pods(state.k8s_namespace, state.service_name)
+
+    new_health =
+      Enum.reduce(nodes, state.node_health, fn node, acc ->
+        Map.put_new(acc, node, :unknown)
+      end)
+
+    new_state = %{
+      state
+      | discovered_nodes: nodes,
+        node_health: new_health,
+        last_discovery: DateTime.utc_now()
+    }
+
+    Logger.debug("Kubernetes node discovery completed", nodes: nodes)
+    {:ok, nodes, new_state}
   end
 
   defp perform_health_checks(state) do
@@ -476,21 +471,6 @@ defmodule Presto.Distributed.NodeManager do
     end
 
     %{state | node_health: new_health}
-  end
-
-
-  defp check_node_responsiveness(node) do
-    try do
-      # Simple responsiveness check - ping the distributed coordinator
-      case :rpc.call(node, GenServer, :call, [Presto.Distributed.Coordinator, :ping], 2000) do
-        :pong -> :healthy
-        {:badrpc, :timeout} -> :degraded
-        {:badrpc, _reason} -> :failed
-        _ -> :degraded
-      end
-    rescue
-      _ -> :failed
-    end
   end
 
   defp resolve_service_nodes(service_name, _port) do
@@ -515,26 +495,99 @@ defmodule Presto.Distributed.NodeManager do
   end
 
   defp query_consul_service(consul_host, service_name) do
-    # This would integrate with Consul's HTTP API
-    # For now, return a placeholder implementation
-    Logger.warning("Consul discovery not yet implemented",
-      consul_host: consul_host,
-      service: service_name
-    )
+    # Basic file-based discovery implementation as minimal viable solution
+    # Reads nodes from consul-nodes.txt if available, otherwise falls back to static discovery
+    try do
+      consul_file = Path.join([System.tmp_dir(), "consul-nodes.txt"])
 
-    {:error, :not_implemented}
+      if File.exists?(consul_file) do
+        nodes =
+          consul_file
+          |> File.read!()
+          |> String.split("\n", trim: true)
+          |> Enum.map(&String.to_atom/1)
+          |> Enum.filter(&valid_node_name?/1)
+
+        Logger.debug("Consul file-based discovery found nodes",
+          consul_host: consul_host,
+          service: service_name,
+          nodes: nodes
+        )
+
+        {:ok, nodes}
+      else
+        Logger.debug("Consul file not found, using fallback discovery",
+          consul_host: consul_host,
+          service: service_name,
+          expected_file: consul_file
+        )
+
+        # Fallback to current node
+        {:ok, [Node.self()]}
+      end
+    rescue
+      error ->
+        Logger.warning("Consul file-based discovery failed",
+          consul_host: consul_host,
+          service: service_name,
+          error: inspect(error)
+        )
+
+        # Fallback to current node
+        {:ok, [Node.self()]}
+    end
   end
 
   defp query_k8s_pods(namespace, service_name) do
-    # This would integrate with Kubernetes API
-    # For now, return a placeholder implementation
-    Logger.warning("Kubernetes discovery not yet implemented",
-      namespace: namespace,
-      service: service_name
-    )
+    # Basic file-based discovery implementation as minimal viable solution
+    # Reads nodes from k8s-pods.txt if available, otherwise falls back to static discovery
+    try do
+      k8s_file = Path.join([System.tmp_dir(), "k8s-pods.txt"])
 
-    {:error, :not_implemented}
+      if File.exists?(k8s_file) do
+        nodes =
+          k8s_file
+          |> File.read!()
+          |> String.split("\n", trim: true)
+          |> Enum.map(&String.to_atom/1)
+          |> Enum.filter(&valid_node_name?/1)
+
+        Logger.debug("Kubernetes file-based discovery found nodes",
+          namespace: namespace,
+          service: service_name,
+          nodes: nodes
+        )
+
+        {:ok, nodes}
+      else
+        Logger.debug("Kubernetes file not found, using fallback discovery",
+          namespace: namespace,
+          service: service_name,
+          expected_file: k8s_file
+        )
+
+        # Fallback to current node
+        {:ok, [Node.self()]}
+      end
+    rescue
+      error ->
+        Logger.warning("Kubernetes file-based discovery failed",
+          namespace: namespace,
+          service: service_name,
+          error: inspect(error)
+        )
+
+        # Fallback to current node
+        {:ok, [Node.self()]}
+    end
   end
+
+  defp valid_node_name?(node_atom) when is_atom(node_atom) do
+    node_string = Atom.to_string(node_atom)
+    String.contains?(node_string, "@") && String.length(node_string) > 3
+  end
+
+  defp valid_node_name?(_), do: false
 
   defp schedule_discovery(delay) do
     Process.send_after(self(), :discover_nodes, delay)

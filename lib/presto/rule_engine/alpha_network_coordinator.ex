@@ -40,6 +40,18 @@ defmodule Presto.RuleEngine.AlphaNetworkCoordinator do
   end
 
   @doc """
+  Gets all alpha memories for snapshot purposes.
+  """
+  @spec get_all_alpha_memories(State.t()) :: map()
+  def get_all_alpha_memories(%State{} = state) do
+    # Extract all alpha memories from the state
+    case state.alpha_memories do
+      memories when is_map(memories) -> memories
+      _ -> %{}
+    end
+  end
+
+  @doc """
   Processes a fact retraction through the alpha network.
   """
   @spec process_fact_retraction(State.t(), tuple()) :: State.t()

@@ -144,7 +144,11 @@ defmodule Presto.Distributed.Coordinator do
     Logger.info("Starting Presto Distributed Coordinator", node: Node.self())
 
     # Initialize node monitoring
-    :net_kernel.monitor_nodes(true, nodedown_reason: true)
+    try do
+      :net_kernel.monitor_nodes(true)
+    rescue
+      _ -> Logger.warning("Could not enable node monitoring")
+    end
 
     state = %{
       cluster_nodes: Keyword.get(opts, :cluster_nodes, []),
@@ -239,15 +243,9 @@ defmodule Presto.Distributed.Coordinator do
 
   @impl GenServer
   def handle_call(:sync_cluster_state, _from, state) do
-    case sync_with_cluster(state) do
-      {:ok, new_state} ->
-        Logger.info("Cluster state synchronized successfully")
-        {:reply, :ok, new_state}
-
-      {:error, reason} ->
-        Logger.error("Failed to sync cluster state", reason: inspect(reason))
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, new_state} = sync_with_cluster(state)
+    Logger.info("Cluster state synchronized successfully")
+    {:reply, :ok, new_state}
   end
 
   @impl GenServer
@@ -420,11 +418,15 @@ defmodule Presto.Distributed.Coordinator do
         try do
           response = GenServer.call({__MODULE__, node}, :get_node_registry, 3000)
           {node, {:ok, response}}
+        rescue
+          error ->
+            Logger.warning("Failed to sync with node", node: node, error: inspect(error))
+            {node, {:error, error}}
         catch
           :exit, reason ->
             Logger.warning("Failed to sync with node", node: node, reason: inspect(reason))
             {node, {:error, reason}}
-        rescue
+
           error ->
             Logger.warning("Error syncing with node", node: node, error: inspect(error))
             {node, {:error, error}}
@@ -457,16 +459,9 @@ defmodule Presto.Distributed.Coordinator do
   end
 
   defp perform_cluster_sync(state) do
-    case sync_with_cluster(state) do
-      {:ok, new_state} ->
-        Logger.debug("Periodic cluster sync completed")
-        new_state
-
-      {:error, reason} ->
-        Logger.warning("Periodic cluster sync failed", reason: inspect(reason))
-        new_stats = %{state.stats | failed_operations: state.stats.failed_operations + 1}
-        %{state | stats: new_stats}
-    end
+    {:ok, new_state} = sync_with_cluster(state)
+    Logger.debug("Periodic cluster sync completed")
+    new_state
   end
 
   defp send_heartbeat_to_nodes(state) do

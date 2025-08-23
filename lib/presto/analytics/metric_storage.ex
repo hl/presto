@@ -129,7 +129,7 @@ defmodule Presto.Analytics.MetricStorage do
       # Configuration
       strategy: strategy,
       # 24 hours
-      retention_period: Keyword.get(opts, :retention_period, 86400),
+      retention_period: Keyword.get(opts, :retention_period, 86_400),
       # 100MB
       max_memory_usage: Keyword.get(opts, :max_memory_usage, 100 * 1024 * 1024),
       compression: Keyword.get(opts, :compression, true),

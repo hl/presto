@@ -338,7 +338,7 @@ defmodule Presto.PersistenceTest do
         Persistence.create_table(:invalid_options_test,
           type: :set,
           invalid_option: "should_be_ignored",
-          another_invalid: 12345
+          another_invalid: 12_345
         )
 
       # Table should still be created successfully

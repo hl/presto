@@ -122,6 +122,7 @@ defmodule Presto.Distributed.RuleCoordinator do
           {:ok, term()} | {:error, term()}
   def distributed_join(left_engine, right_engine, join_condition, result_engine, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 30_000)
+
     GenServer.call(
       __MODULE__,
       {:distributed_join, left_engine, right_engine, join_condition, result_engine, opts},
@@ -308,7 +309,7 @@ defmodule Presto.Distributed.RuleCoordinator do
   defp start_distributed_execution(execution_id, rule_id, pattern, opts, from, state) do
     target_engines = Keyword.get(opts, :target_engines, [])
 
-    if length(target_engines) == 0 do
+    if Enum.empty?(target_engines) do
       # Auto-discover engines if none specified
       case discover_available_engines() do
         {:ok, [_ | _] = discovered_engines} ->
@@ -374,7 +375,7 @@ defmodule Presto.Distributed.RuleCoordinator do
 
   defp start_scatter_gather_execution(execution_request, state) do
     coordinator_pid = self()
-    
+
     # Send rule execution requests to all target engines
     Enum.each(execution_request.target_engines, fn engine_name ->
       spawn(fn ->
@@ -439,7 +440,7 @@ defmodule Presto.Distributed.RuleCoordinator do
 
   defp start_map_phase(execution_request) do
     coordinator_pid = self()
-    
+
     # Distribute map rule execution across nodes
     Enum.each(execution_request.target_nodes, fn node ->
       spawn(fn ->
@@ -490,14 +491,24 @@ defmodule Presto.Distributed.RuleCoordinator do
 
   defp start_join_operation(execution_request) do
     coordinator_pid = self()
-    
+
     # Fetch facts from both engines
     spawn(fn ->
-      fetch_engine_facts_for_join(execution_request.left_engine, :left, execution_request.id, coordinator_pid)
+      fetch_engine_facts_for_join(
+        execution_request.left_engine,
+        :left,
+        execution_request.id,
+        coordinator_pid
+      )
     end)
 
     spawn(fn ->
-      fetch_engine_facts_for_join(execution_request.right_engine, :right, execution_request.id, coordinator_pid)
+      fetch_engine_facts_for_join(
+        execution_request.right_engine,
+        :right,
+        execution_request.id,
+        coordinator_pid
+      )
     end)
 
     :ok
@@ -505,55 +516,97 @@ defmodule Presto.Distributed.RuleCoordinator do
 
   defp execute_rule_on_engine(engine_name, rule_id, parameters, execution_id, coordinator_pid) do
     try do
-      case DistributedRegistry.lookup_global_engine(engine_name) do
-        {:ok, engine_info} ->
-          node = engine_info.primary_node
-
-          if node == Node.self() and engine_info.local_pid do
-            # Local execution
-            result = execute_rule_locally(engine_info.local_pid, rule_id, parameters)
-            send(coordinator_pid, {:execution_result, execution_id, node, result})
-          else
-            # Remote execution
-            result = execute_rule_remotely(node, engine_name, rule_id, parameters)
-            send(coordinator_pid, {:execution_result, execution_id, node, result})
-          end
-
-        {:error, :not_found} ->
-          send(coordinator_pid, {:execution_result, execution_id, :unknown, {:error, :engine_not_found}})
-      end
+      execute_via_distributed_registry(
+        engine_name,
+        rule_id,
+        parameters,
+        execution_id,
+        coordinator_pid
+      )
     rescue
       _ ->
-        # DistributedRegistry not available, try local registry
-        case EngineRegistry.lookup_engine(engine_name) do
-          {:ok, engine_pid} ->
-            result = execute_rule_locally(engine_pid, rule_id, parameters)
-            send(coordinator_pid, {:execution_result, execution_id, Node.self(), result})
-
-          :error ->
-            send(coordinator_pid, {:execution_result, execution_id, :unknown, {:error, :engine_not_found}})
-        end
+        execute_via_local_registry(
+          engine_name,
+          rule_id,
+          parameters,
+          execution_id,
+          coordinator_pid
+        )
     catch
       :exit, _ ->
-        # DistributedRegistry not available, try local registry
-        case EngineRegistry.lookup_engine(engine_name) do
-          {:ok, engine_pid} ->
-            result = execute_rule_locally(engine_pid, rule_id, parameters)
-            send(coordinator_pid, {:execution_result, execution_id, Node.self(), result})
-
-          :error ->
-            send(coordinator_pid, {:execution_result, execution_id, :unknown, {:error, :engine_not_found}})
-        end
+        execute_via_local_registry(
+          engine_name,
+          rule_id,
+          parameters,
+          execution_id,
+          coordinator_pid
+        )
     end
+  end
+
+  defp execute_via_distributed_registry(
+         engine_name,
+         rule_id,
+         parameters,
+         execution_id,
+         coordinator_pid
+       ) do
+    case DistributedRegistry.lookup_global_engine(engine_name) do
+      {:ok, engine_info} ->
+        execute_on_discovered_engine(
+          engine_info,
+          rule_id,
+          parameters,
+          execution_id,
+          coordinator_pid
+        )
+
+      {:error, :not_found} ->
+        send_engine_not_found_result(coordinator_pid, execution_id)
+    end
+  end
+
+  defp execute_on_discovered_engine(
+         engine_info,
+         rule_id,
+         parameters,
+         execution_id,
+         coordinator_pid
+       ) do
+    node = engine_info.primary_node
+
+    if node == Node.self() and engine_info.local_pid do
+      result = execute_rule_locally(engine_info.local_pid, rule_id, parameters)
+      send(coordinator_pid, {:execution_result, execution_id, node, result})
+    else
+      result = execute_rule_remotely(node, engine_info.name, rule_id, parameters)
+      send(coordinator_pid, {:execution_result, execution_id, node, result})
+    end
+  end
+
+  defp execute_via_local_registry(engine_name, rule_id, parameters, execution_id, coordinator_pid) do
+    case EngineRegistry.lookup_engine(engine_name) do
+      {:ok, engine_pid} ->
+        result = execute_rule_locally(engine_pid, rule_id, parameters)
+        send(coordinator_pid, {:execution_result, execution_id, Node.self(), result})
+
+      :error ->
+        send_engine_not_found_result(coordinator_pid, execution_id)
+    end
+  end
+
+  defp send_engine_not_found_result(coordinator_pid, execution_id) do
+    send(
+      coordinator_pid,
+      {:execution_result, execution_id, :unknown, {:error, :engine_not_found}}
+    )
   end
 
   defp execute_rule_locally(engine_pid, _rule_id, _parameters) do
     try do
       # Execute rule on local engine
-      case RuleEngine.fire_rules(engine_pid) do
-        results when is_list(results) -> {:ok, results}
-        result -> {:ok, [result]}
-      end
+      results = RuleEngine.fire_rules(engine_pid)
+      {:ok, results}
     rescue
       error -> {:error, error}
     end
@@ -647,7 +700,10 @@ defmodule Presto.Distributed.RuleCoordinator do
             send(coordinator_pid, {:execution_result, execution_id, side, {:facts, facts}})
 
           :error ->
-            send(coordinator_pid, {:execution_result, execution_id, side, {:error, :engine_not_found}})
+            send(
+              coordinator_pid,
+              {:execution_result, execution_id, side, {:error, :engine_not_found}}
+            )
         end
     catch
       :exit, _ ->
@@ -658,7 +714,10 @@ defmodule Presto.Distributed.RuleCoordinator do
             send(coordinator_pid, {:execution_result, execution_id, side, {:facts, facts}})
 
           :error ->
-            send(coordinator_pid, {:execution_result, execution_id, side, {:error, :engine_not_found}})
+            send(
+              coordinator_pid,
+              {:execution_result, execution_id, side, {:error, :engine_not_found}}
+            )
         end
     end
   end
@@ -929,7 +988,9 @@ defmodule Presto.Distributed.RuleCoordinator do
             RuleEngine.assert_facts_bulk(engine_pid, facts)
 
           :error ->
-            Logger.warning("Could not store join results - engine not found", engine: result_engine)
+            Logger.warning("Could not store join results - engine not found",
+              engine: result_engine
+            )
         end
     catch
       :exit, _ ->
@@ -944,7 +1005,9 @@ defmodule Presto.Distributed.RuleCoordinator do
             RuleEngine.assert_facts_bulk(engine_pid, facts)
 
           :error ->
-            Logger.warning("Could not store join results - engine not found", engine: result_engine)
+            Logger.warning("Could not store join results - engine not found",
+              engine: result_engine
+            )
         end
     end
   end
@@ -961,14 +1024,9 @@ defmodule Presto.Distributed.RuleCoordinator do
 
   defp discover_available_engines do
     try do
-      case DistributedRegistry.list_cluster_engines() do
-        engines when is_list(engines) ->
-          engine_names = Enum.map(engines, fn engine -> engine.name end)
-          {:ok, engine_names}
-
-        _ ->
-          {:error, :no_engines_available}
-      end
+      engines = DistributedRegistry.list_cluster_engines()
+      engine_names = Enum.map(engines, fn engine -> engine.name end)
+      {:ok, engine_names}
     rescue
       _ ->
         # Fall back to local engine registry if DistributedRegistry is not available

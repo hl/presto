@@ -354,9 +354,6 @@ defmodule Presto.Testing.RegressionTester do
         )
 
         {:reply, {:ok, load_test_result}, %{state | stats: new_stats}}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
     end
   end
 
@@ -377,9 +374,6 @@ defmodule Presto.Testing.RegressionTester do
         )
 
         {:reply, {:ok, stress_test_result}, %{state | stats: new_stats}}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
     end
   end
 
@@ -667,14 +661,13 @@ defmodule Presto.Testing.RegressionTester do
 
     stress_factor = facts_per_second / 200.0
 
-    %{
-      base_metrics
-      | avg_response_time: base_metrics.avg_response_time * (1 + stress_factor * 0.5),
-        error_rate: base_metrics.error_rate + stress_factor * 0.05,
-        cpu_usage: min(100.0, base_metrics.cpu_usage * (1 + stress_factor * 0.3)),
-        memory_usage: min(100.0, base_metrics.memory_usage * (1 + stress_factor * 0.4)),
-        system_stability: max(0.0, 1.0 - stress_factor * 0.2)
-    }
+    Map.merge(base_metrics, %{
+      avg_response_time: base_metrics.avg_response_time * (1 + stress_factor * 0.5),
+      error_rate: base_metrics.error_rate + stress_factor * 0.05,
+      cpu_usage: min(100.0, base_metrics.cpu_usage * (1 + stress_factor * 0.3)),
+      memory_usage: min(100.0, base_metrics.memory_usage * (1 + stress_factor * 0.4)),
+      system_stability: max(0.0, 1.0 - stress_factor * 0.2)
+    })
   end
 
   defp simulate_endurance_test_execution(
@@ -692,12 +685,11 @@ defmodule Presto.Testing.RegressionTester do
     # 10% degradation per hour
     degradation_factor = time_factor * 0.1
 
-    %{
-      base_metrics
-      | avg_response_time: base_metrics.avg_response_time * (1 + degradation_factor),
-        memory_usage: base_metrics.memory_usage * (1 + degradation_factor * 0.5),
-        memory_leaks_detected: if(time_factor > 2, do: 1, else: 0)
-    }
+    Map.merge(base_metrics, %{
+      avg_response_time: base_metrics.avg_response_time * (1 + degradation_factor),
+      memory_usage: base_metrics.memory_usage * (1 + degradation_factor * 0.5),
+      memory_leaks_detected: if(time_factor > 2, do: 1, else: 0)
+    })
   end
 
   defp simulate_spike_test_execution(engine_name, duration, base_load, spike_load) do
@@ -819,115 +811,27 @@ defmodule Presto.Testing.RegressionTester do
   end
 
   defp analyze_scenario_regression(baseline_metrics, current_metrics, thresholds) do
-    metric_comparisons = %{}
+    metric_specs = [
+      {:avg_response_time, :execution_time, :higher_is_worse, -0.05},
+      {:memory_usage, :memory_usage, :higher_is_worse, -0.05},
+      {:throughput, :throughput, :lower_is_worse, 0.05},
+      {:error_rate, :error_rate, :higher_is_worse, -0.01}
+    ]
 
-    # Analyze execution time
     metric_comparisons =
-      if Map.has_key?(baseline_metrics, :avg_response_time) and
-           Map.has_key?(current_metrics, :avg_response_time) do
-        baseline_time = baseline_metrics.avg_response_time
-        current_time = current_metrics.avg_response_time
-        change_ratio = (current_time - baseline_time) / baseline_time
-
-        status =
-          if change_ratio > thresholds.execution_time do
-            :regression
-          else
-            if change_ratio < -0.05, do: :improvement, else: :stable
-          end
-
-        Map.put(metric_comparisons, :avg_response_time, %{
-          baseline: baseline_time,
-          current: current_time,
-          change_ratio: change_ratio,
-          change_percent: change_ratio * 100,
-          status: status
-        })
-      else
-        metric_comparisons
-      end
-
-    # Analyze memory usage
-    metric_comparisons =
-      if Map.has_key?(baseline_metrics, :memory_usage) and
-           Map.has_key?(current_metrics, :memory_usage) do
-        baseline_memory = baseline_metrics.memory_usage
-        current_memory = current_metrics.memory_usage
-        change_ratio = (current_memory - baseline_memory) / baseline_memory
-
-        status =
-          if change_ratio > thresholds.memory_usage do
-            :regression
-          else
-            if change_ratio < -0.05, do: :improvement, else: :stable
-          end
-
-        Map.put(metric_comparisons, :memory_usage, %{
-          baseline: baseline_memory,
-          current: current_memory,
-          change_ratio: change_ratio,
-          change_percent: change_ratio * 100,
-          status: status
-        })
-      else
-        metric_comparisons
-      end
-
-    # Analyze throughput
-    metric_comparisons =
-      if Map.has_key?(baseline_metrics, :throughput) and
-           Map.has_key?(current_metrics, :throughput) do
-        baseline_throughput = baseline_metrics.throughput
-        current_throughput = current_metrics.throughput
-        change_ratio = (current_throughput - baseline_throughput) / baseline_throughput
-
-        status =
-          if change_ratio < -thresholds.throughput do
-            :regression
-          else
-            if change_ratio > 0.05, do: :improvement, else: :stable
-          end
-
-        Map.put(metric_comparisons, :throughput, %{
-          baseline: baseline_throughput,
-          current: current_throughput,
-          change_ratio: change_ratio,
-          change_percent: change_ratio * 100,
-          status: status
-        })
-      else
-        metric_comparisons
-      end
-
-    # Analyze error rate
-    metric_comparisons =
-      if Map.has_key?(baseline_metrics, :error_rate) and
-           Map.has_key?(current_metrics, :error_rate) do
-        baseline_errors = baseline_metrics.error_rate
-        current_errors = current_metrics.error_rate
-
-        change_ratio =
-          if baseline_errors > 0,
-            do: (current_errors - baseline_errors) / baseline_errors,
-            else: current_errors
-
-        status =
-          if change_ratio > thresholds.error_rate do
-            :regression
-          else
-            if change_ratio < -0.01, do: :improvement, else: :stable
-          end
-
-        Map.put(metric_comparisons, :error_rate, %{
-          baseline: baseline_errors,
-          current: current_errors,
-          change_ratio: change_ratio,
-          change_percent: change_ratio * 100,
-          status: status
-        })
-      else
-        metric_comparisons
-      end
+      Enum.reduce(metric_specs, %{}, fn {metric_key, threshold_key, direction,
+                                         improvement_threshold},
+                                        acc ->
+        analyze_single_metric(
+          acc,
+          baseline_metrics,
+          current_metrics,
+          metric_key,
+          Map.get(thresholds, threshold_key),
+          direction,
+          improvement_threshold
+        )
+      end)
 
     # Determine overall scenario status
     overall_status = determine_scenario_status(metric_comparisons)
@@ -938,6 +842,63 @@ defmodule Presto.Testing.RegressionTester do
       regression_count: count_regressions(metric_comparisons),
       improvement_count: count_improvements(metric_comparisons)
     }
+  end
+
+  defp analyze_single_metric(
+         acc,
+         baseline_metrics,
+         current_metrics,
+         metric_key,
+         threshold,
+         direction,
+         improvement_threshold
+       ) do
+    if Map.has_key?(baseline_metrics, metric_key) and Map.has_key?(current_metrics, metric_key) do
+      baseline_value = Map.get(baseline_metrics, metric_key)
+      current_value = Map.get(current_metrics, metric_key)
+
+      change_ratio = calculate_change_ratio(baseline_value, current_value, metric_key)
+      status = determine_metric_status(change_ratio, threshold, direction, improvement_threshold)
+
+      Map.put(acc, metric_key, %{
+        baseline: baseline_value,
+        current: current_value,
+        change_ratio: change_ratio,
+        change_percent: change_ratio * 100,
+        status: status
+      })
+    else
+      acc
+    end
+  end
+
+  defp calculate_change_ratio(baseline_value, current_value, :error_rate)
+       when baseline_value > 0 do
+    (current_value - baseline_value) / baseline_value
+  end
+
+  defp calculate_change_ratio(_baseline_value, current_value, :error_rate) do
+    current_value
+  end
+
+  defp calculate_change_ratio(baseline_value, current_value, _metric_key) do
+    (current_value - baseline_value) / baseline_value
+  end
+
+  defp determine_metric_status(change_ratio, threshold, :higher_is_worse, improvement_threshold) do
+    cond do
+      change_ratio > threshold -> :regression
+      change_ratio < improvement_threshold -> :improvement
+      true -> :stable
+    end
+  end
+
+  defp determine_metric_status(change_ratio, threshold, :lower_is_worse, improvement_threshold) do
+    cond do
+      change_ratio < -threshold -> :regression
+      change_ratio > improvement_threshold -> :improvement
+      true -> :stable
+    end
   end
 
   defp determine_scenario_status(metric_comparisons) do
@@ -1071,7 +1032,7 @@ defmodule Presto.Testing.RegressionTester do
         recommendations
       end
 
-    if length(recommendations) == 0 do
+    if Enum.empty?(recommendations) do
       ["Performance is stable compared to baseline"]
     else
       recommendations ++ ["Consider rolling back recent changes if regressions are severe"]
@@ -1318,15 +1279,15 @@ defmodule Presto.Testing.RegressionTester do
     # Test recovery
     recovery_metrics = simulate_recovery_test(engine_name, increment)
 
-    stress_results = %{
-      stress_results
-      | load_steps: Enum.reverse(load_steps),
+    stress_results =
+      Map.merge(stress_results, %{
+        load_steps: Enum.reverse(load_steps),
         breaking_point: breaking_point,
         max_stable_throughput: stable_throughput,
         max_throughput: max_throughput,
         recovery_metrics: recovery_metrics,
         end_time: DateTime.utc_now()
-    }
+      })
 
     {:ok, stress_results}
   end
@@ -1449,61 +1410,47 @@ defmodule Presto.Testing.RegressionTester do
   end
 
   defp compare_scenario_metrics(metrics1, metrics2) do
-    # Compare key metrics between versions
-    comparisons = %{}
+    # Compare key metrics between versions using data-driven approach
+    metric_configs = [
+      {:avg_response_time, :lower_is_better},
+      {:throughput, :higher_is_better},
+      {:memory_usage, :lower_is_better}
+    ]
 
-    # Response time comparison
-    comparisons =
-      if Map.has_key?(metrics1, :avg_response_time) and Map.has_key?(metrics2, :avg_response_time) do
-        time1 = metrics1.avg_response_time
-        time2 = metrics2.avg_response_time
-        improvement = (time1 - time2) / time1 * 100
+    Enum.reduce(metric_configs, %{}, fn {metric_key, direction}, comparisons ->
+      compare_single_metric(comparisons, metrics1, metrics2, metric_key, direction)
+    end)
+  end
 
-        Map.put(comparisons, :avg_response_time, %{
-          version1_value: time1,
-          version2_value: time2,
-          improvement_percent: improvement,
-          winner: if(improvement > 0, do: :version2, else: :version1)
-        })
-      else
-        comparisons
-      end
+  defp compare_single_metric(comparisons, metrics1, metrics2, metric_key, direction) do
+    if Map.has_key?(metrics1, metric_key) and Map.has_key?(metrics2, metric_key) do
+      value1 = metrics1[metric_key]
+      value2 = metrics2[metric_key]
 
-    # Throughput comparison
-    comparisons =
-      if Map.has_key?(metrics1, :throughput) and Map.has_key?(metrics2, :throughput) do
-        throughput1 = metrics1.throughput
-        throughput2 = metrics2.throughput
-        improvement = (throughput2 - throughput1) / throughput1 * 100
+      improvement = calculate_improvement_percentage(value1, value2, direction)
+      winner = determine_winner(improvement)
 
-        Map.put(comparisons, :throughput, %{
-          version1_value: throughput1,
-          version2_value: throughput2,
-          improvement_percent: improvement,
-          winner: if(improvement > 0, do: :version2, else: :version1)
-        })
-      else
-        comparisons
-      end
+      Map.put(comparisons, metric_key, %{
+        version1_value: value1,
+        version2_value: value2,
+        improvement_percent: improvement,
+        winner: winner
+      })
+    else
+      comparisons
+    end
+  end
 
-    # Memory usage comparison
-    comparisons =
-      if Map.has_key?(metrics1, :memory_usage) and Map.has_key?(metrics2, :memory_usage) do
-        memory1 = metrics1.memory_usage
-        memory2 = metrics2.memory_usage
-        improvement = (memory1 - memory2) / memory1 * 100
+  defp calculate_improvement_percentage(value1, value2, :lower_is_better) do
+    (value1 - value2) / value1 * 100
+  end
 
-        Map.put(comparisons, :memory_usage, %{
-          version1_value: memory1,
-          version2_value: memory2,
-          improvement_percent: improvement,
-          winner: if(improvement > 0, do: :version2, else: :version1)
-        })
-      else
-        comparisons
-      end
+  defp calculate_improvement_percentage(value1, value2, :higher_is_better) do
+    (value2 - value1) / value1 * 100
+  end
 
-    comparisons
+  defp determine_winner(improvement) do
+    if improvement > 0, do: :version2, else: :version1
   end
 
   defp calculate_overall_version_comparison(scenario_comparisons) do
@@ -1694,7 +1641,7 @@ defmodule Presto.Testing.RegressionTester do
     baselines = Map.get(state.performance_baselines, engine_name, [])
     test_history = Map.get(state.test_history, engine_name, [])
 
-    if length(baselines) == 0 and length(test_history) == 0 do
+    if Enum.empty?(baselines) and Enum.empty?(test_history) do
       {:error, :no_performance_data}
     else
       report = %{

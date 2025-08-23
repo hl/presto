@@ -232,13 +232,14 @@ defmodule Presto.Validation.RuleValidator do
     severity_threshold = Keyword.get(opts, :severity_threshold, state.default_severity_threshold)
     include_suggestions = Keyword.get(opts, :include_suggestions, true)
 
-    {:ok, result} = perform_comprehensive_validation(
-           engine_name,
-           validation_levels,
-           severity_threshold,
-           include_suggestions,
-           state
-         )
+    {:ok, result} =
+      perform_comprehensive_validation(
+        engine_name,
+        validation_levels,
+        severity_threshold,
+        include_suggestions,
+        state
+      )
 
     # Store validation results
     new_validated = Map.put(state.validated_engines, engine_name, result)
@@ -345,7 +346,7 @@ defmodule Presto.Validation.RuleValidator do
          state
        ) do
     {:ok, rules} = get_engine_rules(engine_name)
-    
+
     # Perform validation for each level
     all_issues =
       Enum.flat_map(validation_levels, fn level ->
@@ -385,35 +386,23 @@ defmodule Presto.Validation.RuleValidator do
     {:ok, result}
   end
 
-  defp get_engine_rules(_engine_name) do
-    # Placeholder - would integrate with actual engine
-    {:ok,
-     [
-       %{
-         id: :rule_1,
-         conditions: ["customer.age > 18", "customer.verified = true"],
-         actions: ["add discount"],
-         priority: 1,
-         complexity: 3,
-         metadata: %{created_at: DateTime.utc_now(), author: "system"}
-       },
-       %{
-         id: :rule_2,
-         conditions: ["order.total > 100", "customer.loyalty = gold"],
-         actions: ["free shipping", "update status"],
-         priority: 2,
-         complexity: 5,
-         metadata: %{created_at: DateTime.utc_now(), author: "admin"}
-       },
-       %{
-         id: :rule_3,
-         conditions: ["product.category = electronics"],
-         actions: ["enable purchase"],
-         priority: 3,
-         complexity: 2,
-         metadata: %{created_at: DateTime.utc_now(), author: "system"}
-       }
-     ]}
+  defp get_engine_rules(engine_name) do
+    try do
+      case Presto.RuleEngine.get_rules(engine_name) do
+        rules when is_map(rules) ->
+          {:ok, rules}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        _ ->
+          {:error, :invalid_response}
+      end
+    rescue
+      _ ->
+        # Fallback for non-existent engines
+        {:ok, []}
+    end
   end
 
   defp validate_at_level(level, _engine_name, rules, state) do
@@ -545,7 +534,7 @@ defmodule Presto.Validation.RuleValidator do
 
     # Check for empty conditions
     issues =
-      if length(rule.conditions) == 0 do
+      if Enum.empty?(rule.conditions) do
         [
           create_issue(
             :syntax,
@@ -566,7 +555,7 @@ defmodule Presto.Validation.RuleValidator do
 
     # Check for empty actions
     issues =
-      if length(rule.actions) == 0 do
+      if Enum.empty?(rule.actions) do
         [
           create_issue(
             :syntax,
@@ -795,7 +784,7 @@ defmodule Presto.Validation.RuleValidator do
         String.contains?(condition, "role") or String.contains?(condition, "permission")
       end)
 
-    if length(auth_conditions) == 0 and Enum.any?(rule.actions, &String.contains?(&1, "delete")) do
+    if Enum.empty?(auth_conditions) and Enum.any?(rule.actions, &String.contains?(&1, "delete")) do
       [
         create_issue(
           :security,
@@ -1156,7 +1145,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp calculate_average_complexity(rules) do
-    if length(rules) == 0 do
+    if Enum.empty?(rules) do
       0.0
     else
       total_complexity = Enum.sum(Enum.map(rules, & &1.complexity))
@@ -1182,7 +1171,7 @@ defmodule Presto.Validation.RuleValidator do
 
   defp calculate_quality_issues_ratio(issues) do
     quality_issues = Enum.filter(issues, &(&1.level == :quality))
-    if length(issues) == 0, do: 0.0, else: length(quality_issues) / length(issues)
+    if Enum.empty?(issues), do: 0.0, else: length(quality_issues) / length(issues)
   end
 
   defp unbalanced_parentheses?(text) do
@@ -1202,28 +1191,28 @@ defmodule Presto.Validation.RuleValidator do
 
   defp validate_specific_rule(engine_name, rule_id, opts, state) do
     {:ok, rules} = get_engine_rules(engine_name)
-        case Enum.find(rules, &(&1.id == rule_id)) do
-          nil ->
-            {:error, :rule_not_found}
 
-          rule ->
-            comprehensive = Keyword.get(opts, :comprehensive, false)
+    case Enum.find(rules, &(&1.id == rule_id)) do
+      nil ->
+        {:error, :rule_not_found}
 
-            levels =
-              if comprehensive do
-                [:syntax, :semantic, :performance, :security, :quality, :compliance]
-              else
-                [:syntax, :semantic]
-              end
+      rule ->
+        comprehensive = Keyword.get(opts, :comprehensive, false)
 
-            issues =
-              Enum.flat_map(levels, fn level ->
-                validate_at_level(level, engine_name, [rule], state)
-              end)
+        levels =
+          if comprehensive do
+            [:syntax, :semantic, :performance, :security, :quality, :compliance]
+          else
+            [:syntax, :semantic]
+          end
 
-            {:ok, issues}
-        end
+        issues =
+          Enum.flat_map(levels, fn level ->
+            validate_at_level(level, engine_name, [rule], state)
+          end)
 
+        {:ok, issues}
+    end
   end
 
   defp perform_quality_analysis(rules, quality_metrics, state) do
@@ -1438,7 +1427,7 @@ defmodule Presto.Validation.RuleValidator do
         end
       end)
 
-    if length(recommendations) == 0 do
+    if Enum.empty?(recommendations) do
       ["Quality metrics are within acceptable ranges"]
     else
       recommendations
@@ -1553,22 +1542,22 @@ defmodule Presto.Validation.RuleValidator do
 
   defp check_standards_compliance(engine_name, standards, state) do
     {:ok, rules} = get_engine_rules(engine_name)
-        compliance_results =
-          Enum.map(standards, fn standard ->
-            {standard, check_standard_compliance(standard, rules, state)}
-          end)
 
-        overall_compliance = calculate_overall_compliance(compliance_results)
+    compliance_results =
+      Enum.map(standards, fn standard ->
+        {standard, check_standard_compliance(standard, rules, state)}
+      end)
 
-        {:ok,
-         %{
-           engine_name: engine_name,
-           standards_checked: standards,
-           compliance_results: Map.new(compliance_results),
-           overall_compliance_score: overall_compliance,
-           recommendations: generate_compliance_recommendations(compliance_results)
-         }}
+    overall_compliance = calculate_overall_compliance(compliance_results)
 
+    {:ok,
+     %{
+       engine_name: engine_name,
+       standards_checked: standards,
+       compliance_results: Map.new(compliance_results),
+       overall_compliance_score: overall_compliance,
+       recommendations: generate_compliance_recommendations(compliance_results)
+     }}
   end
 
   defp check_standard_compliance(standard, rules, _state) do
@@ -1617,7 +1606,7 @@ defmodule Presto.Validation.RuleValidator do
     score = max(0.0, 100.0 - length(issues) * 10.0)
 
     %{
-      compliant: length(issues) == 0,
+      compliant: Enum.empty?(issues),
       issues: issues,
       score: score,
       requirements_checked: ["security_controls", "access_controls", "audit_trails"]
@@ -1654,7 +1643,7 @@ defmodule Presto.Validation.RuleValidator do
     score = max(0.0, 100.0 - length(issues) * 15.0)
 
     %{
-      compliant: length(issues) == 0,
+      compliant: Enum.empty?(issues),
       issues: issues,
       score: score,
       requirements_checked: [
@@ -1697,7 +1686,7 @@ defmodule Presto.Validation.RuleValidator do
     score = max(0.0, 100.0 - length(issues) * 5.0)
 
     %{
-      compliant: length(issues) == 0,
+      compliant: Enum.empty?(issues),
       issues: issues,
       score: score,
       requirements_checked: ["naming_conventions", "documentation", "code_structure"]
@@ -1745,7 +1734,7 @@ defmodule Presto.Validation.RuleValidator do
   end
 
   defp calculate_overall_compliance(compliance_results) do
-    if length(compliance_results) == 0 do
+    if Enum.empty?(compliance_results) do
       100.0
     else
       total_score =
@@ -1763,7 +1752,7 @@ defmodule Presto.Validation.RuleValidator do
         result.issues
       end)
 
-    if length(all_issues) == 0 do
+    if Enum.empty?(all_issues) do
       ["All compliance checks passed"]
     else
       [
@@ -1778,16 +1767,16 @@ defmodule Presto.Validation.RuleValidator do
 
   defp analyze_rule_dependencies(engine_name, _opts, _state) do
     {:ok, rules} = get_engine_rules(engine_name)
-        dependency_analysis = %{
-          dependencies: extract_rule_dependencies(rules),
-          circular_dependencies: find_circular_dependencies(rules),
-          dependency_graph: build_dependency_graph(rules),
-          impact_analysis: analyze_dependency_impact(rules),
-          recommendations: generate_dependency_recommendations(rules)
-        }
 
-        {:ok, dependency_analysis}
+    dependency_analysis = %{
+      dependencies: extract_rule_dependencies(rules),
+      circular_dependencies: find_circular_dependencies(rules),
+      dependency_graph: build_dependency_graph(rules),
+      impact_analysis: analyze_dependency_impact(rules),
+      recommendations: generate_dependency_recommendations(rules)
+    }
 
+    {:ok, dependency_analysis}
   end
 
   defp extract_rule_dependencies(rules) do
@@ -1870,16 +1859,16 @@ defmodule Presto.Validation.RuleValidator do
 
   defp perform_security_analysis(engine_name, _opts, _state) do
     {:ok, rules} = get_engine_rules(engine_name)
-        security_analysis = %{
-          vulnerabilities: identify_security_vulnerabilities(rules),
-          risk_assessment: assess_security_risks(rules),
-          threat_model: build_threat_model(rules),
-          mitigation_strategies: suggest_mitigation_strategies(rules),
-          compliance_gaps: identify_compliance_gaps(rules)
-        }
 
-        {:ok, security_analysis}
+    security_analysis = %{
+      vulnerabilities: identify_security_vulnerabilities(rules),
+      risk_assessment: assess_security_risks(rules),
+      threat_model: build_threat_model(rules),
+      mitigation_strategies: suggest_mitigation_strategies(rules),
+      compliance_gaps: identify_compliance_gaps(rules)
+    }
 
+    {:ok, security_analysis}
   end
 
   defp identify_security_vulnerabilities(rules) do

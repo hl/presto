@@ -251,6 +251,7 @@ defmodule Presto.Distributed.FactReplicator do
       successful_replications: state.replication_stats.successful_replications,
       avg_replication_time: state.replication_stats.avg_replication_time
     }
+
     {:reply, stats, state}
   end
 
@@ -310,11 +311,12 @@ defmodule Presto.Distributed.FactReplicator do
     # Special case: if we're only replicating to ourselves, handle immediately
     if target_nodes == [Node.self()] do
       versioned_facts = add_fact_versions(facts, Node.self())
-      
+
       case apply_versioned_facts(engine_name, versioned_facts) do
-        :ok -> 
+        :ok ->
           {:reply, :ok, state}
-        {:error, reason} -> 
+
+        {:error, reason} ->
           {:reply, {:error, reason}, state}
       end
     else
@@ -348,11 +350,11 @@ defmodule Presto.Distributed.FactReplicator do
 
   defp perform_quorum_replication(target_nodes, engine_name, facts, quorum_size, from, state) do
     available_nodes = length(target_nodes)
-    
+
     cond do
       available_nodes == 0 ->
         {:reply, {:error, :no_target_nodes}, state}
-      
+
       available_nodes < quorum_size ->
         # For testing with single node, use all available nodes
         if available_nodes == 1 and target_nodes == [Node.self()] do
@@ -360,7 +362,7 @@ defmodule Presto.Distributed.FactReplicator do
         else
           {:reply, {:error, :insufficient_nodes}, state}
         end
-      
+
       true ->
         # Select quorum nodes
         quorum_nodes = Enum.take(target_nodes, quorum_size)
@@ -542,12 +544,9 @@ defmodule Presto.Distributed.FactReplicator do
     # Look up engine through registry and apply facts
     case Presto.EngineRegistry.lookup_engine(engine_name) do
       {:ok, engine_pid} ->
-        case RuleEngine.assert_facts_bulk(engine_pid, resolved_facts) do
-          :ok -> :ok
-          {:ok, _results} -> :ok
-          error -> error
-        end
-      
+        RuleEngine.assert_facts_bulk(engine_pid, resolved_facts)
+        :ok
+
       :error ->
         {:error, :engine_not_found}
     end

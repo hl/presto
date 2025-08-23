@@ -169,42 +169,42 @@ defmodule Presto.Rule.Validator do
       validate!(@rule)
   """
   defmacro validate!(rule_ast) do
-    case Macro.expand(rule_ast, __CALLER__) do
-      rule when is_map(rule) ->
-        try do
-          case validate(rule) do
-            :ok ->
-              quote do: :ok
+    rule = Macro.expand(rule_ast, __CALLER__)
 
-            {:error, message} ->
-              raise CompileError,
-                file: __CALLER__.file,
-                line: __CALLER__.line,
-                description: "Rule validation failed: #{message}"
-          end
-        rescue
-          _ ->
-            # Runtime validation for complex rules
-            quote do
-              rule = unquote(rule_ast)
+    if is_map(rule) do
+      try do
+        case validate(rule) do
+          :ok ->
+            quote do: :ok
 
-              case Presto.Rule.Validator.validate(rule) do
-                :ok -> :ok
-                {:error, message} -> raise ArgumentError, "Rule validation failed: #{message}"
-              end
+          {:error, message} ->
+            raise CompileError,
+              file: __CALLER__.file,
+              line: __CALLER__.line,
+              description: "Rule validation failed: #{message}"
+        end
+      rescue
+        _ ->
+          # Runtime validation for complex rules
+          quote do
+            rule = unquote(rule_ast)
+
+            case Presto.Rule.Validator.validate(rule) do
+              :ok -> :ok
+              {:error, message} -> raise ArgumentError, "Rule validation failed: #{message}"
             end
-        end
-
-      _ ->
-        # Runtime validation for dynamic rules
-        quote do
-          rule = unquote(rule_ast)
-
-          case Presto.Rule.Validator.validate(rule) do
-            :ok -> :ok
-            {:error, message} -> raise ArgumentError, "Rule validation failed: #{message}"
           end
+      end
+    else
+      # Runtime validation for dynamic rules
+      quote do
+        rule = unquote(rule_ast)
+
+        case Presto.Rule.Validator.validate(rule) do
+          :ok -> :ok
+          {:error, message} -> raise ArgumentError, "Rule validation failed: #{message}"
         end
+      end
     end
   end
 

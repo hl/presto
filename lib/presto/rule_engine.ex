@@ -955,18 +955,6 @@ defmodule Presto.RuleEngine do
     end
   end
 
-  defp variable?(atom) when is_atom(atom) do
-    # Variables are atoms that are not fact types or literals
-    atom != :_ and not is_fact_type?(atom)
-  end
-
-  defp variable?(_), do: false
-
-  defp is_fact_type?(atom) when is_atom(atom) do
-    # Common fact types in our domain (only the first element of facts)
-    atom in [:person, :employment, :number, :employee, :order]
-  end
-
   defp separate_conditions(conditions) do
     # Separate fact patterns from test conditions
     {patterns, tests} = Enum.split_with(conditions, &fact_pattern?/1)
@@ -1401,7 +1389,7 @@ defmodule Presto.RuleEngine do
     # Separate pattern conditions from comparison conditions
     {pattern_conditions, comparison_conditions} =
       Enum.split_with(conditions, fn condition ->
-        not is_comparison_condition?(condition)
+        not comparison_condition?(condition)
       end)
 
     # Find facts that match pattern conditions and build variable bindings
@@ -1416,11 +1404,11 @@ defmodule Presto.RuleEngine do
   end
 
   # Check if a condition is a comparison (has :>, :<, :==, etc.)
-  defp is_comparison_condition?({var, op, _value}) when is_atom(var) and is_atom(op) do
+  defp comparison_condition?({var, op, _value}) when is_atom(var) and is_atom(op) do
     op in [:>, :<, :>=, :<=, :==, :!=, :=]
   end
 
-  defp is_comparison_condition?(_), do: false
+  defp comparison_condition?(_), do: false
 
   # Find facts that match pattern conditions and build variable bindings
   defp find_pattern_matches(pattern_conditions, facts) do
@@ -1507,7 +1495,7 @@ defmodule Presto.RuleEngine do
   defp match_element(fact_elem, condition_elem, bindings) do
     cond do
       # Variable (atoms that are likely variables)
-      is_variable?(condition_elem) ->
+      variable?(condition_elem) ->
         case Map.get(bindings, condition_elem) do
           nil ->
             # New variable binding
@@ -1533,7 +1521,7 @@ defmodule Presto.RuleEngine do
   end
 
   # Check if an atom is a variable
-  defp is_variable?(atom) when is_atom(atom) do
+  defp variable?(atom) when is_atom(atom) do
     atom_str = Atom.to_string(atom)
     # Variables are atoms that start with :, have common variable names, or start with _
     String.starts_with?(atom_str, "_") or
@@ -1542,7 +1530,7 @@ defmodule Presto.RuleEngine do
       String.starts_with?(atom_str, "var_")
   end
 
-  defp is_variable?(_), do: false
+  defp variable?(_), do: false
 
   # Merge two binding maps, return nil if inconsistent
   defp merge_bindings(bindings1, bindings2) do
@@ -2451,60 +2439,82 @@ defmodule Presto.RuleEngine do
 
   defp restore_engine_from_snapshot(state, snapshot) do
     try do
-      # Validate snapshot format
-      unless Map.has_key?(snapshot, :version) and Map.has_key?(snapshot, :facts) do
-        throw({:error, :invalid_snapshot_format})
-      end
-
-      # Clear current state
-      :ok = Presto.Persistence.clear(state.facts_table)
-      :ok = Presto.Persistence.clear(state.changes_table)
-
-      # Restore facts and changes
-      :ok = Presto.Persistence.restore(state.facts_table, snapshot.facts)
-      :ok = Presto.Persistence.restore(state.changes_table, snapshot.changes)
-
-      # Restore alpha networks
-      new_state = restore_alpha_networks(state, Map.get(snapshot, :alpha_networks, %{}))
-
-      # Restore beta network
-      final_state =
-        case BetaNetworkCoordinator.restore_snapshot(
-               new_state,
-               Map.get(snapshot, :beta_network, %{})
-             ) do
-          {:ok, restored_state} -> restored_state
-          {:error, _reason} -> new_state
-        end
-
-      # Restore rules if they exist in snapshot
-      restored_state =
-        case Map.get(snapshot, :rules) do
-          rules when is_map(rules) ->
-            Enum.reduce(rules, final_state, fn {rule_id, rule}, acc_state ->
-              RuleStorage.add_rule(acc_state, rule_id, rule)
-            end)
-
-          _ ->
-            final_state
-        end
-
-      # Restore statistics if available
-      stats_state =
-        case Map.get(snapshot, :statistics) do
-          stats when is_map(stats) ->
-            Statistics.restore_statistics(restored_state, stats)
-
-          _ ->
-            restored_state
-        end
-
-      {:ok, stats_state}
+      validate_snapshot_format(snapshot)
+      |> clear_current_engine_state(state)
+      |> restore_facts_and_changes()
+      |> restore_networks_from_snapshot()
+      |> restore_rules_from_snapshot()
+      |> restore_statistics_from_snapshot()
+      |> wrap_success_result()
     rescue
       error -> {:error, error}
     catch
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp validate_snapshot_format(snapshot) do
+    unless Map.has_key?(snapshot, :version) and Map.has_key?(snapshot, :facts) do
+      throw({:error, :invalid_snapshot_format})
+    end
+
+    snapshot
+  end
+
+  defp clear_current_engine_state(snapshot, state) do
+    :ok = Presto.Persistence.clear(state.facts_table)
+    :ok = Presto.Persistence.clear(state.changes_table)
+    {snapshot, state}
+  end
+
+  defp restore_facts_and_changes({snapshot, state}) do
+    :ok = Presto.Persistence.restore(state.facts_table, snapshot.facts)
+    :ok = Presto.Persistence.restore(state.changes_table, snapshot.changes)
+    {snapshot, state}
+  end
+
+  defp restore_networks_from_snapshot({snapshot, state}) do
+    new_state = restore_alpha_networks(state, Map.get(snapshot, :alpha_networks, %{}))
+
+    final_state =
+      case BetaNetworkCoordinator.restore_snapshot(
+             new_state,
+             Map.get(snapshot, :beta_network, %{})
+           ) do
+        {:ok, restored_state} -> restored_state
+        {:error, _reason} -> new_state
+      end
+
+    {snapshot, final_state}
+  end
+
+  defp restore_rules_from_snapshot({snapshot, state}) do
+    case Map.get(snapshot, :rules) do
+      rules when is_map(rules) ->
+        restored_state =
+          Enum.reduce(rules, state, fn {rule_id, rule}, acc_state ->
+            RuleStorage.add_rule(acc_state, rule_id, rule)
+          end)
+
+        {snapshot, restored_state}
+
+      _ ->
+        {snapshot, state}
+    end
+  end
+
+  defp restore_statistics_from_snapshot({snapshot, state}) do
+    case Map.get(snapshot, :statistics) do
+      stats when is_map(stats) ->
+        Statistics.restore_statistics(state, stats)
+
+      _ ->
+        state
+    end
+  end
+
+  defp wrap_success_result(final_state) do
+    {:ok, final_state}
   end
 
   defp save_engine_snapshot_to_file(state, file_path) do

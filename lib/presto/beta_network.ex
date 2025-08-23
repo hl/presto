@@ -95,6 +95,22 @@ defmodule Presto.BetaNetwork do
     GenServer.call(pid, :get_process_count)
   end
 
+  @doc """
+  Gets the complete state of the beta network for snapshot purposes.
+  """
+  @spec get_state(GenServer.server()) :: map()
+  def get_state(pid) do
+    GenServer.call(pid, :get_state)
+  end
+
+  @doc """
+  Restores the beta network state from a snapshot.
+  """
+  @spec restore_state(GenServer.server(), map()) :: :ok | {:error, term()}
+  def restore_state(pid, state) do
+    GenServer.call(pid, {:restore_state, state})
+  end
+
   # Server implementation
 
   @impl true
@@ -240,6 +256,46 @@ defmodule Presto.BetaNetwork do
   @impl true
   def handle_call(:get_process_count, _from, state) do
     {:reply, state.process_count, state}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    # Return a snapshot of the current state
+    snapshot = %{
+      beta_nodes: state.beta_nodes,
+      beta_memories: state.beta_memories,
+      partial_matches: state.partial_matches,
+      join_config: state.join_config,
+      process_count: state.process_count,
+      alpha_changes: state.alpha_changes,
+      rule_engine: state.rule_engine,
+      snapshot_timestamp: DateTime.utc_now()
+    }
+
+    {:reply, snapshot, state}
+  end
+
+  @impl true
+  def handle_call({:restore_state, restored_state}, _from, _current_state) do
+    # Validate the restored state structure
+    required_keys = [:beta_nodes, :beta_memories, :partial_matches, :join_config, :process_count]
+
+    if Enum.all?(required_keys, &Map.has_key?(restored_state, &1)) do
+      # Restore the state while preserving the current rule_engine reference
+      new_state = %{
+        beta_nodes: restored_state.beta_nodes,
+        beta_memories: restored_state.beta_memories,
+        partial_matches: restored_state.partial_matches,
+        join_config: restored_state.join_config,
+        process_count: restored_state.process_count,
+        alpha_changes: Map.get(restored_state, :alpha_changes, MapSet.new()),
+        rule_engine: Map.get(restored_state, :rule_engine, nil)
+      }
+
+      {:reply, :ok, new_state}
+    else
+      {:reply, {:error, :invalid_state_format}, restored_state}
+    end
   end
 
   @impl true

@@ -39,9 +39,6 @@ defmodule Presto.Application do
         # Fact replication across nodes
         Presto.Distributed.FactReplicator,
 
-        # Distributed consensus for coordinated operations
-        Presto.Distributed.ConsensusManager,
-
         # Cross-node rule execution coordination
         Presto.Distributed.RuleCoordinator,
 

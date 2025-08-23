@@ -315,19 +315,14 @@ defmodule Presto.ConflictResolution.ConflictDetector do
 
         :miss ->
           # Perform fresh analysis
-          case conduct_conflict_analysis(engine_name, analysis_mode, state) do
-            {:ok, analysis} ->
-              # Cache results
-              new_cache = Map.put(state.analysis_cache, cache_key, {analysis, DateTime.utc_now()})
-              updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
+          {:ok, analysis} = conduct_conflict_analysis(engine_name, analysis_mode, state)
+          # Cache results
+          new_cache = Map.put(state.analysis_cache, cache_key, {analysis, DateTime.utc_now()})
+          updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
 
-              new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
+          new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
 
-              {:ok, analysis, new_state}
-
-            error ->
-              error
-          end
+          {:ok, analysis, new_state}
       end
     rescue
       error ->
@@ -357,35 +352,30 @@ defmodule Presto.ConflictResolution.ConflictDetector do
 
   defp conduct_conflict_analysis(engine_name, analysis_mode, _state) do
     # Get engine rules and metadata
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
-        # Build dependency graph
-        dependency_graph = build_dependency_graph(rules)
+    {:ok, rules} = get_engine_rules(engine_name)
+    # Build dependency graph
+    dependency_graph = build_dependency_graph(rules)
 
-        # Detect various types of conflicts
-        direct_conflicts = detect_direct_conflicts(rules, analysis_mode)
-        indirect_conflicts = detect_indirect_conflicts(rules, dependency_graph, analysis_mode)
-        performance_conflicts = detect_performance_conflicts(rules, analysis_mode)
+    # Detect various types of conflicts
+    direct_conflicts = detect_direct_conflicts(rules, analysis_mode)
+    indirect_conflicts = detect_indirect_conflicts(rules, dependency_graph, analysis_mode)
+    performance_conflicts = detect_performance_conflicts(rules, analysis_mode)
 
-        all_conflicts = direct_conflicts ++ indirect_conflicts ++ performance_conflicts
+    all_conflicts = direct_conflicts ++ indirect_conflicts ++ performance_conflicts
 
-        # Build comprehensive analysis
-        analysis = %{
-          engine_name: engine_name,
-          total_conflicts: length(all_conflicts),
-          conflicts_by_type: group_conflicts_by_type(all_conflicts),
-          conflicts_by_severity: group_conflicts_by_severity(all_conflicts),
-          rule_interactions: analyze_rule_interactions(rules),
-          dependency_graph: dependency_graph,
-          performance_impact: assess_performance_impact(all_conflicts),
-          analysis_timestamp: DateTime.utc_now()
-        }
+    # Build comprehensive analysis
+    analysis = %{
+      engine_name: engine_name,
+      total_conflicts: length(all_conflicts),
+      conflicts_by_type: group_conflicts_by_type(all_conflicts),
+      conflicts_by_severity: group_conflicts_by_severity(all_conflicts),
+      rule_interactions: analyze_rule_interactions(rules),
+      dependency_graph: dependency_graph,
+      performance_impact: assess_performance_impact(all_conflicts),
+      analysis_timestamp: DateTime.utc_now()
+    }
 
-        {:ok, analysis}
-
-      error ->
-        error
-    end
+    {:ok, analysis}
   end
 
   defp detect_direct_conflicts(rules, analysis_mode) do
@@ -509,21 +499,16 @@ defmodule Presto.ConflictResolution.ConflictDetector do
   end
 
   defp check_specific_rule_conflicts(engine_name, rule_ids, opts, _state) do
-    case get_engine_rules(engine_name) do
-      {:ok, all_rules} ->
-        # Filter to specified rules
-        target_rules = Enum.filter(all_rules, fn rule -> rule.id in rule_ids end)
+    {:ok, all_rules} = get_engine_rules(engine_name)
+    # Filter to specified rules
+    target_rules = Enum.filter(all_rules, fn rule -> rule.id in rule_ids end)
 
-        if length(target_rules) != length(rule_ids) do
-          {:error, :some_rules_not_found}
-        else
-          # Analyze conflicts between these specific rules
-          conflicts = analyze_rule_subset_conflicts(target_rules, opts)
-          {:ok, conflicts}
-        end
-
-      error ->
-        error
+    if length(target_rules) != length(rule_ids) do
+      {:error, :some_rules_not_found}
+    else
+      # Analyze conflicts between these specific rules
+      conflicts = analyze_rule_subset_conflicts(target_rules, opts)
+      {:ok, conflicts}
     end
   end
 
@@ -562,21 +547,16 @@ defmodule Presto.ConflictResolution.ConflictDetector do
     :timer.sleep(monitoring_config.check_interval)
 
     # Check for new conflicts
-    case get_engine_rules(engine_name) do
-      {:ok, rules} ->
-        conflicts = detect_direct_conflicts(rules, monitoring_config.detection_mode)
+    {:ok, rules} = get_engine_rules(engine_name)
+    conflicts = detect_direct_conflicts(rules, monitoring_config.detection_mode)
 
-        # Report any new conflicts
-        Enum.each(conflicts, fn conflict ->
-          send(__MODULE__, {:conflict_detected, engine_name, conflict})
-        end)
+    # Report any new conflicts
+    Enum.each(conflicts, fn conflict ->
+      send(__MODULE__, {:conflict_detected, engine_name, conflict})
+    end)
 
-        # Continue monitoring
-        monitor_engine_conflicts(engine_name, monitoring_config)
-
-      _ ->
-        Logger.warning("Failed to get rules for monitoring", engine: engine_name)
-    end
+    # Continue monitoring
+    monitor_engine_conflicts(engine_name, monitoring_config)
   end
 
   defp handle_detected_conflict(engine_name, conflict, state) do
@@ -632,14 +612,15 @@ defmodule Presto.ConflictResolution.ConflictDetector do
 
   # Helper functions
 
-  defp get_engine_rules(_engine_name) do
-    # Placeholder - would integrate with actual engine
-    {:ok,
-     [
-       %{id: :rule_1, conditions: [], actions: [], priority: 1},
-       %{id: :rule_2, conditions: [], actions: [], priority: 2},
-       %{id: :rule_3, conditions: [], actions: [], priority: 3}
-     ]}
+  defp get_engine_rules(engine_name) do
+    try do
+      rules = Presto.RuleEngine.get_rules(engine_name)
+      {:ok, rules}
+    rescue
+      _ ->
+        # Fallback for non-existent engines
+        {:ok, []}
+    end
   end
 
   defp extract_modified_facts(_rule) do
@@ -656,10 +637,6 @@ defmodule Presto.ConflictResolution.ConflictDetector do
     else
       []
     end
-  end
-
-  defp analyze_condition_exclusivity(_rule1, _rule2) do
-    raise "Not implemented: analyze_condition_exclusivity/2 requires condition analysis algorithm"
   end
 
   defp build_rule_dependencies(rules) do
@@ -786,9 +763,6 @@ defmodule Presto.ConflictResolution.ConflictDetector do
           %{strategy: :dependency_breaking, description: "Break circular dependencies"},
           %{strategy: :rule_reordering, description: "Reorder rule execution"}
         ]
-
-      _ ->
-        [%{strategy: :manual_review, description: "Manual review required"}]
     end
   end
 

@@ -159,7 +159,10 @@ defmodule Presto.EngineSupervisor do
   def restart_engine(engine_name_or_pid) do
     case resolve_engine_pid(engine_name_or_pid) do
       {:ok, pid} ->
-        case DynamicSupervisor.restart_child(__MODULE__, pid) do
+        # DynamicSupervisor doesn't have restart_child, so we need to terminate and start a new one
+        :ok = DynamicSupervisor.terminate_child(__MODULE__, pid)
+
+        case DynamicSupervisor.start_child(__MODULE__, {Presto.RuleEngine, []}) do
           {:ok, new_pid} = result ->
             Logger.info("Restarted supervised engine",
               old_pid: inspect(pid),

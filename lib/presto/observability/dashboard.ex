@@ -255,8 +255,10 @@ defmodule Presto.Observability.Dashboard do
 
     new_state =
       Map.merge(state, %{
-        metrics_streamer: nil,  # Placeholder
-        chart_renderer: nil     # Placeholder
+        # Placeholder
+        metrics_streamer: nil,
+        # Placeholder
+        chart_renderer: nil
       })
 
     {:ok, new_state}
@@ -912,13 +914,5 @@ defmodule Presto.Observability.Dashboard do
       end)
 
     %{state | chart_data: updated_chart_data}
-  end
-
-  defp start_metrics_streamer do
-    raise "Not implemented: MetricsStreamer module required for real-time streaming"
-  end
-
-  defp start_chart_renderer do
-    raise "Not implemented: ChartRenderer module required for chart generation"
   end
 end

@@ -33,7 +33,7 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
 
       # Analyze engine performance
       {:ok, insights} = PerformanceAnalyzer.analyze_engine_performance(
-        analyzer_pid, 
+        analyzer_pid,
         :customer_engine
       )
 
@@ -231,30 +231,22 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
 
   @impl GenServer
   def handle_call({:get_recommendations, engine_name, opts}, _from, state) do
-    case generate_optimization_recommendations(engine_name, opts, state) do
-      {:ok, recommendations, new_state} ->
-        updated_stats = %{
-          new_state.stats
-          | recommendations_provided:
-              new_state.stats.recommendations_provided + length(recommendations)
-        }
+    {:ok, recommendations, new_state} =
+      generate_optimization_recommendations(engine_name, opts, state)
 
-        {:reply, {:ok, recommendations}, %{new_state | stats: updated_stats}}
+    updated_stats = %{
+      new_state.stats
+      | recommendations_provided:
+          new_state.stats.recommendations_provided + length(recommendations)
+    }
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, {:ok, recommendations}, %{new_state | stats: updated_stats}}
   end
 
   @impl GenServer
   def handle_call({:compare_engines, engine_names, opts}, _from, state) do
-    case perform_comparative_analysis(engine_names, opts, state) do
-      {:ok, comparison} ->
-        {:reply, {:ok, comparison}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, comparison} = perform_comparative_analysis(engine_names, opts, state)
+    {:reply, {:ok, comparison}, state}
   end
 
   @impl GenServer
@@ -275,24 +267,14 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
 
   @impl GenServer
   def handle_call({:analyze_patterns, engine_name, opts}, _from, state) do
-    case analyze_execution_patterns(engine_name, opts, state) do
-      {:ok, patterns} ->
-        {:reply, {:ok, patterns}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, patterns} = analyze_execution_patterns(engine_name, opts, state)
+    {:reply, {:ok, patterns}, state}
   end
 
   @impl GenServer
   def handle_call({:get_benchmarks, engine_name}, _from, state) do
-    case get_or_calculate_benchmarks(engine_name, state) do
-      {:ok, benchmarks} ->
-        {:reply, {:ok, benchmarks}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:ok, benchmarks} = get_or_calculate_benchmarks(engine_name, state)
+    {:reply, {:ok, benchmarks}, state}
   end
 
   @impl GenServer
@@ -321,40 +303,33 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
   ## Private functions
 
   defp perform_engine_analysis(engine_name, depth, state) do
-    try do
-      # Check cache first
-      cache_key = {engine_name, depth, :analysis}
+    # Check cache first
+    cache_key = {engine_name, depth, :analysis}
 
-      case check_analysis_cache(cache_key, state) do
-        {:hit, insights} ->
-          updated_stats = %{state.stats | cache_hits: state.stats.cache_hits + 1}
-          {:ok, insights, %{state | stats: updated_stats}}
+    case check_analysis_cache(cache_key, state) do
+      {:hit, insights} ->
+        updated_stats = %{state.stats | cache_hits: state.stats.cache_hits + 1}
+        {:ok, insights, %{state | stats: updated_stats}}
 
-        :miss ->
-          # Perform fresh analysis
-          case conduct_performance_analysis(engine_name, depth, state) do
-            {:ok, insights} ->
-              # Cache results
-              new_cache = Map.put(state.analysis_cache, cache_key, {insights, DateTime.utc_now()})
-              updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
+      :miss ->
+        # Perform fresh analysis
+        {:ok, insights} = conduct_performance_analysis(engine_name, depth, state)
+        # Cache results
+        new_cache = Map.put(state.analysis_cache, cache_key, {insights, DateTime.utc_now()})
+        updated_stats = %{state.stats | cache_misses: state.stats.cache_misses + 1}
 
-              new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
+        new_state = %{state | analysis_cache: new_cache, stats: updated_stats}
 
-              {:ok, insights, new_state}
-
-            error ->
-              error
-          end
-      end
-    rescue
-      error ->
-        Logger.error("Performance analysis failed",
-          engine: engine_name,
-          error: inspect(error)
-        )
-
-        {:error, {:analysis_failed, error}}
+        {:ok, insights, new_state}
     end
+  rescue
+    error ->
+      Logger.error("Performance analysis failed",
+        engine: engine_name,
+        error: inspect(error)
+      )
+
+      {:error, {:analysis_failed, error}}
   end
 
   defp check_analysis_cache(cache_key, state) do
@@ -504,76 +479,71 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
   end
 
   defp analyze_rule_efficiency(engine_name, _depth) do
-    case get_engine_rule_statistics(engine_name) do
-      {:ok, rule_stats} ->
-        insights = []
+    {:ok, rule_stats} = get_engine_rule_statistics(engine_name)
+    insights = []
 
-        # Check for rules that never fire
-        unfired_rules =
-          Enum.filter(rule_stats, fn {_rule, stats} ->
-            Map.get(stats, :fire_count, 0) == 0
-          end)
+    # Check for rules that never fire
+    unfired_rules =
+      Enum.filter(rule_stats, fn {_rule, stats} ->
+        Map.get(stats, :fire_count, 0) == 0
+      end)
 
-        insights =
-          if length(unfired_rules) > 0 do
+    insights =
+      if length(unfired_rules) > 0 do
+        [
+          create_insight(
+            engine_name,
+            :optimization,
+            "Unused Rules Detected",
+            "#{length(unfired_rules)} rules have never fired",
             [
-              create_insight(
-                engine_name,
-                :optimization,
-                "Unused Rules Detected",
-                "#{length(unfired_rules)} rules have never fired",
-                [
-                  "Review rule conditions",
-                  "Consider removing unused rules",
-                  "Validate rule logic"
-                ],
-                %{unfired_rules: length(unfired_rules)},
-                :medium
-              )
-              | insights
-            ]
-          else
-            insights
-          end
-
-        # Check for rules with very high execution frequency
-        hot_rules =
-          Enum.filter(rule_stats, fn {_rule, stats} ->
-            Map.get(stats, :fire_count, 0) > 1000
-          end)
-
-        insights =
-          if length(hot_rules) > 0 do
-            [
-              create_insight(
-                engine_name,
-                :optimization,
-                "High-Frequency Rules",
-                "#{length(hot_rules)} rules fire very frequently and may benefit from optimization",
-                [
-                  "Optimize frequently firing rules",
-                  "Consider rule condition reordering",
-                  "Review fact patterns"
-                ],
-                %{hot_rules: length(hot_rules)},
-                :high
-              )
-              | insights
-            ]
-          else
-            insights
-          end
-
+              "Review rule conditions",
+              "Consider removing unused rules",
+              "Validate rule logic"
+            ],
+            %{unfired_rules: length(unfired_rules)},
+            :medium
+          )
+          | insights
+        ]
+      else
         insights
+      end
 
-      _ ->
-        []
-    end
+    # Check for rules with very high execution frequency
+    hot_rules =
+      Enum.filter(rule_stats, fn {_rule, stats} ->
+        Map.get(stats, :fire_count, 0) > 1000
+      end)
+
+    insights =
+      if length(hot_rules) > 0 do
+        [
+          create_insight(
+            engine_name,
+            :optimization,
+            "High-Frequency Rules",
+            "#{length(hot_rules)} rules fire very frequently and may benefit from optimization",
+            [
+              "Optimize frequently firing rules",
+              "Consider rule condition reordering",
+              "Review fact patterns"
+            ],
+            %{hot_rules: length(hot_rules)},
+            :high
+          )
+          | insights
+        ]
+      else
+        insights
+      end
+
+    insights
   end
 
   defp analyze_network_performance(engine_name, _depth) do
     # Check if engine is part of distributed setup
-    case is_distributed_engine?(engine_name) do
+    case distributed_engine?(engine_name) do
       true ->
         case get_engine_metrics(engine_name, :network_stats) do
           {:ok, network_metrics} ->
@@ -683,35 +653,31 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
     recommendations = []
 
     # Get current performance data
-    case get_engine_performance_data(engine_name) do
-      {:ok, perf_data} ->
-        # Rule ordering recommendations
-        rule_recs = generate_rule_ordering_recommendations(engine_name, perf_data)
-        recommendations = recommendations ++ rule_recs
+    {:ok, perf_data} = get_engine_performance_data(engine_name)
 
-        # Memory optimization recommendations
-        memory_recs = generate_memory_recommendations(engine_name, perf_data)
-        recommendations = recommendations ++ memory_recs
+    # Rule ordering recommendations
+    rule_recs = generate_rule_ordering_recommendations(engine_name, perf_data)
+    recommendations = recommendations ++ rule_recs
 
-        # Index optimization recommendations
-        index_recs = generate_index_recommendations(engine_name, perf_data)
-        recommendations = recommendations ++ index_recs
+    # Memory optimization recommendations
+    memory_recs = generate_memory_recommendations(engine_name, perf_data)
+    recommendations = recommendations ++ memory_recs
 
-        # Distributed optimization (if applicable)
-        dist_recs =
-          if is_distributed_engine?(engine_name) do
-            generate_distributed_recommendations(engine_name, perf_data)
-          else
-            []
-          end
+    # Index optimization recommendations
+    index_recs = generate_index_recommendations(engine_name, perf_data)
+    recommendations = recommendations ++ index_recs
 
-        recommendations = recommendations ++ dist_recs
+    # Distributed optimization (if applicable)
+    dist_recs =
+      if distributed_engine?(engine_name) do
+        generate_distributed_recommendations(engine_name, perf_data)
+      else
+        []
+      end
 
-        {:ok, recommendations, state}
+    recommendations = recommendations ++ dist_recs
 
-      error ->
-        error
-    end
+    {:ok, recommendations, state}
   end
 
   defp generate_rule_ordering_recommendations(_engine_name, _perf_data) do
@@ -736,7 +702,11 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
   end
 
   defp generate_memory_recommendations(_engine_name, perf_data) do
-    memory_mb = get_in(perf_data, [:memory_usage, :memory]) |> (&(&1 / (1024 * 1024))).() || 0
+    memory_mb =
+      case get_in(perf_data, [:memory_usage, :memory]) do
+        nil -> 0
+        memory -> memory / (1024 * 1024)
+      end
 
     if memory_mb > 100 do
       [
@@ -972,10 +942,10 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
     end
   end
 
-  defp calculate_impact_score(severity, evidence) do
+  defp calculate_impact_score(severity, evidence)
+       when severity in [:high, :medium, :low] do
     base_score =
       case severity do
-        :critical -> 0.9
         :high -> 0.7
         :medium -> 0.5
         :low -> 0.3
@@ -1047,53 +1017,68 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
     opportunities
   end
 
-  defp get_engine_metrics(_engine_name, metric_type) do
-    # Placeholder - would integrate with actual metrics collection
-    case metric_type do
-      :rule_execution ->
-        {:ok,
-         %{
-           avg_execution_time: :rand.uniform(200),
-           total_executions: :rand.uniform(1000),
-           successful_executions: :rand.uniform(950)
-         }}
-
-      :memory_usage ->
-        {:ok,
-         %{
-           memory: :rand.uniform(100_000_000),
-           heap_size: :rand.uniform(50_000_000)
-         }}
-
-      :network_stats ->
-        {:ok,
-         %{
-           avg_latency: :rand.uniform(100),
-           total_requests: :rand.uniform(1000)
-         }}
-
-      _ ->
-        {:error, :metric_not_available}
+  defp get_engine_metrics(engine_name, metric_type) do
+    try do
+      case metric_type do
+        :rule_execution -> get_rule_execution_metrics(engine_name)
+        :memory_usage -> get_memory_usage_metrics(engine_name)
+        :network_stats -> get_network_stats_metrics()
+      end
+    rescue
+      _ -> {:error, :metrics_unavailable}
     end
   end
 
-  defp get_engine_rule_statistics(_engine_name) do
-    # Placeholder for rule statistics
-    {:ok,
-     %{
-       rule_1: %{fire_count: :rand.uniform(100)},
-       rule_2: %{fire_count: 0},
-       rule_3: %{fire_count: :rand.uniform(1500)}
-     }}
+  defp get_rule_execution_metrics(engine_name) do
+    try do
+      metrics = Presto.RuleEngine.get_execution_metrics(engine_name)
+      {:ok, metrics}
+    rescue
+      _ ->
+        {:ok, %{avg_execution_time: 0, total_executions: 0, successful_executions: 0}}
+    end
+  end
+
+  defp get_memory_usage_metrics(engine_name) do
+    case Presto.RuleEngine.get_engine_statistics(engine_name) do
+      %{memory: memory} = stats when is_map(stats) ->
+        {:ok, %{memory: memory, heap_size: memory}}
+
+      _ ->
+        fallback_to_process_memory()
+    end
+  end
+
+  defp fallback_to_process_memory do
+    {_, memory} = :erlang.process_info(self(), :memory)
+    {:ok, %{memory: memory, heap_size: memory}}
+  end
+
+  defp get_network_stats_metrics do
+    # Basic network stats - could be enhanced with real network monitoring
+    {:ok, %{avg_latency: 0, total_requests: 0}}
+  end
+
+  defp get_engine_rule_statistics(engine_name) do
+    try do
+      stats = Presto.RuleEngine.get_engine_statistics(engine_name)
+      rule_stats = Map.get(stats, :rule_statistics, %{})
+      {:ok, rule_stats}
+    rescue
+      _ ->
+        {:ok, %{}}
+    end
   end
 
   defp get_engine_performance_data(engine_name) do
     # Combine all available metrics
-    {:ok, exec_metrics} = get_engine_metrics(engine_name, :rule_execution)
-    {:ok, memory_metrics} = get_engine_metrics(engine_name, :memory_usage)
-
-    combined = Map.merge(exec_metrics, memory_metrics)
-    {:ok, combined}
+    with {:ok, exec_metrics} <- get_engine_metrics(engine_name, :rule_execution),
+         {:ok, memory_metrics} <- get_engine_metrics(engine_name, :memory_usage) do
+      combined = Map.merge(exec_metrics, memory_metrics)
+      {:ok, combined}
+    else
+      error -> error
+    end
   end
 
   defp get_current_performance_metrics(engine_name) do
@@ -1107,7 +1092,7 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
     end
   end
 
-  defp is_distributed_engine?(_engine_name) do
+  defp distributed_engine?(_engine_name) do
     # Check if engine is part of distributed setup
     # Placeholder implementation
     :rand.uniform() > 0.5
@@ -1165,7 +1150,7 @@ defmodule Presto.Analytics.PerformanceAnalyzer do
 
       :last_day ->
         end_time = DateTime.utc_now()
-        start_time = DateTime.add(end_time, -86400, :second)
+        start_time = DateTime.add(end_time, -86_400, :second)
         {start_time, end_time}
 
       {start_time, end_time} ->

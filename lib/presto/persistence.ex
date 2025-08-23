@@ -202,9 +202,9 @@ defmodule Presto.Persistence do
       adapter.restore(table, snapshot_data)
     else
       # Default implementation: clear and insert
-      with :ok <- clear(table),
-           :ok <- insert_batch(table, snapshot_data) do
-        :ok
+      case clear(table) do
+        :ok -> insert_batch(table, snapshot_data)
+        error -> error
       end
     end
   end

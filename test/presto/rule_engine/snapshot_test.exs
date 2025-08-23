@@ -62,7 +62,7 @@ defmodule Presto.RuleEngine.SnapshotTest do
       facts = [
         {:person, "Alice", 30},
         {:person, "Bob", 25},
-        {:salary, "Alice", 50000}
+        {:salary, "Alice", 50_000}
       ]
 
       Enum.each(facts, fn fact ->
@@ -153,7 +153,7 @@ defmodule Presto.RuleEngine.SnapshotTest do
       facts = [
         {:person, "Alice", 30},
         {:person, "Bob", 25},
-        {:salary, "Alice", 50000}
+        {:salary, "Alice", 50_000}
       ]
 
       Enum.each(facts, fn fact ->
